@@ -1,2 +1,56 @@
-*.import
+# Godot editor cache
 .godot/
+*.import
+
+# Godot export
+export_presets.cfg
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Generated reports
+reports/
+
+# Generated output (SEO/GEO assets)
+output/
+
+# Packaging
+dist/
+dist.zip
+
+# Benchmark output (regenerable, hardware-specific)
+benchmarks/results.json
+
+# Tests con assets realies
+assets/
+sandbox/
+
+# Documentos internos (no se distribuyen con el repo)
+COMMERCIAL_ROADMAP.md
+IMPROVEMENT_PLAN.md
+README_FREE.md
+README_PRO.md
+mejoras.md
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Godot 4.x build artifacts
+*.gdextension
+
+# Godot 4.x uid files (auto-generated)
+*.gd.uid
+
+# HTML docs generados
+*.html
