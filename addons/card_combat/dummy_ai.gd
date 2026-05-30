@@ -1,0 +1,63 @@
+class_name DummyAI
+extends RefCounted
+## IA de referencia del motor: elige jugadas de forma aleatoria con un seed
+## opcional (determinista si `p_seed >= 0`). Es la IA por defecto que usa
+## `CombatSession`; sirve también de ejemplo del contrato que debe cumplir
+## cualquier IA del addon (choose_card_to_play / choose_attackers /
+## choose_attack_target / choose_blockers). Agnóstica del juego: sólo opera
+## sobre `CardData` y `CardInstance`.
+
+var _seed: int = 0
+var _rng: RandomNumberGenerator
+
+
+func setup(p_seed: int = -1) -> void:
+	_seed = p_seed
+	_rng = RandomNumberGenerator.new()
+	if p_seed >= 0:
+		_rng.seed = p_seed
+	else:
+		_rng.randomize()
+
+
+func choose_card_to_play(hand: Array[CardData], mana: int) -> CardData:
+	var affordable: Array[CardData] = []
+	for card in hand:
+		if card.cost <= mana:
+			affordable.append(card)
+	if affordable.is_empty():
+		return null
+	return affordable[_rng.randi() % affordable.size()]
+
+
+func choose_attackers(board: Array[CardInstance]) -> Array[CardInstance]:
+	var result: Array[CardInstance] = []
+	for inst in board:
+		if not inst.is_dead and inst.can_attack_this_turn:
+			result.append(inst)
+	return result
+
+
+func choose_attack_target(_attacker: CardInstance, enemy_board: Array[CardInstance]) -> Variant:
+	if enemy_board.is_empty():
+		return null
+	if _rng.randf() < 0.5:
+		return null  # attack hero
+	return enemy_board[_rng.randi() % enemy_board.size()]
+
+
+func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstance]) -> Dictionary:
+	var blocks: Dictionary = {}
+	if own_board.is_empty():
+		return blocks
+	var available: Array[CardInstance] = []
+	for inst in own_board:
+		if not inst.is_dead:
+			available.append(inst)
+	if available.is_empty():
+		return blocks
+	for atk in attackers:
+		if _rng.randf() < 0.5:
+			var blocker: CardInstance = available[_rng.randi() % available.size()]
+			blocks[atk] = blocker
+	return blocks

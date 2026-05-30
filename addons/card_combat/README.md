@@ -1,0 +1,65 @@
+# card_combat — Motor de combate de cartas agnóstico
+
+Motor de combate por turnos para un juego de cartas (criaturas + hechizos, maná,
+robo, ataque/defensa/bloqueo, resolución de daño e IA). **No depende del juego
+concreto**: no conoce el GDD, ni rarezas, ni habilidades específicas, ni
+`CardLoader`/`GameManager`. Todo lo específico se inyecta desde la capa-juego.
+
+Mismo patrón y lifecycle que el addon `hex_strategy_map`: vive in-repo bajo
+`addons/`, se registra por `class_name` (el `plugin.cfg` es para empaquetado /
+export futuro) y es espejable a un repo standalone.
+
+## Clases
+
+| Clase | Rol |
+|-------|-----|
+| `Combatant` | Participante genérico: `current_health/max_health`, `take_damage`, `heal`, señales. El héroe del jugador lo extiende; el enemigo se instancia directo |
+| `CardData` | Núcleo de carta (id/coste/stats/tipo) + `metadata: Dictionary` opaca para campos del juego |
+| `CardInstance` | Carta en juego (estado de turno, vida, flags). Dispara triggers de habilidad vía `ability_fn` |
+| `HiddenCardStats` | Stats declarados vs. ocultos para el bluff |
+| `CombatDeck` | Mano, mazo, tablero y maná de un lado |
+| `CombatSession` | FSM del combate: orquesta turnos, mazos, IA y resolución |
+| `CombatState` | Enum de fases |
+| `CombatPair` | Par atacante/defensor declarado |
+| `CombatDamageResolver` | Resuelve daño de los pares de combate |
+| `SpellEffect` | Efecto de hechizo (daño/cura/invocación) |
+| `CombatConfig` | Parámetros de balance (maná, tope, mano inicial, límite de tablas) |
+| `DummyAI` | IA de referencia/por defecto (aleatoria, seed opcional) |
+
+## Puntos de inyección (cómo la capa-juego lo especializa)
+
+1. **`CombatSession.ability_fn: Callable`** — semántica de habilidades. Vacío =
+   motor puro. El juego inyecta su `AbilityHandler`. Se propaga a los
+   `CardInstance` vía `CombatDeck.setup(..., ability_fn)`.
+2. **`SpellEffect.id_fn: Callable`** — resuelve el id de una criatura invocada
+   (`id_fn.call(summon_name, index, summon_count)`). Vacío = sin invocación
+   dependiente del catálogo del juego.
+3. **`CombatSession.config: CombatConfig`** — reasignar antes de `setup()` para
+   cambiar el balance sin tocar el motor.
+4. **`Combatant`** — el juego pasa su héroe (subclase) y arma el `Combatant` del
+   enemigo desde sus propios templates.
+
+## Cableado mínimo
+
+```gdscript
+var session := CombatSession.new()
+session.ability_fn = my_ability_handler   # opcional
+session.config.starting_max_mana = 2      # opcional
+session.setup(hero, hero_cards, enemy, enemy_cards)
+session.start()
+```
+
+## IA
+
+`DummyAI` es la IA por defecto y, a la vez, el ejemplo del contrato que debe
+cumplir cualquier IA: `choose_card_to_play`, `choose_attackers`,
+`choose_attack_target`, `choose_blockers`. Opera sólo sobre `CardData` y
+`CardInstance`. Para una IA más fuerte, replicar ese contrato.
+
+## Qué NO vive acá (capa-juego)
+
+- `CardLoader` / parsing de JSON español, rarezas (`CardRarity`), habilidades.
+- `AbilityHandler` (semántica concreta de CARGA/INMUNIDAD/…), `EnemyData`.
+- `CombatSerializer` / `BoardState`: serialización **PvP del juego** (dependen
+  de `PlayerData` y su estado específico — maná, reputación, sacrificio). Son
+  scaffolding del juego, no del motor; por eso quedan en `src/core/`.

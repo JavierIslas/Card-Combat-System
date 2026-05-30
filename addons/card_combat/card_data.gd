@@ -1,0 +1,55 @@
+class_name CardData
+extends Resource
+## Núcleo genérico de carta: id, coste, stats y tipo. Lo específico del juego
+## (rareza, flavor, textura, abilities) vive en `metadata: Dictionary`, que el
+## motor no interpreta — igual que `HexCell.metadata` en el addon del mapa.
+## La capa-juego (carga de cartas, habilidades, UI) lee/escribe metadata.
+
+enum CardType { CRIATURA, HECHIZO }
+
+@export var card_id: String = ""
+@export var name: String = ""
+@export var cost: int = 0
+@export var attack: int = 0
+@export var health: int = 0
+@export var card_type: CardType = CardType.CRIATURA
+@export var metadata: Dictionary = {}
+var spell_effects: Array[SpellEffect] = []
+
+
+func get_total_cost() -> int:
+	return cost
+
+
+func can_afford(player_mana: int) -> bool:
+	return player_mana >= get_total_cost()
+
+
+static func from_dict(data: Dictionary) -> CardData:
+	var card := CardData.new()
+	card.card_id = data.get("card_id", "")
+	card.name = data.get("name", "")
+	card.cost = int(data.get("cost", 0))
+	card.attack = int(data.get("attack", 0))
+	card.health = int(data.get("health", 0))
+	var type_idx := CardType.keys().find(data.get("card_type", "CRIATURA"))
+	if type_idx == -1:
+		push_warning("CardData.from_dict: card_type inválido — %s" % data.get("card_type", ""))
+		return null
+	card.card_type = type_idx as CardType
+	var meta: Variant = data.get("metadata", {})
+	if meta is Dictionary:
+		card.metadata = (meta as Dictionary).duplicate()
+	return card
+
+
+func serialize() -> Dictionary:
+	return {
+		"card_id": card_id,
+		"name": name,
+		"cost": cost,
+		"attack": attack,
+		"health": health,
+		"card_type": CardType.keys()[card_type],
+		"metadata": metadata.duplicate(),
+	}
