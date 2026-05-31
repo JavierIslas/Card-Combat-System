@@ -135,3 +135,49 @@ func test_reveal_preserva_buffs_permanentes() -> void:
 	assert_eq(inst.current_attack, 6, "base real 4 + buff 2")
 	assert_eq(inst.current_health, 8, "base real 6 + buff 2")
 	assert_eq(inst.current_max_health, 8, "max real 6 + buff 2")
+
+
+func test_temp_buff_sube_stats_y_max() -> void:
+	var inst := _make_instance(3, 5)
+	inst.apply_temp_buff(2, 2)
+	assert_eq(inst.current_attack, 5, "ataque sube por buff temporal")
+	assert_eq(inst.current_health, 7, "vida sube por buff temporal")
+	assert_eq(inst.current_max_health, 7, "max sube por buff temporal")
+
+
+func test_temp_buff_expira_en_refresh() -> void:
+	# Regresion bug #4: un buff temporal de hechizo expira en el refresh de turno
+	# de la criatura, devolviendo stats y max al estado previo.
+	var inst := _make_instance(3, 5)
+	inst.apply_temp_buff(2, 2)
+	inst.refresh_for_turn()
+	assert_eq(inst.current_attack, 3, "ataque vuelve al base")
+	assert_eq(inst.current_max_health, 5, "max vuelve al base")
+	assert_eq(inst.current_health, 5, "vida topada al max restaurado")
+
+
+func test_temp_buff_expirado_no_penaliza_dano_absorbido() -> void:
+	# El colchon temporal absorbe el dano; al expirar la vida se topa al nuevo
+	# max en vez de restar el delta a ciegas (no penaliza dos veces).
+	var inst := _make_instance(0, 5)
+	inst.apply_temp_buff(0, 3)  # 5/8
+	inst.take_damage(2)  # 3 < buff, totalmente absorbido -> 6/8
+	inst.refresh_for_turn()
+	assert_eq(inst.current_max_health, 5, "max vuelve al base")
+	assert_eq(inst.current_health, 5, "dano absorbido por el colchon, queda full")
+
+
+func test_reveal_preserva_buff_temporal_activo() -> void:
+	# Un buff temporal aplicado mientras la carta esta oculta debe sobrevivir al
+	# reveal (real + permanente + temporal acumulado).
+	var inst := CardInstance.new()
+	var hidden := HiddenCardStats.new()
+	hidden.declared_attack = 1
+	hidden.declared_health = 1
+	inst.hidden_stats = hidden
+	inst.setup(_make_card(4, 6), 0, true)
+	inst.apply_temp_buff(2, 2)
+	inst.reveal()
+	assert_eq(inst.current_attack, 6, "base real 4 + temp 2")
+	assert_eq(inst.current_health, 8, "base real 6 + temp 2")
+	assert_eq(inst.current_max_health, 8, "max real 6 + temp 2")

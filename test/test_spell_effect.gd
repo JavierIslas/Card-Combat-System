@@ -131,3 +131,31 @@ func test_buff_sube_current_max_health() -> void:
 	inst.take_damage(4)
 	inst.heal(10)
 	assert_eq(inst.current_health, 8, "la cura alcanza el nuevo maximo")
+
+
+func test_buff_de_hechizo_es_temporal_y_expira() -> void:
+	# Regresion bug #4: el buff de hechizo es temporal y se registra como tal, de
+	# modo que expira en el refresh de turno de la criatura.
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.BUFF_ATTACK
+	effect.value = 2
+	effect.buff_health = 2
+	var inst := _make_instance(3, 5)
+	effect.apply(inst, {})
+	assert_eq(inst.current_attack, 5, "ataque buffeado")
+	inst.refresh_for_turn()
+	assert_eq(inst.current_attack, 3, "el buff expira en el refresh")
+	assert_eq(inst.current_max_health, 5, "el max vuelve al base")
+
+
+func test_buff_de_hechizo_sobre_array_es_temporal() -> void:
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.BUFF_ATTACK
+	effect.value = 2
+	effect.buff_health = 1
+	var a := _make_instance(1, 1)
+	var b := _make_instance(3, 3)
+	effect.apply([a, b], {})
+	assert_eq(a.current_attack, 3, "buff aplicado al array")
+	a.refresh_for_turn()
+	assert_eq(a.current_attack, 1, "el buff de array tambien expira")

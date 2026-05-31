@@ -77,16 +77,12 @@ func _apply_buff(target: Variant) -> Dictionary:
 	if target is Array:
 		for inst in target:
 			if inst is CardInstance and not inst.is_dead:
-				inst.current_attack += value
-				inst.current_health += buff_health
-				inst.current_max_health += buff_health
+				inst.apply_temp_buff(value, buff_health)
 		return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": value}
 	if target is CardInstance:
 		if target.is_dead:
 			return _empty_result()
-		target.current_attack += value
-		target.current_health += buff_health
-		target.current_max_health += buff_health
+		target.apply_temp_buff(value, buff_health)
 		return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": value}
 	return _empty_result()
 

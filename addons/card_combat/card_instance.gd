@@ -39,6 +39,11 @@ var max_permanent_buffs: int = -1  # -1 = ilimitado
 ## without discarding buffs applied while the card was hidden.
 var _buff_attack_total: int = 0
 var _buff_health_total: int = 0
+## Accumulated temporary-buff deltas (e.g. spell buffs). Expire on the creature's
+## next turn refresh. Tracked like permanent buffs so reveal() can rebuild stats
+## without dropping a temp buff applied while the card was hidden.
+var _temp_attack_total: int = 0
+var _temp_health_total: int = 0
 
 ## Handler de habilidades inyectable. Firma: (inst: CardInstance, trigger: int).
 ## Si no se inyecta, el motor no aplica semántica de habilidades (agnóstico).
@@ -66,9 +71,9 @@ func reveal() -> void:
 		return
 
 	is_hidden = false
-	current_attack = card_data.attack + _buff_attack_total
-	current_health = card_data.health + _buff_health_total
-	current_max_health = card_data.health + _buff_health_total
+	current_attack = card_data.attack + _buff_attack_total + _temp_attack_total
+	current_health = card_data.health + _buff_health_total + _temp_health_total
+	current_max_health = card_data.health + _buff_health_total + _temp_health_total
 
 	_fire(Trigger.ON_REVEAL)
 
@@ -117,7 +122,30 @@ func apply_permanent_buff(attack_delta: int, health_delta: int, max_buffs: int =
 	return true
 
 
+func apply_temp_buff(attack_delta: int, health_delta: int) -> void:
+	## Temporary buff (e.g. a spell). Raises current stats and tracks the deltas
+	## so they can expire on the next turn refresh and survive a reveal meanwhile.
+	_temp_attack_total += attack_delta
+	_temp_health_total += health_delta
+	current_attack += attack_delta
+	current_health += health_delta
+	current_max_health += health_delta
+
+
+func _expire_temp_buffs() -> void:
+	## Roll back temporary buffs. Attack drops by the tracked delta; max health
+	## drops too and current health is capped to the restored max instead of
+	## subtracting the delta blindly, so damage already absorbed by the temporary
+	## buffer is not penalized twice.
+	current_attack -= _temp_attack_total
+	current_max_health -= _temp_health_total
+	current_health = mini(current_health, current_max_health)
+	_temp_attack_total = 0
+	_temp_health_total = 0
+
+
 func refresh_for_turn() -> void:
+	_expire_temp_buffs()
 	damage_taken_this_turn = 0
 	has_attacked_this_turn = false
 	times_attacked = 0
