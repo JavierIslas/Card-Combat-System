@@ -25,6 +25,11 @@ signal enemy_damaged(amount: int)
 const AUTO_RESOLVE_MAX_ITERATIONS := 200
 const MAX_PLAYS_PER_TURN := 10
 
+# Effective iteration cap for auto_resolve. Defaults to the const; overridable
+# (e.g. tests) so the exhaustion path can be exercised without a pathological
+# combat that never converges.
+var _auto_resolve_max_iterations: int = AUTO_RESOLVE_MAX_ITERATIONS
+
 var phase: CombatState.Phase = CombatState.Phase.INICIO
 var player_deck: CombatDeck = null
 var enemy_deck: CombatDeck = null
@@ -225,7 +230,7 @@ func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
 		dummy.setup(player_ai_seed)
 		player_ai = dummy
 	start()
-	var iterations_left: int = AUTO_RESOLVE_MAX_ITERATIONS
+	var iterations_left: int = _auto_resolve_max_iterations
 	while phase != CombatState.Phase.FINAL and not _combat_over and iterations_left > 0:
 		iterations_left -= 1
 		match phase:
@@ -239,6 +244,10 @@ func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
 			CombatState.Phase.PREPARACION, CombatState.Phase.RESOLVER:
 				pass
 	if not _combat_over:
+		# Loop exhausted before the combat resolved on its own: force FINAL but
+		# warn with diagnostics, since a silent termination hides a stuck combat.
+		if iterations_left <= 0:
+			push_warning("CombatSession.auto_resolve hit the iteration cap (%d) at turn %d, phase %s; forcing FINAL" % [_auto_resolve_max_iterations, turn_number, CombatState.phase_name(phase)])
 		_combat_over = true
 		_transition_to(CombatState.Phase.FINAL)
 
@@ -293,17 +302,11 @@ func _enter_phase(p: CombatState.Phase) -> void:
 func _enter_preparacion() -> void:
 	turn_number += 1
 
-	# Player mana: refill + increment (cap at config.max_mana_cap)
-	player_deck.gain_mana(player_deck.max_mana)
-	if player_deck.max_mana < config.max_mana_cap:
-		player_deck.increment_max_mana(mini(config.mana_ramp_per_turn, config.max_mana_cap - player_deck.max_mana))
+	_ramp_mana_for(player_deck)
 	player_deck.draw_card()
 	player_deck.refresh_creatures_for_turn()
 
-	# Enemy mana: refill + increment (cap at config.max_mana_cap)
-	enemy_deck.gain_mana(enemy_deck.max_mana)
-	if enemy_deck.max_mana < config.max_mana_cap:
-		enemy_deck.increment_max_mana(mini(config.mana_ramp_per_turn, config.max_mana_cap - enemy_deck.max_mana))
+	_ramp_mana_for(enemy_deck)
 	enemy_deck.draw_card()
 	enemy_deck.refresh_creatures_for_turn()
 
@@ -314,6 +317,15 @@ func _enter_preparacion() -> void:
 
 	# Auto-advance to PRINCIPAL
 	_transition_to(CombatState.Phase.PRINCIPAL)
+
+
+func _ramp_mana_for(deck: CombatDeck) -> void:
+	## Per-turn mana: refill to the current max, then ramp the max up toward
+	## config.max_mana_cap. Same rule for both sides; extracted to keep it single-
+	## sourced.
+	deck.gain_mana(deck.max_mana)
+	if deck.max_mana < config.max_mana_cap:
+		deck.increment_max_mana(mini(config.mana_ramp_per_turn, config.max_mana_cap - deck.max_mana))
 
 
 func _enter_principal() -> void:

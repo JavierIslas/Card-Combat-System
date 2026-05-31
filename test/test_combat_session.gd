@@ -135,12 +135,34 @@ func test_rampa_de_mana_primer_turno() -> void:
 	assert_eq(_session.player_deck.max_mana, 4, "el max sube por la rampa (2 -> 4)")
 
 
+func test_rampa_de_mana_es_simetrica_para_ambos_lados() -> void:
+	# _ramp_mana_for applies the same rule to both decks.
+	_setup_basico()
+	_session.start()
+	assert_eq(_session.enemy_deck.mana, _session.player_deck.mana, "ambos lados ganan el mismo maná")
+	assert_eq(_session.enemy_deck.max_mana, _session.player_deck.max_mana, "ambos lados rampean igual el max")
+
+
 func test_auto_resolve_termina_en_final() -> void:
 	var hero_cards: Array[CardData] = [_creature(1, 2, 2), _creature(1, 1, 3)]
 	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
 	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
 	_session.auto_resolve(null, 7)
 	assert_eq(_session.phase, CombatState.Phase.FINAL, "auto_resolve llega a FINAL sin colgarse")
+
+
+func test_auto_resolve_corta_al_agotar_iteraciones() -> void:
+	# With a tiny cap the loop exits in ATAQUE, before any damage resolves: the
+	# guard must force FINAL even though nobody won, lost, or stalemated.
+	var hero_cards: Array[CardData] = [_creature(1, 2, 2)]
+	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
+	_session.setup(_hero(30), hero_cards, _hero(30), enemy_cards, 7)
+	_session._auto_resolve_max_iterations = 1
+	_session.auto_resolve(null, 7)
+	assert_eq(_session.phase, CombatState.Phase.FINAL, "el guard fuerza FINAL al agotar iteraciones")
+	assert_gt(_session.enemy.current_health, 0, "no terminó por victoria (corte forzado)")
+	assert_gt(_session.player_hero.current_health, 0, "no terminó por derrota (corte forzado)")
+	assert_lt(_session.turn_number, _session.config.stalemate_turn_limit, "tampoco es tablas")
 
 
 func test_get_result_tiene_claves_esperadas() -> void:
