@@ -1,111 +1,114 @@
-# card_combat — Motor de combate de cartas agnóstico
+# Card Combat Engine — domain-agnostic card combat engine
 
-Motor de combate por turnos para un juego de cartas (criaturas + hechizos, maná,
-robo, ataque/defensa/bloqueo, resolución de daño e IA). **No depende del juego
-concreto**: no conoce el GDD, ni rarezas, ni habilidades específicas, ni
-`CardLoader`/`GameManager`. Todo lo específico se inyecta desde la capa-juego.
+Turn-based combat engine for a card game (creatures + spells, mana, draw,
+attack/defense/block, damage resolution and AI). **It does not depend on the
+concrete game**: it knows nothing about the GDD, rarities, specific abilities, or
+`CardLoader`/`GameManager`. Everything game-specific is injected from the game
+layer.
 
-Mismo patrón y lifecycle que el addon `hex_strategy_map`: vive in-repo bajo
-`addons/`, se registra por `class_name` (el `plugin.cfg` es para empaquetado /
-export futuro) y es espejable a un repo standalone.
+Same pattern and lifecycle as the `hex_strategy_map` addon: it lives in-repo
+under `addons/`, registers itself via `class_name` (the `plugin.cfg` is for
+packaging / future export) and can be mirrored to a standalone repo.
 
-## Clases
+## Classes
 
-| Clase | Rol |
-|-------|-----|
-| `Combatant` | Participante genérico: `current_health/max_health`, `take_damage`, `heal`, señales. El héroe del jugador lo extiende; el enemigo se instancia directo |
-| `CardData` | Núcleo de carta (id/coste/stats/tipo) + `metadata: Dictionary` opaca para campos del juego |
-| `CardInstance` | Carta en juego (estado de turno, vida, flags). Dispara triggers de habilidad vía `ability_fn` |
-| `HiddenCardStats` | Stats declarados vs. ocultos para el bluff |
-| `CombatDeck` | Mano, mazo, tablero y maná de un lado |
-| `CombatSession` | FSM del combate: orquesta turnos, mazos, IA y resolución |
-| `CombatState` | Enum de fases |
-| `CombatPair` | Par atacante/defensor declarado |
-| `CombatDamageResolver` | Resuelve daño de los pares de combate |
-| `SpellEffect` | Efecto de hechizo (daño/cura/invocación) |
-| `CombatConfig` | Parámetros de balance (maná, tope, mano inicial, límite de tablas) |
-| `CombatAI` | Contrato base de IA: define las 4 firmas; subclasear para una IA propia |
-| `DummyAI` | IA de referencia/por defecto (aleatoria, seed opcional); `extends CombatAI` |
+| Class | Role |
+|-------|------|
+| `Combatant` | Generic participant: `current_health/max_health`, `take_damage`, `heal`, signals. The player hero extends it; the enemy is instantiated directly |
+| `CardData` | Card core (id/cost/stats/type) + opaque `metadata: Dictionary` for game-specific fields |
+| `CardInstance` | Card in play (turn state, health, flags). Fires ability triggers via `ability_fn` |
+| `HiddenCardStats` | Declared vs. hidden stats for bluffing |
+| `CombatDeck` | Hand, deck, board and mana for one side |
+| `CombatSession` | Combat FSM: orchestrates turns, decks, AI and resolution |
+| `CombatState` | Phase enum |
+| `CombatPair` | Declared attacker/defender pair |
+| `CombatDamageResolver` | Resolves damage for the combat pairs |
+| `SpellEffect` | Spell effect (damage/heal/summon) |
+| `CombatConfig` | Balance parameters (mana, cap, starting hand, board limit) |
+| `CombatAI` | Base AI contract: defines the 4 signatures; subclass for a custom AI |
+| `DummyAI` | Reference/default AI (random, optional seed); `extends CombatAI` |
 
-## Puntos de inyección (cómo la capa-juego lo especializa)
+## Injection points (how the game layer specializes it)
 
-1. **`CombatSession.ability_fn: Callable`** — semántica de habilidades. Vacío =
-   motor puro. El juego inyecta su `AbilityHandler`. Se propaga a los
-   `CardInstance` vía `CombatDeck.setup(..., ability_fn)`.
-2. **`SpellEffect.id_fn: Callable`** — resuelve el id de una criatura invocada
-   (`id_fn.call(summon_name, index, summon_count)`). Vacío = sin invocación
-   dependiente del catálogo del juego.
-3. **`CombatSession.config: CombatConfig`** — reasignar antes de `setup()` para
-   cambiar el balance sin tocar el motor. Incluye
-   `max_permanent_buffs_per_card` (tope de mejoras permanentes por carta;
-   `-1` = ilimitado). El motor no conoce reglas como "+1/+1 cap 3": el juego
-   fija el tope acá y aplica el delta que quiera con `apply_permanent_buff`.
-4. **`Combatant`** — el juego pasa su héroe (subclase) y arma el `Combatant` del
-   enemigo desde sus propios templates.
+1. **`CombatSession.ability_fn: Callable`** — ability semantics. Empty = pure
+   engine. The game injects its `AbilityHandler`. It is propagated to the
+   `CardInstance`s via `CombatDeck.setup(..., ability_fn)`.
+2. **`SpellEffect.id_fn: Callable`** — resolves the id of a summoned creature
+   (`id_fn.call(summon_name, index, summon_count)`). Empty = no summoning that
+   depends on the game catalog.
+3. **`CombatSession.config: CombatConfig`** — reassign before `setup()` to
+   change balance without touching the engine. Includes
+   `max_permanent_buffs_per_card` (cap of permanent buffs per card;
+   `-1` = unlimited). The engine knows no rules like "+1/+1 cap 3": the game
+   sets the cap here and applies whatever delta it wants with
+   `apply_permanent_buff`.
+4. **`Combatant`** — the game passes its hero (subclass) and builds the enemy
+   `Combatant` from its own templates.
 
-### Mejoras permanentes (genéricas)
+### Permanent buffs (generic)
 
 `CardInstance.apply_permanent_buff(attack_delta, health_delta, max_buffs := -1)`
-aplica un buff permanente de stats. El delta lo decide la capa-juego; el tope
-sale de `max_buffs` (override puntual) o de `max_permanent_buffs` (sembrado
-desde `CombatConfig`). Sube también `current_max_health`, que es el tope que
-respeta `heal()`. Para "+1/+1 con tope 3", el juego hace
-`config.max_permanent_buffs_per_card = 3` y llama `inst.apply_permanent_buff(1, 1)`.
+applies a permanent stat buff. The delta is decided by the game layer; the cap
+comes from `max_buffs` (one-off override) or from `max_permanent_buffs` (seeded
+from `CombatConfig`). It also raises `current_max_health`, which is the cap
+respected by `heal()`. For "+1/+1 with cap 3", the game sets
+`config.max_permanent_buffs_per_card = 3` and calls `inst.apply_permanent_buff(1, 1)`.
 
-## Cableado mínimo
+## Minimal wiring
 
 ```gdscript
 var session := CombatSession.new()
-session.ability_fn = my_ability_handler   # opcional
-session.config.starting_max_mana = 2      # opcional
+session.ability_fn = my_ability_handler   # optional
+session.config.starting_max_mana = 2      # optional
 session.setup(hero, hero_cards, enemy, enemy_cards)
 session.start()
 ```
 
-## IA
+## AI
 
-El contrato de IA vive en la clase base `CombatAI`, que define las cuatro firmas:
-`choose_card_to_play`, `choose_attackers`, `choose_attack_target`,
-`choose_blockers`. Sus stubs devuelven vacío y emiten `push_error`, para que una
-subclase incompleta falle ruidosamente. `DummyAI extends CombatAI` es la IA por
-defecto y el ejemplo de referencia. Para una IA más fuerte, subclasear `CombatAI`
-y sobreescribir esos métodos. Opera sólo sobre `CardData` y `CardInstance`.
+The AI contract lives in the base class `CombatAI`, which defines the four
+signatures: `choose_card_to_play`, `choose_attackers`, `choose_attack_target`,
+`choose_blockers`. Its stubs return empty and emit `push_error`, so an
+incomplete subclass fails loudly. `DummyAI extends CombatAI` is the default AI
+and the reference example. For a stronger AI, subclass `CombatAI` and override
+those methods. It operates only on `CardData` and `CardInstance`.
 
-## Observabilidad (señales)
+## Observability (signals)
 
-El motor no lleva log propio: expone su estado vía señales y la capa-juego decide
-qué registrar. Catálogo por clase:
+The engine keeps no log of its own: it exposes its state via signals and the
+game layer decides what to record. Catalog per class:
 
-| Clase | Señal | Cuándo |
-|-------|-------|--------|
-| `CombatSession` | `phase_changed(old, new)` | cada transición de la FSM |
-| `CombatSession` | `combat_ended(player_won)` | al entrar a `FINAL` |
-| `CombatSession` | `creature_died(card, owner)` | una criatura muere resolviendo combate |
-| `CombatSession` | `hero_damaged(amount)` | el héroe del jugador recibe daño |
-| `CombatSession` | `enemy_damaged(amount)` | el héroe enemigo recibe daño |
-| `CombatDeck` | `card_drawn(card)` | se roba una carta del mazo |
-| `CombatDeck` | `deck_exhausted` | robo fallido por mazo vacío (ver hook `exhaust_fn`) |
-| `CombatDeck` | `card_played(instance)` | una criatura entra al tablero |
-| `CombatDeck` | `mana_changed(new_mana)` | cambia el maná disponible |
-| `CardInstance` | `card_died(card)` | la instancia muere |
-| `CardInstance` | `card_damaged(card, amount)` | la instancia recibe daño |
-| `CardInstance` | `card_revealed(card)` | una carta oculta se revela |
-| `Combatant` | `health_changed(new_health)` | cambia la vida del participante |
-| `Combatant` | `died` | la vida llega a 0 |
+| Class | Signal | When |
+|-------|--------|------|
+| `CombatSession` | `phase_changed(old, new)` | every FSM transition |
+| `CombatSession` | `combat_ended(player_won)` | on entering `FINAL` |
+| `CombatSession` | `creature_died(card, owner)` | a creature dies resolving combat |
+| `CombatSession` | `hero_damaged(amount)` | the player hero takes damage |
+| `CombatSession` | `enemy_damaged(amount)` | the enemy hero takes damage |
+| `CombatDeck` | `card_drawn(card)` | a card is drawn from the deck |
+| `CombatDeck` | `deck_exhausted` | failed draw on empty deck (see `exhaust_fn` hook) |
+| `CombatDeck` | `card_played(instance)` | a creature enters the board |
+| `CombatDeck` | `mana_changed(new_mana)` | available mana changes |
+| `CardInstance` | `card_died(card)` | the instance dies |
+| `CardInstance` | `card_damaged(card, amount)` | the instance takes damage |
+| `CardInstance` | `card_revealed(card)` | a hidden card is revealed |
+| `Combatant` | `health_changed(new_health)` | the participant's health changes |
+| `Combatant` | `died` | health reaches 0 |
 
-### Historial / replay
+### History / replay
 
-El motor es determinista para un seed fijo (`DummyAI` con `p_seed >= 0`, ver
-`auto_resolve(player_ai, player_ai_seed)`). Patrón recomendado para la capa-juego:
-conectar las señales de arriba a un grabador propio que arme el historial o un log
-de replay. Como una misma semilla reproduce la misma partida, basta con persistir
-el seed (y las cartas iniciales) para reproducir el combate completo desde las
-señales, sin que el motor tenga que guardar estado adicional.
+The engine is deterministic for a fixed seed (`DummyAI` with `p_seed >= 0`, see
+`auto_resolve(player_ai, player_ai_seed)`). Recommended pattern for the game
+layer: connect the signals above to your own recorder that builds the history or
+a replay log. Since the same seed reproduces the same match, persisting just the
+seed (and the starting cards) is enough to replay the whole combat from the
+signals, without the engine having to store any extra state.
 
-## Qué NO vive acá (capa-juego)
+## What does NOT live here (game layer)
 
-- `CardLoader` / parsing de JSON español, rarezas (`CardRarity`), habilidades.
-- `AbilityHandler` (semántica concreta de CARGA/INMUNIDAD/…), `EnemyData`.
-- `CombatSerializer` / `BoardState`: serialización **PvP del juego** (dependen
-  de `PlayerData` y su estado específico — maná, reputación, sacrificio). Son
-  scaffolding del juego, no del motor; por eso quedan en `src/core/`.
+- `CardLoader` / JSON parsing, rarities (`CardRarity`), abilities.
+- `AbilityHandler` (concrete semantics of CHARGE/IMMUNITY/…), `EnemyData`.
+- `CombatSerializer` / `BoardState`: the **game's PvP serialization** (they
+  depend on `PlayerData` and its specific state — mana, reputation, sacrifice).
+  These are game scaffolding, not engine scaffolding; that is why they stay in
+  the game layer.
