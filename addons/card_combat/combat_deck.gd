@@ -19,10 +19,15 @@ var owner_id: int = 0
 ## la sesión; vacío = sin semántica de habilidades (motor agnóstico).
 var ability_fn: Callable = Callable()
 
+## Tope de mejoras permanentes a sembrar en cada CardInstance. Lo provee la
+## sesión desde CombatConfig; -1 = ilimitado.
+var max_permanent_buffs: int = -1
 
-func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable()) -> void:
+
+func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable(), p_max_permanent_buffs: int = -1) -> void:
 	owner_id = owner
 	ability_fn = p_ability_fn
+	max_permanent_buffs = p_max_permanent_buffs
 	_draw_pile.clear()
 	_hand.clear()
 	_board.clear()
@@ -71,6 +76,7 @@ func play_creature(card: CardData, as_hidden: bool = false, declared_attack: int
 
 	var inst := CardInstance.new()
 	inst.ability_fn = ability_fn
+	inst.max_permanent_buffs = max_permanent_buffs
 	if as_hidden:
 		var hidden := HiddenCardStats.new()
 		hidden.declared_attack = declared_attack

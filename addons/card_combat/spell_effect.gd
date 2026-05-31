@@ -31,7 +31,7 @@ func apply(target: Variant, _combat_context: Dictionary) -> Dictionary:
 		EffectType.AOE_DAMAGE:
 			return _apply_aoe_damage(target)
 		EffectType.SUMMON:
-			return _apply_summon()
+			return _apply_summon(int(_combat_context.get("owner_id", 0)))
 		_:
 			return _empty_result()
 
@@ -79,12 +79,14 @@ func _apply_buff(target: Variant) -> Dictionary:
 			if inst is CardInstance and not inst.is_dead:
 				inst.current_attack += value
 				inst.current_health += buff_health
+				inst.current_max_health += buff_health
 		return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": value}
 	if target is CardInstance:
 		if target.is_dead:
 			return _empty_result()
 		target.current_attack += value
 		target.current_health += buff_health
+		target.current_max_health += buff_health
 		return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": value}
 	return _empty_result()
 
@@ -100,7 +102,7 @@ func _apply_aoe_damage(target: Variant) -> Dictionary:
 	return _empty_result()
 
 
-func _apply_summon() -> Dictionary:
+func _apply_summon(owner_id: int = 0) -> Dictionary:
 	if summon_count <= 0:
 		return _empty_result()
 	var summoned: Array[CardInstance] = []
@@ -112,7 +114,7 @@ func _apply_summon() -> Dictionary:
 		data.health = summon_health
 		data.card_type = CardData.CardType.CRIATURA
 		var inst := CardInstance.new()
-		inst.setup(data, 0)
+		inst.setup(data, owner_id)
 		summoned.append(inst)
 	return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": 0, "summoned": summoned}
 

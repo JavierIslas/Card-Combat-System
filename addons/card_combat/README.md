@@ -35,9 +35,21 @@ export futuro) y es espejable a un repo standalone.
    (`id_fn.call(summon_name, index, summon_count)`). Vacío = sin invocación
    dependiente del catálogo del juego.
 3. **`CombatSession.config: CombatConfig`** — reasignar antes de `setup()` para
-   cambiar el balance sin tocar el motor.
+   cambiar el balance sin tocar el motor. Incluye
+   `max_permanent_buffs_per_card` (tope de mejoras permanentes por carta;
+   `-1` = ilimitado). El motor no conoce reglas como "+1/+1 cap 3": el juego
+   fija el tope acá y aplica el delta que quiera con `apply_permanent_buff`.
 4. **`Combatant`** — el juego pasa su héroe (subclase) y arma el `Combatant` del
    enemigo desde sus propios templates.
+
+### Mejoras permanentes (genéricas)
+
+`CardInstance.apply_permanent_buff(attack_delta, health_delta, max_buffs := -1)`
+aplica un buff permanente de stats. El delta lo decide la capa-juego; el tope
+sale de `max_buffs` (override puntual) o de `max_permanent_buffs` (sembrado
+desde `CombatConfig`). Sube también `current_max_health`, que es el tope que
+respeta `heal()`. Para "+1/+1 con tope 3", el juego hace
+`config.max_permanent_buffs_per_card = 3` y llama `inst.apply_permanent_buff(1, 1)`.
 
 ## Cableado mínimo
 

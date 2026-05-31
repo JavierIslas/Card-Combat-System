@@ -57,7 +57,11 @@ func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstan
 	if available.is_empty():
 		return blocks
 	for atk in attackers:
+		if available.is_empty():
+			break
 		if _rng.randf() < 0.5:
-			var blocker: CardInstance = available[_rng.randi() % available.size()]
-			blocks[atk] = blocker
+			var idx: int = _rng.randi() % available.size()
+			blocks[atk] = available[idx]
+			# A blocker can only be assigned once.
+			available.remove_at(idx)
 	return blocks

@@ -18,3 +18,7 @@ var initial_hand_size: int = 3
 
 ## Turno a partir del cual un combate sin recursos se declara tablas.
 var stalemate_turn_limit: int = 50
+
+## Tope de mejoras permanentes (apply_permanent_buff) por carta.
+## -1 = ilimitado (motor agnóstico). El juego lo fija (p.ej. 3) antes de setup().
+var max_permanent_buffs_per_card: int = -1
