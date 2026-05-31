@@ -44,6 +44,22 @@ packaging / future export) and can be mirrored to a standalone repo.
    `apply_permanent_buff`.
 4. **`Combatant`** — the game passes its hero (subclass) and builds the enemy
    `Combatant` from its own templates.
+5. **`CombatSession.damage_fn: Callable`** — damage formula, seeded into the
+   resolver on `setup()`. Signature: `(attacker, defender) -> int`. Empty = engine
+   default (attacker's attack, floored at 1; ignores the defender). Inject it to
+   factor in the defender, e.g. armor:
+   ```gdscript
+   session.damage_fn = func(attacker, defender):
+       return maxi(attacker.current_attack - defender.card_data.metadata.get("armor", 0), 0)
+   ```
+6. **`CombatSession.exhaust_fn: Callable`** — fatigue hook, seeded into both decks
+   on `setup()`. Signature: `(owner_id: int)`. Called when a draw fails on an empty
+   deck. Empty = the deck only emits `deck_exhausted` (default). Inject it to burn
+   the hero on fatigue:
+   ```gdscript
+   session.exhaust_fn = func(owner_id):
+       (player_hero if owner_id == 0 else enemy).take_damage(1)
+   ```
 
 ### Permanent buffs (generic)
 
