@@ -8,6 +8,11 @@ signal creature_died(card: CardInstance, owner: int)
 signal hero_damaged(amount: int)
 signal enemy_damaged(amount: int)
 
+# Safety guards (engine internals, not game balance): cap auto_resolve loop
+# iterations and the number of card plays resolved automatically per turn.
+const AUTO_RESOLVE_MAX_ITERATIONS := 200
+const MAX_PLAYS_PER_TURN := 10
+
 var phase: CombatState.Phase = CombatState.Phase.INICIO
 var player_deck: CombatDeck = null
 var enemy_deck: CombatDeck = null
@@ -20,6 +25,8 @@ var _ai_attack_pairs: Array = []  # Array[CombatPair] - AI declared
 var _block_assignments: Dictionary = {}  # attacker CardInstance -> blocker CardInstance
 var _combat_over: bool = false
 var _resolver: CombatDamageResolver = CombatDamageResolver.new()
+# Player creatures that died during combat, tracked for external retrieval.
+var _dead_player_creatures: Array[CardInstance] = []
 
 ## Parámetros de balance. Reasignar antes de setup() para personalizar.
 var config: CombatConfig = CombatConfig.new()
@@ -185,9 +192,6 @@ func get_dead_player_creatures() -> Array[CardInstance]:
 	return _dead_player_creatures
 
 
-var _dead_player_creatures: Array[CardInstance] = []
-
-
 func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
 	## Drives the whole combat headless. Honors an injected player AI; when null,
 	## falls back to a seeded reference DummyAI (deterministic for a fixed seed).
@@ -196,9 +200,9 @@ func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
 		dummy.setup(player_ai_seed)
 		player_ai = dummy
 	start()
-	var max_iters: int = 200
-	while phase != CombatState.Phase.FINAL and not _combat_over and max_iters > 0:
-		max_iters -= 1
+	var iterations_left: int = AUTO_RESOLVE_MAX_ITERATIONS
+	while phase != CombatState.Phase.FINAL and not _combat_over and iterations_left > 0:
+		iterations_left -= 1
 		match phase:
 			CombatState.Phase.PRINCIPAL:
 				_auto_play_player(player_ai)
@@ -220,7 +224,7 @@ func _auto_play_player(player_ai: CombatAI) -> void:
 		hand.append(card)
 	var card_to_play: CardData = player_ai.choose_card_to_play(hand, player_deck.mana)
 	var plays: int = 0
-	while card_to_play != null and plays < 10:
+	while card_to_play != null and plays < MAX_PLAYS_PER_TURN:
 		if card_to_play.card_type == CardData.CardType.HECHIZO:
 			player_deck.play_spell(card_to_play)
 			_apply_spell_effects(card_to_play, 0)
@@ -367,7 +371,7 @@ func _run_ai_turn() -> void:
 
 	var card_to_play: CardData = ai.choose_card_to_play(ai_hand, enemy_deck.mana)
 	var plays_this_turn: int = 0
-	while card_to_play != null and plays_this_turn < 10:
+	while card_to_play != null and plays_this_turn < MAX_PLAYS_PER_TURN:
 		if card_to_play.card_type == CardData.CardType.HECHIZO:
 			enemy_deck.play_spell(card_to_play)
 			_apply_spell_effects(card_to_play, 1)
