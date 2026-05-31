@@ -64,3 +64,15 @@ func test_ninguno_muere_si_ambos_sobreviven() -> void:
 	assert_false(pr["defender_died"], "defensor sobrevive (2-1=1)")
 	assert_eq(a.current_health, 5)
 	assert_eq(d.current_health, 1)
+
+
+func test_dos_atacantes_mismo_bloqueador() -> void:
+	# Dos atacantes contra el mismo defensor: recibe el dano combinado de ambos.
+	var a1 := _make_creature(2, 5)
+	var a2 := _make_creature(2, 5)
+	var d := _make_creature(1, 3)
+	var result := _resolver.resolve_combat([CombatPair.new(a1, d), CombatPair.new(a2, d)], 30)
+	assert_true(d.is_dead, "el defensor muere por el dano combinado (2+2 sobre 3)")
+	assert_eq(a1.current_health, 4, "cada atacante recibe el ataque del defensor (1)")
+	assert_eq(a2.current_health, 4)
+	assert_eq(result["hero_damage"], 0, "ambos atacantes fueron bloqueados, sin dano al heroe")
