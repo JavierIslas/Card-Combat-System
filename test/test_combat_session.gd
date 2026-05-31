@@ -83,6 +83,44 @@ func test_start_va_a_principal_en_turno_uno() -> void:
 	assert_eq(_session.turn_number, 1, "primer turno")
 
 
+func test_advance_desde_inicio_arranca_el_combate() -> void:
+	# advance() keeps INICIO actionable after dropping the dead RESOLVER/FINAL arms.
+	_setup_basico()
+	assert_eq(_session.phase, CombatState.Phase.INICIO, "arranca en INICIO")
+	_session.advance()
+	assert_eq(_session.phase, CombatState.Phase.PRINCIPAL, "advance desde INICIO encadena hasta PRINCIPAL")
+
+
+func _dead_instance(owner: int) -> CardInstance:
+	var inst := CardInstance.new()
+	inst.setup(_creature(1, 1, 1), owner)
+	inst.is_dead = true
+	return inst
+
+
+func test_get_dead_creatures_rastrea_cada_lado() -> void:
+	_setup_basico()
+	var dead_enemy := _dead_instance(1)
+	var dead_player := _dead_instance(0)
+	var pairs: Array = [{
+		"attacker": dead_player,
+		"defender": dead_enemy,
+		"attacker_died": true,
+		"defender_died": true,
+	}]
+	_session._process_death_results(pairs)
+	var enemy_dead := _session.get_dead_enemy_creatures()
+	var player_dead := _session.get_dead_player_creatures()
+	assert_eq(enemy_dead.size(), 1, "la criatura enemiga muerta se rastrea")
+	assert_true(enemy_dead.has(dead_enemy), "es la instancia enemiga correcta")
+	assert_eq(player_dead.size(), 1, "la criatura del jugador sigue rastreándose")
+	assert_true(player_dead.has(dead_player), "es la instancia del jugador correcta")
+
+
+func test_get_dead_enemy_creatures_vacio_sin_combate() -> void:
+	assert_eq(_session.get_dead_enemy_creatures(), [], "sin enemy_deck devuelve vacío")
+
+
 func test_emite_phase_changed_al_iniciar() -> void:
 	_setup_basico()
 	watch_signals(_session)

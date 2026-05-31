@@ -37,8 +37,9 @@ var _ai_attack_pairs: Array = []  # Array[CombatPair] - AI declared
 var _block_assignments: Dictionary = {}  # attacker CardInstance -> blocker CardInstance
 var _combat_over: bool = false
 var _resolver: CombatDamageResolver = CombatDamageResolver.new()
-# Player creatures that died during combat, tracked for external retrieval.
+# Creatures that died during combat, tracked per side for external retrieval.
 var _dead_player_creatures: Array[CardInstance] = []
+var _dead_enemy_creatures: Array[CardInstance] = []
 
 ## Parámetros de balance. Reasignar antes de setup() para personalizar.
 var config: CombatConfig = CombatConfig.new()
@@ -90,6 +91,8 @@ func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combat
 	_player_attack_pairs.clear()
 	_ai_attack_pairs.clear()
 	_block_assignments.clear()
+	_dead_player_creatures.clear()
+	_dead_enemy_creatures.clear()
 	_combat_over = false
 
 
@@ -181,17 +184,15 @@ func end_defense_phase() -> void:
 
 
 func advance() -> void:
+	## Manual driver for the phases that need an external nudge. PREPARACION and
+	## RESOLVER auto-chain inside their _enter_* handlers, and FINAL is terminal,
+	## so only INICIO and PREPARACION are actionable here.
 	match phase:
 		CombatState.Phase.INICIO:
 			start()
 		CombatState.Phase.PREPARACION:
 			# Auto-advance to PRINCIPAL
 			_transition_to(CombatState.Phase.PRINCIPAL)
-		CombatState.Phase.RESOLVER:
-			# Auto-advance handled in _enter_resolve
-			pass
-		CombatState.Phase.FINAL:
-			pass
 
 
 func get_result() -> Dictionary:
@@ -208,6 +209,12 @@ func get_dead_player_creatures() -> Array[CardInstance]:
 	if player_deck == null:
 		return []
 	return _dead_player_creatures
+
+
+func get_dead_enemy_creatures() -> Array[CardInstance]:
+	if enemy_deck == null:
+		return []
+	return _dead_enemy_creatures
 
 
 func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
@@ -434,10 +441,13 @@ func _process_death_results(pairs_result: Array) -> void:
 				dead_enemy.append(defender)
 			creature_died.emit(defender, defender.owner_id)
 
-	# Track dead player creatures for external retrieval
+	# Track dead creatures per side for external retrieval
 	for inst in dead_player:
 		if not _dead_player_creatures.has(inst):
 			_dead_player_creatures.append(inst)
+	for inst in dead_enemy:
+		if not _dead_enemy_creatures.has(inst):
+			_dead_enemy_creatures.append(inst)
 
 	# Remove dead from boards
 	player_deck.remove_dead_creatures()
