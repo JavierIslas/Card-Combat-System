@@ -46,6 +46,11 @@ var _resolver: CombatDamageResolver = CombatDamageResolver.new()
 var _dead_player_creatures: Array[CardInstance] = []
 var _dead_enemy_creatures: Array[CardInstance] = []
 
+## Structured, replay-friendly stream of what the combat did. Mirrors the signals
+## below; the game layer can consume it instead of wiring each signal. Cleared on
+## setup(). Card-level events (draw/play) live on CombatDeck, not here.
+var event_log: Array[CombatEvent] = []
+
 ## Parámetros de balance. Reasignar antes de setup() para personalizar.
 var config: CombatConfig = CombatConfig.new()
 
@@ -98,6 +103,7 @@ func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combat
 	_block_assignments.clear()
 	_dead_player_creatures.clear()
 	_dead_enemy_creatures.clear()
+	event_log.clear()
 	_combat_over = false
 
 
@@ -279,8 +285,42 @@ func _auto_play_player(player_ai: CombatAI) -> void:
 func _transition_to(new_phase: CombatState.Phase) -> void:
 	var old_phase: CombatState.Phase = phase
 	phase = new_phase
-	phase_changed.emit(old_phase, new_phase)
+	_emit_phase_changed(old_phase, new_phase)
 	_enter_phase(new_phase)
+
+
+# --- Signal + event-log emitters (single source for each combat event) ---
+# Each helper emits the legacy signal AND appends a structured CombatEvent, so
+# existing listeners keep working while event_log offers a replay-friendly stream.
+
+func _emit_phase_changed(old_phase: int, new_phase: int) -> void:
+	phase_changed.emit(old_phase, new_phase)
+	event_log.append(CombatEvent.new(CombatEvent.EventType.PHASE_CHANGED, {
+		"old_phase": old_phase, "new_phase": new_phase,
+	}))
+
+
+func _emit_hero_damaged(amount: int) -> void:
+	hero_damaged.emit(amount)
+	event_log.append(CombatEvent.new(CombatEvent.EventType.HERO_DAMAGED, {"amount": amount}))
+
+
+func _emit_enemy_damaged(amount: int) -> void:
+	enemy_damaged.emit(amount)
+	event_log.append(CombatEvent.new(CombatEvent.EventType.ENEMY_DAMAGED, {"amount": amount}))
+
+
+func _emit_creature_died(card: CardInstance, owner: int) -> void:
+	creature_died.emit(card, owner)
+	var card_id: String = card.card_data.card_id if card.card_data != null else ""
+	event_log.append(CombatEvent.new(CombatEvent.EventType.CREATURE_DIED, {
+		"owner": owner, "card_id": card_id,
+	}))
+
+
+func _emit_combat_ended(player_won: bool) -> void:
+	combat_ended.emit(player_won)
+	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBAT_ENDED, {"player_won": player_won}))
 
 
 func _enter_phase(p: CombatState.Phase) -> void:
@@ -361,7 +401,7 @@ func _enter_resolve() -> void:
 		var p_hero_dmg: int = p_result["hero_damage"]
 		enemy.take_damage(p_hero_dmg)
 		if p_hero_dmg > 0:
-			enemy_damaged.emit(p_hero_dmg)
+			_emit_enemy_damaged(p_hero_dmg)
 		if not p_pairs.is_empty():
 			_process_death_results(p_pairs)
 
@@ -382,7 +422,7 @@ func _enter_resolve() -> void:
 		var e_hero_dmg: int = e_result["hero_damage"]
 		if e_hero_dmg > 0:
 			player_hero.take_damage(e_hero_dmg)
-			hero_damaged.emit(e_hero_dmg)
+			_emit_hero_damaged(e_hero_dmg)
 		if not e_pairs.is_empty():
 			_process_death_results(e_pairs)
 
@@ -397,7 +437,7 @@ func _enter_final() -> void:
 	if not _combat_over:
 		_combat_over = true
 	var player_won: bool = enemy.current_health <= 0
-	combat_ended.emit(player_won)
+	_emit_combat_ended(player_won)
 
 
 func _run_ai_turn() -> void:
@@ -444,14 +484,14 @@ func _process_death_results(pairs_result: Array) -> void:
 				dead_player.append(attacker)
 			else:
 				dead_enemy.append(attacker)
-			creature_died.emit(attacker, attacker.owner_id)
+			_emit_creature_died(attacker, attacker.owner_id)
 
 		if defender != null and pr["defender_died"]:
 			if defender.owner_id == 0:
 				dead_player.append(defender)
 			else:
 				dead_enemy.append(defender)
-			creature_died.emit(defender, defender.owner_id)
+			_emit_creature_died(defender, defender.owner_id)
 
 	# Track dead creatures per side for external retrieval
 	for inst in dead_player:
@@ -536,9 +576,9 @@ func _damage_hero(hero: Combatant, amount: int) -> void:
 		return
 	hero.take_damage(amount)
 	if hero == enemy:
-		enemy_damaged.emit(amount)
+		_emit_enemy_damaged(amount)
 	elif hero == player_hero:
-		hero_damaged.emit(amount)
+		_emit_hero_damaged(amount)
 
 
 func _check_board_deaths(deck: CombatDeck) -> void:
@@ -548,4 +588,4 @@ func _check_board_deaths(deck: CombatDeck) -> void:
 			dead.append(inst)
 	for inst in dead:
 		deck.remove_from_board(inst)
-		creature_died.emit(inst, inst.owner_id)
+		_emit_creature_died(inst, inst.owner_id)

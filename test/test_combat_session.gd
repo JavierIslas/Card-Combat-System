@@ -83,6 +83,42 @@ func test_start_va_a_principal_en_turno_uno() -> void:
 	assert_eq(_session.turn_number, 1, "primer turno")
 
 
+func _serialized_log(session: CombatSession) -> Array:
+	var out: Array = []
+	for ev in session.event_log:
+		out.append(ev.serialize())
+	return out
+
+
+func test_event_log_registra_el_combate() -> void:
+	var hero_cards: Array[CardData] = [_creature(1, 2, 2)]
+	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
+	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
+	_session.auto_resolve(null, 7)
+	assert_gt(_session.event_log.size(), 0, "el combate deja eventos en el log")
+	var last: CombatEvent = _session.event_log[-1]
+	assert_eq(last.type, CombatEvent.EventType.COMBAT_ENDED, "el último evento es el fin del combate")
+
+
+func test_event_log_es_determinista_por_seed() -> void:
+	# Same seeds => identical serialized event stream (replay-friendly).
+	var first := CombatSession.new()
+	first.setup(_hero(10), _starter(), _hero(10), _starter(), 11)
+	first.auto_resolve(null, 5)
+	var second := CombatSession.new()
+	second.setup(_hero(10), _starter(), _hero(10), _starter(), 11)
+	second.auto_resolve(null, 5)
+	assert_eq(_serialized_log(first), _serialized_log(second), "mismo seed reproduce el log de eventos")
+
+
+func test_event_log_se_limpia_en_setup() -> void:
+	_setup_basico()
+	_session.auto_resolve(null, 7)
+	assert_gt(_session.event_log.size(), 0, "hay eventos tras un combate")
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	assert_eq(_session.event_log.size(), 0, "setup limpia el log para reutilizar la sesión")
+
+
 func test_advance_desde_inicio_arranca_el_combate() -> void:
 	# advance() keeps INICIO actionable after dropping the dead RESOLVER/FINAL arms.
 	_setup_basico()
