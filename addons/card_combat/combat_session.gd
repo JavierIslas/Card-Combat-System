@@ -175,9 +175,13 @@ func get_dead_player_creatures() -> Array[CardInstance]:
 var _dead_player_creatures: Array[CardInstance] = []
 
 
-func auto_resolve(player_ai_seed: int = 99) -> void:
-	var player_ai := DummyAI.new()
-	player_ai.setup(player_ai_seed)
+func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
+	## Drives the whole combat headless. Honors an injected player AI; when null,
+	## falls back to a seeded reference DummyAI (deterministic for a fixed seed).
+	if player_ai == null:
+		var dummy := DummyAI.new()
+		dummy.setup(player_ai_seed)
+		player_ai = dummy
 	start()
 	var max_iters: int = 200
 	while phase != CombatState.Phase.FINAL and not _combat_over and max_iters > 0:
@@ -197,7 +201,7 @@ func auto_resolve(player_ai_seed: int = 99) -> void:
 		_transition_to(CombatState.Phase.FINAL)
 
 
-func _auto_play_player(player_ai: DummyAI) -> void:
+func _auto_play_player(player_ai: CombatAI) -> void:
 	var hand: Array[CardData] = []
 	for card in player_deck.get_hand():
 		hand.append(card)

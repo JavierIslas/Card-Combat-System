@@ -73,7 +73,7 @@ func test_auto_resolve_termina_en_final() -> void:
 	var hero_cards: Array[CardData] = [_creature(1, 2, 2), _creature(1, 1, 3)]
 	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
 	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
-	_session.auto_resolve(7)
+	_session.auto_resolve(null, 7)
 	assert_eq(_session.phase, CombatState.Phase.FINAL, "auto_resolve llega a FINAL sin colgarse")
 
 
@@ -161,6 +161,38 @@ func test_declare_attacker_rechaza_mareo_de_invocacion() -> void:
 # setup() does not overwrite an AI injected by the game layer.
 class _StubAI:
 	extends DummyAI
+
+
+# Spy AI that records whether auto_resolve routed the player turn through it.
+class _SpyPlayerAI:
+	extends DummyAI
+	var chose_card: bool = false
+
+	func choose_card_to_play(hand: Array[CardData], mana: int) -> CardData:
+		chose_card = true
+		return super.choose_card_to_play(hand, mana)
+
+
+func test_auto_resolve_usa_ai_de_jugador_inyectada() -> void:
+	# Chunk D: la IA de jugador inyectada conduce el turno del jugador.
+	var hero_cards: Array[CardData] = [_creature(1, 2, 2)]
+	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
+	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
+	var spy := _SpyPlayerAI.new()
+	spy.setup(7)
+	_session.auto_resolve(spy)
+	assert_true(spy.chose_card, "auto_resolve usa la IA de jugador inyectada")
+
+
+func test_auto_resolve_sin_ai_es_determinista_por_seed() -> void:
+	# Chunk D: sin IA inyectada, auto_resolve sigue siendo determinista por seed.
+	var first := CombatSession.new()
+	first.setup(_hero(10), [_creature(1, 2, 2)], _hero(10), [_creature(1, 1, 2)], 7)
+	first.auto_resolve(null, 42)
+	var second := CombatSession.new()
+	second.setup(_hero(10), [_creature(1, 2, 2)], _hero(10), [_creature(1, 1, 2)], 7)
+	second.auto_resolve(null, 42)
+	assert_eq(first.get_result(), second.get_result(), "mismo seed = mismo resultado")
 
 
 func test_setup_usa_dummy_ai_por_defecto() -> void:
