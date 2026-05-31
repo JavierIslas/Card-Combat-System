@@ -28,10 +28,17 @@ var config: CombatConfig = CombatConfig.new()
 ## (la capa-juego inyecta su handler de habilidades). Vacío = motor agnóstico.
 var ability_fn: Callable = Callable()
 
+## Optional damage formula hook, seeded into the resolver on setup().
+## Signature: (attacker, defender) -> int. Empty = engine default.
+var damage_fn: Callable = Callable()
+
 
 func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combatant, enemy_cards: Array[CardData], ai_seed: int = -1) -> void:
 	player_hero = hero
 	enemy = enemy_combatant
+
+	# Seed the optional damage hook so the resolver uses it for this combat.
+	_resolver.damage_fn = damage_fn
 
 	player_deck = CombatDeck.new()
 	player_deck.setup(hero_cards, 0, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card)

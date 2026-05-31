@@ -209,6 +209,14 @@ func test_setup_respeta_ai_inyectada() -> void:
 	assert_eq(_session.ai, stub, "setup conserva la IA inyectada")
 
 
+func test_setup_propaga_damage_fn_al_resolver() -> void:
+	# Chunk E: el damage_fn opcional de la sesion se siembra en el resolver.
+	_session.damage_fn = func(a: CardInstance, _d: CardInstance) -> int:
+		return a.current_attack * 2
+	_setup_basico()
+	assert_true(_session._resolver.damage_fn.is_valid(), "el hook llega al resolver")
+
+
 func test_play_card_hechizo_usa_target_explicito_en_player_creature() -> void:
 	# Chunk B: un hechizo PLAYER_CREATURE aplica al target explicito provisto a
 	# play_card(), no siempre a board[0].

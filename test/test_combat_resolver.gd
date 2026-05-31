@@ -23,6 +23,16 @@ func test_calculate_damage_minimo_uno() -> void:
 	assert_eq(_resolver.calculate_damage(atacante, defensor), 1, "daño mínimo es 1 aunque ataque sea 0")
 
 
+func test_damage_fn_inyectada_reemplaza_la_formula() -> void:
+	# Chunk E: con damage_fn inyectada, calculate_damage delega en el hook, que
+	# puede considerar al defensor (la formula default lo ignora).
+	var atacante := _make_creature(5, 5)
+	var defensor := _make_creature(2, 5)
+	_resolver.damage_fn = func(a: CardInstance, d: CardInstance) -> int:
+		return a.current_attack - d.current_attack
+	assert_eq(_resolver.calculate_damage(atacante, defensor), 3, "5 - 2 segun el hook")
+
+
 func test_trade_mutuo_ambos_mueren() -> void:
 	var a := _make_creature(3, 3)
 	var d := _make_creature(3, 3)

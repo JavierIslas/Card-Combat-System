@@ -2,6 +2,11 @@ class_name CombatDamageResolver
 extends RefCounted
 ## Calculo de dano simultaneo entre criaturas. Logica pura.
 
+## Optional damage formula hook. Signature: (attacker, defender) -> int. When
+## valid it fully replaces the default formula, letting the game layer factor in
+## the defender (e.g. armor). Empty = engine default (attack, floored at 1).
+var damage_fn: Callable = Callable()
+
 
 func resolve_combat(pairs: Array, _defender_hp: int) -> Dictionary:
 	var pairs_result: Array = []
@@ -55,5 +60,7 @@ func resolve_combat(pairs: Array, _defender_hp: int) -> Dictionary:
 	}
 
 
-func calculate_damage(attacker: CardInstance, _defender: CardInstance) -> int:
+func calculate_damage(attacker: CardInstance, defender: CardInstance) -> int:
+	if damage_fn.is_valid():
+		return damage_fn.call(attacker, defender)
 	return maxi(attacker.current_attack, 1)
