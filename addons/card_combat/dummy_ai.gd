@@ -1,5 +1,5 @@
 class_name DummyAI
-extends RefCounted
+extends CombatAI
 ## IA de referencia del motor: elige jugadas de forma aleatoria con un seed
 ## opcional (determinista si `p_seed >= 0`). Es la IA por defecto que usa
 ## `CombatSession`; sirve también de ejemplo del contrato que debe cumplir

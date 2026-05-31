@@ -24,7 +24,8 @@ export futuro) y es espejable a un repo standalone.
 | `CombatDamageResolver` | Resuelve daño de los pares de combate |
 | `SpellEffect` | Efecto de hechizo (daño/cura/invocación) |
 | `CombatConfig` | Parámetros de balance (maná, tope, mano inicial, límite de tablas) |
-| `DummyAI` | IA de referencia/por defecto (aleatoria, seed opcional) |
+| `CombatAI` | Contrato base de IA: define las 4 firmas; subclasear para una IA propia |
+| `DummyAI` | IA de referencia/por defecto (aleatoria, seed opcional); `extends CombatAI` |
 
 ## Puntos de inyección (cómo la capa-juego lo especializa)
 
@@ -63,10 +64,12 @@ session.start()
 
 ## IA
 
-`DummyAI` es la IA por defecto y, a la vez, el ejemplo del contrato que debe
-cumplir cualquier IA: `choose_card_to_play`, `choose_attackers`,
-`choose_attack_target`, `choose_blockers`. Opera sólo sobre `CardData` y
-`CardInstance`. Para una IA más fuerte, replicar ese contrato.
+El contrato de IA vive en la clase base `CombatAI`, que define las cuatro firmas:
+`choose_card_to_play`, `choose_attackers`, `choose_attack_target`,
+`choose_blockers`. Sus stubs devuelven vacío y emiten `push_error`, para que una
+subclase incompleta falle ruidosamente. `DummyAI extends CombatAI` es la IA por
+defecto y el ejemplo de referencia. Para una IA más fuerte, subclasear `CombatAI`
+y sobreescribir esos métodos. Opera sólo sobre `CardData` y `CardInstance`.
 
 ## Qué NO vive acá (capa-juego)
 
