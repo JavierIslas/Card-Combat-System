@@ -71,6 +71,37 @@ subclase incompleta falle ruidosamente. `DummyAI extends CombatAI` es la IA por
 defecto y el ejemplo de referencia. Para una IA más fuerte, subclasear `CombatAI`
 y sobreescribir esos métodos. Opera sólo sobre `CardData` y `CardInstance`.
 
+## Observabilidad (señales)
+
+El motor no lleva log propio: expone su estado vía señales y la capa-juego decide
+qué registrar. Catálogo por clase:
+
+| Clase | Señal | Cuándo |
+|-------|-------|--------|
+| `CombatSession` | `phase_changed(old, new)` | cada transición de la FSM |
+| `CombatSession` | `combat_ended(player_won)` | al entrar a `FINAL` |
+| `CombatSession` | `creature_died(card, owner)` | una criatura muere resolviendo combate |
+| `CombatSession` | `hero_damaged(amount)` | el héroe del jugador recibe daño |
+| `CombatSession` | `enemy_damaged(amount)` | el héroe enemigo recibe daño |
+| `CombatDeck` | `card_drawn(card)` | se roba una carta del mazo |
+| `CombatDeck` | `deck_exhausted` | robo fallido por mazo vacío (ver hook `exhaust_fn`) |
+| `CombatDeck` | `card_played(instance)` | una criatura entra al tablero |
+| `CombatDeck` | `mana_changed(new_mana)` | cambia el maná disponible |
+| `CardInstance` | `card_died(card)` | la instancia muere |
+| `CardInstance` | `card_damaged(card, amount)` | la instancia recibe daño |
+| `CardInstance` | `card_revealed(card)` | una carta oculta se revela |
+| `Combatant` | `health_changed(new_health)` | cambia la vida del participante |
+| `Combatant` | `died` | la vida llega a 0 |
+
+### Historial / replay
+
+El motor es determinista para un seed fijo (`DummyAI` con `p_seed >= 0`, ver
+`auto_resolve(player_ai, player_ai_seed)`). Patrón recomendado para la capa-juego:
+conectar las señales de arriba a un grabador propio que arme el historial o un log
+de replay. Como una misma semilla reproduce la misma partida, basta con persistir
+el seed (y las cartas iniciales) para reproducir el combate completo desde las
+señales, sin que el motor tenga que guardar estado adicional.
+
 ## Qué NO vive acá (capa-juego)
 
 - `CardLoader` / parsing de JSON español, rarezas (`CardRarity`), habilidades.
