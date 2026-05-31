@@ -89,10 +89,19 @@ incomplete subclass fails loudly. `DummyAI extends CombatAI` is the default AI
 and the reference example. For a stronger AI, subclass `CombatAI` and override
 those methods. It operates only on `CardData` and `CardInstance`.
 
-## Observability (signals)
+## Observability (signals + event_log)
 
-The engine keeps no log of its own: it exposes its state via signals and the
-game layer decides what to record. Catalog per class:
+The engine exposes its state two ways: live **signals** (below), and a structured
+**`CombatSession.event_log: Array[CombatEvent]`** that mirrors the session-level
+signals as a replay-friendly stream. Each `CombatEvent` has a `type`
+(`PHASE_CHANGED`, `HERO_DAMAGED`, `ENEMY_DAMAGED`, `CREATURE_DIED`,
+`COMBAT_ENDED`) and a serializable `payload`; `event.serialize()` round-trips it
+(e.g. `creature_died` logs `{owner, card_id}`, not the live instance). The log is
+cleared on `setup()`. Card-level events (`card_drawn`, `card_played`) stay on
+`CombatDeck`, not in the session log. Consume the log when you want the whole run
+as data; use the signals when you want live object references.
+
+Signal catalog per class:
 
 | Class | Signal | When |
 |-------|--------|------|
@@ -117,10 +126,10 @@ The engine is deterministic for a fixed seed. `CombatSession.setup(..., ai_seed)
 seeds both deck shuffles and the enemy `DummyAI`; the player AI is seeded by you
 (`DummyAI.setup(seed)`, or `auto_resolve(player_ai, player_ai_seed)`). With those
 seeds and the starting cards fixed, the same inputs reproduce the same match
-bit-for-bit. Recommended pattern for the game layer: connect the signals above
-to your own recorder that builds the history or a replay log. Persisting just
-the seeds (and the starting cards) is enough to replay the whole combat from the
-signals, without the engine having to store any extra state.
+bit-for-bit — including a byte-identical serialized `event_log`. Two ways to use
+this: persist just the seeds (and the starting cards) and re-run the combat to
+rebuild the history, or capture `event_log` (via `serialize()`) as the recorded
+run directly. Either way the engine stores no extra state of its own.
 
 ## What does NOT live here (game layer)
 
