@@ -114,3 +114,15 @@ signals, without the engine having to store any extra state.
   depend on `PlayerData` and its specific state — mana, reputation, sacrifice).
   These are game scaffolding, not engine scaffolding; that is why they stay in
   the game layer.
+
+## License
+
+Card Combat Engine is **dual-licensed**:
+
+- **GNU AGPL v3.0** (default, see `LICENSE`) — free for open-source use. Note the
+  AGPL is copyleft over a network: if you run the engine server-side as part of a
+  product, you must release that product's source under the AGPL too.
+- **Commercial license** (see `LICENSE_COMMERCIAL.md`) — exempts you from the AGPL
+  obligations for use in closed-source projects, including server-side play.
+
+For a commercial license: **islasjavieralf@gmail.com**.
