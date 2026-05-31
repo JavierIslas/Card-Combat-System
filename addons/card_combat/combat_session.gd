@@ -259,27 +259,37 @@ func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
 
 
 func _auto_play_player(player_ai: CombatAI) -> void:
-	var hand: Array[CardData] = []
-	for card in player_deck.get_hand():
-		hand.append(card)
-	var card_to_play: CardData = player_ai.choose_card_to_play(hand, player_deck.mana)
-	var plays: int = 0
-	while card_to_play != null and plays < MAX_PLAYS_PER_TURN:
-		if card_to_play.card_type == CardData.CardType.HECHIZO:
-			player_deck.play_spell(card_to_play)
-			_apply_spell_effects(card_to_play, 0)
-		else:
-			player_deck.play_creature(card_to_play)
-		plays += 1
-		hand = []
-		for card in player_deck.get_hand():
-			hand.append(card)
-		card_to_play = player_ai.choose_card_to_play(hand, player_deck.mana)
+	_play_hand(player_deck, 0, player_ai)
 	var attackers: Array[CardInstance] = player_ai.choose_attackers(player_deck.get_board())
 	var enemy_board: Array[CardInstance] = enemy_deck.get_defenders()
 	for attacker in attackers:
 		var target: Variant = player_ai.choose_attack_target(attacker, enemy_board)
 		declare_attacker(attacker, target)
+
+
+func _snapshot_hand(deck: CombatDeck) -> Array[CardData]:
+	## Typed copy of a deck's hand, so the AI sees a stable list while we mutate
+	## the real hand by playing cards out of it.
+	var hand: Array[CardData] = []
+	for card in deck.get_hand():
+		hand.append(card)
+	return hand
+
+
+func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
+	## Plays cards from `side`'s hand until the AI passes or the per-turn cap is
+	## hit. Shared by the player's auto-play and the AI's turn so both resolve
+	## spells and creatures the same way.
+	var card_to_play: CardData = side_ai.choose_card_to_play(_snapshot_hand(deck), deck.mana)
+	var plays: int = 0
+	while card_to_play != null and plays < MAX_PLAYS_PER_TURN:
+		if card_to_play.card_type == CardData.CardType.HECHIZO:
+			deck.play_spell(card_to_play)
+			_apply_spell_effects(card_to_play, side)
+		else:
+			deck.play_creature(card_to_play)
+		plays += 1
+		card_to_play = side_ai.choose_card_to_play(_snapshot_hand(deck), deck.mana)
 
 
 func _transition_to(new_phase: CombatState.Phase) -> void:
@@ -395,16 +405,7 @@ func _enter_defensa() -> void:
 
 func _enter_resolve() -> void:
 	# --- Resolve player attacks ---
-	if not _player_attack_pairs.is_empty():
-		var p_result: Dictionary = _resolver.resolve_combat(_player_attack_pairs, enemy.current_health)
-		var p_pairs: Array = p_result["pairs_result"]
-		var p_hero_dmg: int = p_result["hero_damage"]
-		enemy.take_damage(p_hero_dmg)
-		if p_hero_dmg > 0:
-			_emit_enemy_damaged(p_hero_dmg)
-		if not p_pairs.is_empty():
-			_process_death_results(p_pairs)
-
+	_resolve_side_attacks(_player_attack_pairs, enemy)
 	_player_attack_pairs.clear()
 	_block_assignments.clear()
 
@@ -416,21 +417,25 @@ func _enter_resolve() -> void:
 	_run_ai_turn()
 
 	# --- Resolve AI attacks ---
-	if not _ai_attack_pairs.is_empty():
-		var e_result: Dictionary = _resolver.resolve_combat(_ai_attack_pairs, player_hero.current_health)
-		var e_pairs: Array = e_result["pairs_result"]
-		var e_hero_dmg: int = e_result["hero_damage"]
-		if e_hero_dmg > 0:
-			player_hero.take_damage(e_hero_dmg)
-			_emit_hero_damaged(e_hero_dmg)
-		if not e_pairs.is_empty():
-			_process_death_results(e_pairs)
-
+	_resolve_side_attacks(_ai_attack_pairs, player_hero)
 	_ai_attack_pairs.clear()
 
 	_check_victory()
 	if not _combat_over:
 		_transition_to(CombatState.Phase.PREPARACION)
+
+
+func _resolve_side_attacks(pairs: Array, target_hero: Combatant) -> void:
+	## Resolves one side's declared attacks: deals unblocked damage to the target
+	## hero (via _damage_hero, which routes the right signal) and processes the
+	## resulting creature deaths. Shared by the player and AI resolution blocks.
+	if pairs.is_empty():
+		return
+	var result: Dictionary = _resolver.resolve_combat(pairs, target_hero.current_health)
+	_damage_hero(target_hero, result["hero_damage"])
+	var pairs_result: Array = result["pairs_result"]
+	if not pairs_result.is_empty():
+		_process_death_results(pairs_result)
 
 
 func _enter_final() -> void:
@@ -441,24 +446,7 @@ func _enter_final() -> void:
 
 
 func _run_ai_turn() -> void:
-	# AI plays cards
-	var ai_hand: Array[CardData] = []
-	for card in enemy_deck.get_hand():
-		ai_hand.append(card)
-
-	var card_to_play: CardData = ai.choose_card_to_play(ai_hand, enemy_deck.mana)
-	var plays_this_turn: int = 0
-	while card_to_play != null and plays_this_turn < MAX_PLAYS_PER_TURN:
-		if card_to_play.card_type == CardData.CardType.HECHIZO:
-			enemy_deck.play_spell(card_to_play)
-			_apply_spell_effects(card_to_play, 1)
-		else:
-			enemy_deck.play_creature(card_to_play)
-		plays_this_turn += 1
-		ai_hand = []
-		for card in enemy_deck.get_hand():
-			ai_hand.append(card)
-		card_to_play = ai.choose_card_to_play(ai_hand, enemy_deck.mana)
+	_play_hand(enemy_deck, 1, ai)
 
 	# AI declares attackers
 	var ai_attackers: Array[CardInstance] = ai.choose_attackers(enemy_deck.get_board())
