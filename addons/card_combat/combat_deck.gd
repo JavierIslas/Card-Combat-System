@@ -8,6 +8,9 @@ signal card_played(instance: CardInstance)
 signal mana_changed(new_mana: int)
 
 var _draw_pile: Array[CardData] = []
+# Seeded RNG for reproducible shuffles. Seeded by setup(); a negative seed
+# randomizes it (non-reproducible, engine default).
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _hand: Array[CardData] = []
 var _board: Array[CardInstance] = []
 var _graveyard: Array[CardData] = []
@@ -29,10 +32,14 @@ var max_permanent_buffs: int = -1
 var exhaust_fn: Callable = Callable()
 
 
-func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable(), p_max_permanent_buffs: int = -1) -> void:
+func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable(), p_max_permanent_buffs: int = -1, p_shuffle_seed: int = -1) -> void:
 	owner_id = owner
 	ability_fn = p_ability_fn
 	max_permanent_buffs = p_max_permanent_buffs
+	if p_shuffle_seed >= 0:
+		_rng.seed = p_shuffle_seed
+	else:
+		_rng.randomize()
 	_draw_pile.clear()
 	_hand.clear()
 	_board.clear()
@@ -45,7 +52,13 @@ func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_abi
 
 
 func shuffle() -> void:
-	_draw_pile.shuffle()
+	# Fisher-Yates with the seeded RNG so a fixed seed reproduces the order.
+	# Array.shuffle() would use Godot's global RNG and break seed-based replay.
+	for i in range(_draw_pile.size() - 1, 0, -1):
+		var j: int = _rng.randi_range(0, i)
+		var tmp: CardData = _draw_pile[i]
+		_draw_pile[i] = _draw_pile[j]
+		_draw_pile[j] = tmp
 
 
 func draw_initial_hand(count: int = 3) -> void:

@@ -7,15 +7,16 @@ extends Control
 ## game-specific code here: this is the engine driving itself end to end.
 ##
 ## Run it from the editor (F5 with this scene) and press "Run combat" to play
-## another match. Note: the DummyAI is seeded (deterministic), but CombatDeck
-## shuffles via the global RNG, so each run still differs. When run headless it
-## prints the log and exits, so it doubles as a smoke check.
+## another match. The engine is deterministic for a fixed seed (both the DummyAI
+## and the deck shuffle are seeded), so each press uses a new seed to vary the
+## match while staying reproducible. When run headless it prints the log and
+## exits, so it doubles as a smoke check.
 
 @onready var _log_label: RichTextLabel = %CombatLog
 @onready var _run_button: Button = %RunButton
 
-# Each run derives its AI seeds from this index. The deck shuffle is not seeded
-# (see header), so runs are not bit-for-bit reproducible.
+# Each run derives its seeds from this index; reusing an index reproduces that
+# exact match (the engine is seed-deterministic, deck shuffle included).
 var _run_index: int = 0
 var _log_lines: PackedStringArray = []
 

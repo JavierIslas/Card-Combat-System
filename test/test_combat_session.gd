@@ -48,6 +48,34 @@ func _setup_basico() -> void:
 	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
 
 
+func _starter() -> Array[CardData]:
+	var cards: Array[CardData] = []
+	cards.append(_creature(1, 2, 1))
+	cards.append(_creature(2, 2, 3))
+	cards.append(_creature(3, 4, 4))
+	cards.append(_creature(4, 4, 6))
+	cards.append(_creature(1, 1, 2))
+	return cards
+
+
+func _run_seeded(combat_seed: int, player_seed: int) -> Dictionary:
+	var session := CombatSession.new()
+	var player_ai := DummyAI.new()
+	player_ai.setup(player_seed)
+	session.setup(_hero(), _starter(), _hero(), _starter(), combat_seed)
+	session.auto_resolve(player_ai)
+	return session.get_result()
+
+
+func test_mismo_seed_reproduce_la_partida() -> void:
+	# Replay guarantee: same combat seed (seeds both deck shuffles + enemy AI)
+	# plus same player AI seed and starting cards => identical match.
+	var first := _run_seeded(7, 3)
+	var second := _run_seeded(7, 3)
+	assert_gt(first["turn_number"], 1, "la partida realmente avanzó turnos")
+	assert_eq(first, second, "mismo seed reproduce el resultado del combate")
+
+
 func test_start_va_a_principal_en_turno_uno() -> void:
 	_setup_basico()
 	_session.start()

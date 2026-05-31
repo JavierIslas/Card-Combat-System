@@ -97,11 +97,13 @@ game layer decides what to record. Catalog per class:
 
 ### History / replay
 
-The engine is deterministic for a fixed seed (`DummyAI` with `p_seed >= 0`, see
-`auto_resolve(player_ai, player_ai_seed)`). Recommended pattern for the game
-layer: connect the signals above to your own recorder that builds the history or
-a replay log. Since the same seed reproduces the same match, persisting just the
-seed (and the starting cards) is enough to replay the whole combat from the
+The engine is deterministic for a fixed seed. `CombatSession.setup(..., ai_seed)`
+seeds both deck shuffles and the enemy `DummyAI`; the player AI is seeded by you
+(`DummyAI.setup(seed)`, or `auto_resolve(player_ai, player_ai_seed)`). With those
+seeds and the starting cards fixed, the same inputs reproduce the same match
+bit-for-bit. Recommended pattern for the game layer: connect the signals above
+to your own recorder that builds the history or a replay log. Persisting just
+the seeds (and the starting cards) is enough to replay the whole combat from the
 signals, without the engine having to store any extra state.
 
 ## What does NOT live here (game layer)

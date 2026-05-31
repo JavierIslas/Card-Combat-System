@@ -51,13 +51,19 @@ func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combat
 	# Seed the optional damage hook so the resolver uses it for this combat.
 	_resolver.damage_fn = damage_fn
 
+	# Derive a distinct shuffle seed per side from the combat seed so a fixed
+	# ai_seed reproduces both deck orders. A negative seed leaves both decks
+	# randomized (engine default).
+	var player_shuffle_seed: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 1
+	var enemy_shuffle_seed: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 2
+
 	player_deck = CombatDeck.new()
-	player_deck.setup(hero_cards, 0, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card)
+	player_deck.setup(hero_cards, 0, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card, player_shuffle_seed)
 	player_deck.exhaust_fn = exhaust_fn
 	player_deck.draw_initial_hand(config.initial_hand_size)
 
 	enemy_deck = CombatDeck.new()
-	enemy_deck.setup(enemy_cards, 1, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card)
+	enemy_deck.setup(enemy_cards, 1, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card, enemy_shuffle_seed)
 	enemy_deck.exhaust_fn = exhaust_fn
 	enemy_deck.draw_initial_hand(config.initial_hand_size)
 

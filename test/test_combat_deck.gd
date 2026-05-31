@@ -26,6 +26,42 @@ func _cards(n: int) -> Array[CardData]:
 	return result
 
 
+func _ided_cards(n: int) -> Array[CardData]:
+	var result: Array[CardData] = []
+	for i in n:
+		var c := _make_card(1, 1, 1)
+		c.card_id = "c%d" % i
+		result.append(c)
+	return result
+
+
+# --- Barajado determinista ---
+
+func test_shuffle_seed_fijo_reproduce_el_orden_de_robo() -> void:
+	var deck_a := CombatDeck.new()
+	var deck_b := CombatDeck.new()
+	deck_a.setup(_ided_cards(10), 0, 2, Callable(), -1, 42)
+	deck_b.setup(_ided_cards(10), 0, 2, Callable(), -1, 42)
+	var order_a: Array[String] = []
+	var order_b: Array[String] = []
+	for i in 10:
+		order_a.append(deck_a.draw_card().card_id)
+		order_b.append(deck_b.draw_card().card_id)
+	assert_eq(order_a, order_b, "mismo seed de barajado reproduce el orden de robo")
+
+
+func test_shuffle_realmente_baraja_el_mazo() -> void:
+	var deck := CombatDeck.new()
+	deck.setup(_ided_cards(10), 0, 2, Callable(), -1, 42)
+	var order: Array[String] = []
+	for i in 10:
+		order.append(deck.draw_card().card_id)
+	var insertion_order: Array[String] = []
+	for i in 10:
+		insertion_order.append("c%d" % i)
+	assert_ne(order, insertion_order, "el seed 42 no deja el orden de inserción")
+
+
 # --- Robo ---
 
 func test_draw_initial_hand() -> void:
