@@ -23,6 +23,11 @@ var ability_fn: Callable = Callable()
 ## sesión desde CombatConfig; -1 = ilimitado.
 var max_permanent_buffs: int = -1
 
+## Optional fatigue hook, seeded by the session. Signature: (owner_id: int).
+## Invoked when a draw fails because the pile is empty. Empty = signal only
+## (engine default behavior unchanged).
+var exhaust_fn: Callable = Callable()
+
 
 func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable(), p_max_permanent_buffs: int = -1) -> void:
 	owner_id = owner
@@ -54,6 +59,8 @@ func draw_card() -> CardData:
 	var card := _draw_from_pile()
 	if card == null:
 		deck_exhausted.emit()
+		if exhaust_fn.is_valid():
+			exhaust_fn.call(owner_id)
 	return card
 
 

@@ -43,6 +43,18 @@ func test_draw_card_vacio_emite_deck_exhausted() -> void:
 	assert_signal_emitted(_deck, "deck_exhausted")
 
 
+func test_draw_card_vacio_invoca_exhaust_fn_con_owner() -> void:
+	# Chunk F: con exhaust_fn inyectada, un robo fallido por mazo vacio invoca el
+	# hook con el owner del mazo (para que el juego aplique fatiga). Sin hook =
+	# solo la senal (ver test anterior).
+	_deck.setup(_cards(0), 3)
+	var seen := {"owner": -1}
+	_deck.exhaust_fn = func(owner: int) -> void:
+		seen["owner"] = owner
+	_deck.draw_card()
+	assert_eq(seen["owner"], 3, "exhaust_fn recibe el owner del mazo agotado")
+
+
 # --- Maná ---
 
 func test_gain_mana_se_topa_a_max_mana() -> void:

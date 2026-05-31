@@ -217,6 +217,15 @@ func test_setup_propaga_damage_fn_al_resolver() -> void:
 	assert_true(_session._resolver.damage_fn.is_valid(), "el hook llega al resolver")
 
 
+func test_setup_propaga_exhaust_fn_a_los_decks() -> void:
+	# Chunk F: el exhaust_fn opcional de la sesion se siembra en ambos mazos.
+	_session.exhaust_fn = func(_owner: int) -> void:
+		pass
+	_setup_basico()
+	assert_true(_session.player_deck.exhaust_fn.is_valid(), "el hook llega al mazo del jugador")
+	assert_true(_session.enemy_deck.exhaust_fn.is_valid(), "el hook llega al mazo enemigo")
+
+
 func test_play_card_hechizo_usa_target_explicito_en_player_creature() -> void:
 	# Chunk B: un hechizo PLAYER_CREATURE aplica al target explicito provisto a
 	# play_card(), no siempre a board[0].

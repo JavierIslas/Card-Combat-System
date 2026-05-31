@@ -32,6 +32,10 @@ var ability_fn: Callable = Callable()
 ## Signature: (attacker, defender) -> int. Empty = engine default.
 var damage_fn: Callable = Callable()
 
+## Optional fatigue hook, seeded into both decks on setup().
+## Signature: (owner_id: int). Empty = decks only emit deck_exhausted.
+var exhaust_fn: Callable = Callable()
+
 
 func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combatant, enemy_cards: Array[CardData], ai_seed: int = -1) -> void:
 	player_hero = hero
@@ -42,10 +46,12 @@ func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combat
 
 	player_deck = CombatDeck.new()
 	player_deck.setup(hero_cards, 0, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card)
+	player_deck.exhaust_fn = exhaust_fn
 	player_deck.draw_initial_hand(config.initial_hand_size)
 
 	enemy_deck = CombatDeck.new()
 	enemy_deck.setup(enemy_cards, 1, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card)
+	enemy_deck.exhaust_fn = exhaust_fn
 	enemy_deck.draw_initial_hand(config.initial_hand_size)
 
 	# Injectable: honor an AI assigned before setup() (must follow the DummyAI
