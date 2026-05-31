@@ -59,22 +59,25 @@ func start() -> void:
 	_transition_to(CombatState.Phase.PREPARACION)
 
 
-func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0) -> bool:
+func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0, target: Variant = null) -> bool:
+	## `target` only applies to single-target spells (e.g. PLAYER_CREATURE); when
+	## null, single-target effects fall back to their default pick (board[0]).
 	if not _can_play_from_hand(card):
 		return false
 	if card.card_type == CardData.CardType.HECHIZO:
 		if not _consume_spell(card):
 			return false
-		_apply_spell_effects(card, 0)
+		_apply_spell_effects(card, 0, target)
 		return true
 	var inst: CardInstance = player_deck.play_creature(card, as_hidden, declared_attack, declared_health)
 	return inst != null
 
 
 func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> bool:
-	## Explicit-target variant of casting: applies a single SpellEffect to
-	## `target`, bypassing the card's own TargetType-relative spell_effects.
-	## Prefer play_card() for normal casting; use this for ad-hoc targeted effects.
+	## Ad-hoc casting: applies a single externally-built SpellEffect to `target`,
+	## bypassing the card's own TargetType-relative spell_effects. For normal
+	## casting prefer play_card(card, ..., target), which honors the card's
+	## declared spell_effects and target_type.
 	if not _can_play_from_hand(card):
 		return false
 	if not _consume_spell(card):
@@ -424,12 +427,12 @@ func _is_stalemate() -> bool:
 	return false
 
 
-func _apply_spell_effects(card: CardData, side: int) -> void:
+func _apply_spell_effects(card: CardData, side: int, target: Variant = null) -> void:
 	for effect in card.spell_effects:
-		_apply_single_spell_effect(effect, side)
+		_apply_single_spell_effect(effect, side, target)
 
 
-func _apply_single_spell_effect(effect: SpellEffect, side: int) -> void:
+func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null) -> void:
 	## Resolución agnóstica desde la óptica del lanzador (side 0 = jugador,
 	## 1 = enemigo). TargetType se interpreta relativo al lanzador, así un mismo
 	## hechizo sirve a ambos lados sin lógica duplicada.
@@ -443,9 +446,14 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int) -> void:
 		SpellEffect.TargetType.PLAYER_HERO:
 			caster_hero.heal(effect.value)
 		SpellEffect.TargetType.PLAYER_CREATURE:
-			var board: Array[CardInstance] = caster_deck.get_board()
-			if not board.is_empty():
-				effect.apply(board[0], {})
+			# Use the explicit target when provided; otherwise fall back to the
+			# first creature on the caster's board for backward compatibility.
+			if target is CardInstance and not target.is_dead:
+				effect.apply(target, {})
+			else:
+				var board: Array[CardInstance] = caster_deck.get_board()
+				if not board.is_empty():
+					effect.apply(board[0], {})
 		SpellEffect.TargetType.ENEMY_CREATURES:
 			var enemies: Array[CardInstance] = opponent_deck.get_board()
 			effect.apply(enemies, {})

@@ -177,6 +177,44 @@ func test_setup_respeta_ai_inyectada() -> void:
 	assert_eq(_session.ai, stub, "setup conserva la IA inyectada")
 
 
+func test_play_card_hechizo_usa_target_explicito_en_player_creature() -> void:
+	# Chunk B: un hechizo PLAYER_CREATURE aplica al target explicito provisto a
+	# play_card(), no siempre a board[0].
+	_setup_basico()
+	_session.start()
+	var c0 := CardInstance.new()
+	c0.setup(_creature(0, 1, 1), 0)
+	var c1 := CardInstance.new()
+	c1.setup(_creature(0, 1, 1), 0)
+	_session.player_deck.add_to_board(c0)
+	_session.player_deck.add_to_board(c1)
+	var spell := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
+	_session.player_deck._hand.append(spell)
+	var ok := _session.play_card(spell, false, 0, 0, c1)
+	assert_true(ok, "el hechizo se juega")
+	assert_eq(c1.current_attack, 3, "el buff va al target explicito (1 + 2)")
+	assert_eq(c0.current_attack, 1, "board[0] no se toca")
+
+
+func test_play_card_hechizo_player_creature_fallback_a_board_cero() -> void:
+	# Chunk B: sin target explicito, PLAYER_CREATURE mantiene el fallback a
+	# board[0] (retrocompatibilidad).
+	_setup_basico()
+	_session.start()
+	var c0 := CardInstance.new()
+	c0.setup(_creature(0, 1, 1), 0)
+	var c1 := CardInstance.new()
+	c1.setup(_creature(0, 1, 1), 0)
+	_session.player_deck.add_to_board(c0)
+	_session.player_deck.add_to_board(c1)
+	var spell := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
+	_session.player_deck._hand.append(spell)
+	var ok := _session.play_card(spell)
+	assert_true(ok, "el hechizo se juega sin target")
+	assert_eq(c0.current_attack, 3, "fallback a board[0] (1 + 2)")
+	assert_eq(c1.current_attack, 1, "el resto del board no se toca")
+
+
 func test_play_spell_aplica_effect_a_target_explicito() -> void:
 	# Chunk 3: play_spell aplica el effect pasado al target explicito, sin usar
 	# los spell_effects propios de la carta.
