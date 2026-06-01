@@ -34,3 +34,11 @@ var stalemate_turn_limit: int = 50
 ## Tope de mejoras permanentes (apply_permanent_buff) por carta.
 ## -1 = ilimitado (motor agnóstico). El juego lo fija (p.ej. 3) antes de setup().
 var max_permanent_buffs_per_card: int = -1
+
+## Tope de criaturas en el tablero de cada lado.
+## -1 = ilimitado (motor agnóstico). El juego lo fija antes de setup().
+var max_board_size: int = -1
+
+## Tope de cartas en la mano de cada lado. Al robar con la mano llena la carta se
+## quema al cementerio (ver discard_fn). -1 = ilimitado (motor agnóstico).
+var max_hand_size: int = -1

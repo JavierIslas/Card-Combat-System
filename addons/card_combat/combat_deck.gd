@@ -43,6 +43,19 @@ var max_permanent_buffs: int = -1
 ## (engine default behavior unchanged).
 var exhaust_fn: Callable = Callable()
 
+## Tope de criaturas en el tablero. Lo siembra la sesión desde CombatConfig.
+## -1 = ilimitado (motor agnóstico).
+var max_board_size: int = -1
+
+## Tope de cartas en la mano. Lo siembra la sesión desde CombatConfig.
+## -1 = ilimitado (motor agnóstico).
+var max_hand_size: int = -1
+
+## Optional discard hook for overdraw, seeded by the session.
+## Signature: (card: CardData, owner_id: int). Invoked when a drawn card is burned
+## because the hand is full. Empty = the card just goes to the graveyard.
+var discard_fn: Callable = Callable()
+
 
 func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable(), p_max_permanent_buffs: int = -1, p_shuffle_seed: int = -1) -> void:
 	owner_id = owner
@@ -86,7 +99,19 @@ func draw_card() -> CardData:
 		deck_exhausted.emit()
 		if exhaust_fn.is_valid():
 			exhaust_fn.call(owner_id)
+		return null
+	if is_hand_full():
+		# Overdraw: the drawn card is burned to the graveyard instead of held.
+		_graveyard.append(card)
+		if discard_fn.is_valid():
+			discard_fn.call(card, owner_id)
+		return card
+	_hand.append(card)
 	return card
+
+
+func is_hand_full() -> bool:
+	return max_hand_size >= 0 and _hand.size() >= max_hand_size
 
 
 func _draw_from_pile() -> CardData:
@@ -99,6 +124,8 @@ func _draw_from_pile() -> CardData:
 
 func play_creature(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0) -> CardInstance:
 	if not can_play_card(card):
+		return null
+	if is_board_full():
 		return null
 	spend_mana(card.cost)
 	var idx := _hand.find(card)
@@ -190,7 +217,14 @@ func get_board() -> Array[CardInstance]:
 
 
 func add_to_board(inst: CardInstance) -> void:
+	# Respect the board cap (e.g. summons): a full board silently drops the extra.
+	if is_board_full():
+		return
 	_board.append(inst)
+
+
+func is_board_full() -> bool:
+	return max_board_size >= 0 and _board.size() >= max_board_size
 
 
 func remove_from_board(inst: CardInstance) -> void:

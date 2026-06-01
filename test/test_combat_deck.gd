@@ -71,6 +71,48 @@ func test_draw_initial_hand() -> void:
 	assert_eq(_deck.draw_pile_size, 2, "quedan 2 en el mazo")
 
 
+func test_draw_card_agrega_a_la_mano() -> void:
+	_deck.setup(_cards(3), 0)
+	assert_eq(_deck.hand_size, 0, "arranca sin mano")
+	var card := _deck.draw_card()
+	assert_not_null(card, "roba una carta")
+	assert_eq(_deck.hand_size, 1, "la carta robada entra a la mano")
+	assert_eq(_deck.draw_pile_size, 2, "y sale del mazo")
+
+
+func test_draw_card_con_mano_llena_quema_al_cementerio() -> void:
+	_deck.setup(_cards(5), 0)
+	_deck.max_hand_size = 2
+	_deck.draw_card()
+	_deck.draw_card()
+	assert_eq(_deck.hand_size, 2, "la mano se llena hasta el tope")
+	var burned := _deck.draw_card()
+	assert_not_null(burned, "se roba la carta aunque la mano esté llena")
+	assert_eq(_deck.hand_size, 2, "la mano no supera el tope")
+	assert_eq(_deck.get_graveyard().size(), 1, "la carta robada de más se quema al cementerio")
+
+
+func test_overdraw_invoca_discard_fn() -> void:
+	_deck.setup(_cards(5), 4)
+	_deck.max_hand_size = 1
+	var seen := {"card": null, "owner": -1}
+	_deck.discard_fn = func(card: CardData, owner: int) -> void:
+		seen["card"] = card
+		seen["owner"] = owner
+	_deck.draw_card()
+	var burned := _deck.draw_card()
+	assert_eq(seen["card"], burned, "discard_fn recibe la carta quemada")
+	assert_eq(seen["owner"], 4, "discard_fn recibe el owner del mazo")
+
+
+func test_mano_ilimitada_por_defecto() -> void:
+	_deck.setup(_cards(5), 0)
+	for i in 5:
+		_deck.draw_card()
+	assert_eq(_deck.hand_size, 5, "max_hand_size = -1 no limita la mano")
+	assert_eq(_deck.get_graveyard().size(), 0, "nada se quema sin tope")
+
+
 func test_draw_card_vacio_emite_deck_exhausted() -> void:
 	_deck.setup(_cards(0), 0)
 	watch_signals(_deck)
@@ -152,6 +194,44 @@ func test_play_creature_sin_mana_falla() -> void:
 	_deck.gain_mana(1)
 	assert_null(_deck.play_creature(card), "sin maná no se juega")
 	assert_eq(_deck.board_size, 0)
+
+
+# --- max_board_size ---
+
+func test_play_creature_falla_con_tablero_lleno() -> void:
+	_deck.setup(_cards(0), 0, 10)
+	_deck.max_board_size = 1
+	var c1 := _make_card(1, 1, 1)
+	var c2 := _make_card(1, 1, 1)
+	_deck._hand.append(c1)
+	_deck._hand.append(c2)
+	_deck.gain_mana(10)
+	assert_not_null(_deck.play_creature(c1), "la primera entra")
+	assert_null(_deck.play_creature(c2), "con tablero lleno (tope 1) la segunda falla")
+	assert_eq(_deck.board_size, 1, "el tablero no supera el tope")
+	assert_eq(_deck.mana, 9, "no se gasta maná en la jugada rechazada")
+
+
+func test_add_to_board_respeta_el_tope() -> void:
+	_deck.setup(_cards(0), 0, 5)
+	_deck.max_board_size = 2
+	_deck.add_to_board(_inst())
+	_deck.add_to_board(_inst())
+	_deck.add_to_board(_inst())  # excede el tope, se descarta
+	assert_eq(_deck.board_size, 2, "add_to_board no supera el tope")
+
+
+func test_tope_ilimitado_por_defecto() -> void:
+	_deck.setup(_cards(0), 0, 10)
+	for i in 5:
+		_deck.add_to_board(_inst())
+	assert_eq(_deck.board_size, 5, "max_board_size = -1 no limita el tablero")
+
+
+func _inst() -> CardInstance:
+	var inst := CardInstance.new()
+	inst.setup(_make_card(1, 1, 1), 0)
+	return inst
 
 
 # --- play_spell ---

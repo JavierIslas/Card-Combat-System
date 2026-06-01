@@ -76,6 +76,11 @@ var damage_fn: Callable = Callable()
 ## Signature: (owner_id: int). Empty = decks only emit deck_exhausted.
 var exhaust_fn: Callable = Callable()
 
+## Optional overdraw hook, seeded into both decks on setup().
+## Signature: (card: CardData, owner_id: int). Invoked when a drawn card is burned
+## because the hand is full (see config.max_hand_size). Empty = burned silently.
+var discard_fn: Callable = Callable()
+
 
 func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Combatant, side1_cards: Array[CardData], ai_seed: int = -1) -> void:
 	## Positional setup: side 0 = first hero/cards, side 1 = second hero/cards.
@@ -112,6 +117,9 @@ func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatD
 	var deck := CombatDeck.new()
 	deck.setup(cards, side, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card, shuffle_seed)
 	deck.exhaust_fn = exhaust_fn
+	deck.max_board_size = config.max_board_size
+	deck.max_hand_size = config.max_hand_size
+	deck.discard_fn = discard_fn
 	deck.draw_initial_hand(config.initial_hand_size)
 	return deck
 
