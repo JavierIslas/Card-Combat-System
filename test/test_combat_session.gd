@@ -110,6 +110,29 @@ func test_event_log_es_determinista_por_seed() -> void:
 	assert_eq(_serialized_log(first), _serialized_log(second), "mismo seed reproduce el log de eventos")
 
 
+func test_integracion_event_log_incluye_muerte_por_hechizo_serializada() -> void:
+	# End-to-end: jugar un hechizo AOE que mata debe dejar un CREATURE_DIED en el
+	# event_log, serializable con el card_id y owner correctos (replay-friendly).
+	var session := CombatSession.new()
+	var aoe := _spell(1, SpellEffect.EffectType.AOE_DAMAGE, 5, SpellEffect.TargetType.ENEMY_CREATURES)
+	aoe.card_id = "meteoro"
+	var s0_cards: Array[CardData] = [aoe]
+	session.setup(_hero(10), s0_cards, _hero(10), _empty(), 3)
+	session.start()
+	var victima := CardInstance.new()
+	var victim_data := _creature(1, 0, 1)
+	victim_data.card_id = "goblin"
+	victima.setup(victim_data, 1)
+	session.decks[1].add_to_board(victima)
+	assert_true(session.play_card(aoe), "el AOE se juega desde la mano")
+	assert_true(victima.is_dead, "el AOE mata a la criatura enemiga")
+	var serial := _serialized_log(session)
+	var deaths := serial.filter(func(e: Dictionary) -> bool: return e["type"] == "CREATURE_DIED")
+	assert_eq(deaths.size(), 1, "la muerte por hechizo queda en el log serializado")
+	assert_eq(deaths[0]["payload"]["card_id"], "goblin", "con el card_id correcto")
+	assert_eq(deaths[0]["payload"]["owner"], 1, "y el owner correcto")
+
+
 func test_event_log_se_limpia_en_setup() -> void:
 	_setup_basico()
 	_session.auto_resolve()
@@ -131,6 +154,58 @@ func _dead_instance(owner: int) -> CardInstance:
 	inst.setup(_creature(1, 1, 1), owner)
 	inst.is_dead = true
 	return inst
+
+
+func _live_instance(owner: int, attack: int, health: int) -> CardInstance:
+	var inst := CardInstance.new()
+	inst.setup(_creature(1, attack, health), owner)
+	return inst
+
+
+func _logged_types(session: CombatSession) -> Array:
+	var types: Array = []
+	for ev in session.event_log:
+		types.append(ev.type)
+	return types
+
+
+func test_muerte_por_hechizo_aoe_se_reporta() -> void:
+	# Regression: AOE/ENEMY_CREATURES kills must surface like combat deaths, or the
+	# event_log and get_dead_creatures would silently miss them and break replay.
+	_setup_basico()
+	var victima := _live_instance(1, 0, 1)
+	_session.decks[1].add_to_board(victima)
+	var deaths: Array = []
+	_session.creature_died.connect(func(card: CardInstance, owner: int) -> void: deaths.append(owner))
+	var aoe := SpellEffect.new()
+	aoe.effect_type = SpellEffect.EffectType.AOE_DAMAGE
+	aoe.value = 5
+	aoe.target_type = SpellEffect.TargetType.ENEMY_CREATURES
+	_session._apply_single_spell_effect(aoe, 0)
+	assert_true(victima.is_dead, "el AOE mata a la criatura")
+	assert_eq(deaths.size(), 1, "emite creature_died exactamente una vez")
+	assert_eq(deaths[0], 1, "el owner reportado es el lado 1")
+	assert_true(_session.get_dead_creatures(1).has(victima), "queda rastreada en get_dead_creatures")
+	assert_false(_session.decks[1].get_board().has(victima), "sale del tablero")
+	assert_true(_logged_types(_session).has(CombatEvent.EventType.CREATURE_DIED), "el event_log registra la muerte")
+
+
+func test_muerte_por_hechizo_single_target_se_reporta_una_vez() -> void:
+	# A single-target damage that kills also reports; the idempotent _record_death
+	# guarantees a single emission despite the post-effect board sweep.
+	_setup_basico()
+	var victima := _live_instance(1, 0, 1)
+	_session.decks[1].add_to_board(victima)
+	var deaths: Array = []
+	_session.creature_died.connect(func(card: CardInstance, owner: int) -> void: deaths.append(owner))
+	var dmg := SpellEffect.new()
+	dmg.effect_type = SpellEffect.EffectType.DAMAGE
+	dmg.value = 5
+	dmg.target_type = SpellEffect.TargetType.PLAYER_CREATURE
+	_session._apply_single_spell_effect(dmg, 0, victima)
+	assert_true(victima.is_dead, "el hechizo single-target mata a la criatura")
+	assert_eq(deaths.size(), 1, "una sola emisión pese al barrido de muertes")
+	assert_true(_session.get_dead_creatures(1).has(victima), "queda rastreada en get_dead_creatures")
 
 
 func test_get_dead_creatures_rastrea_cada_lado() -> void:

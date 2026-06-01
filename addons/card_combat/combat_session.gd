@@ -575,9 +575,12 @@ func _process_death_results(pairs_result: Array) -> void:
 
 
 func _record_death(inst: CardInstance) -> void:
+	## Idempotent: a creature is recorded and announced once. This lets spell
+	## resolution sweep boards repeatedly without double-emitting creature_died.
 	var side: int = inst.owner_id
-	if not _dead_creatures[side].has(inst):
-		_dead_creatures[side].append(inst)
+	if _dead_creatures[side].has(inst):
+		return
+	_dead_creatures[side].append(inst)
 	_emit_creature_died(inst, side)
 
 
@@ -621,6 +624,8 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			# for internal callers (e.g. auto-play) that bypass that check.
 			if target is CardInstance and not target.is_dead:
 				effect.apply(target, {})
+				# A single-target damage can kill: surface that death like any other.
+				_check_board_deaths(decks[target.owner_id])
 			else:
 				push_warning("PLAYER_CREATURE spell with no valid target — not applied")
 		SpellEffect.TargetType.ENEMY_CREATURES:
@@ -651,9 +656,14 @@ func _damage_hero(side: int, amount: int) -> void:
 
 
 func _check_board_deaths(deck: CombatDeck) -> void:
+	## Spell-caused deaths must surface like combat deaths: record them (emits
+	## creature_died, appends CREATURE_DIED to event_log, tracks get_dead_creatures)
+	## before removing them from the board. Otherwise an AOE/single-target kill would
+	## be invisible to the event_log and break replay.
 	var dead: Array[CardInstance] = []
 	for inst in deck.get_board():
 		if inst.is_dead:
 			dead.append(inst)
 	for inst in dead:
+		_record_death(inst)
 		deck.remove_from_board(inst)
