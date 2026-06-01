@@ -189,6 +189,35 @@ Signal catalog per class:
 | `Combatant` | `health_changed(new_health)` | the participant's health changes |
 | `Combatant` | `died` | health reaches 0 |
 
+### Serialization / save-resume
+
+Beyond seed-based replay, the engine can snapshot live state for save/resume or
+authoritative networking: `CombatSession.serialize() -> Dictionary` captures the
+full graph (phase, sides, heroes, decks, board instances with buffs/hidden stats,
+the `event_log`, dead creatures, and the in-flight attack pairs/blockers by board
+index). `CombatSession.deserialize(data, hooks)` rebuilds it. The non-serializable
+pieces are re-injected through `hooks`:
+
+```gdscript
+var data := session.serialize()           # persist this Dictionary
+# ... later ...
+var resumed := CombatSession.deserialize(data, {
+    "config": my_config,                  # else a default CombatConfig
+    "ability_fn": my_ability_handler,     # re-wired into every CardInstance
+    "damage_fn": my_damage_fn,
+    "exhaust_fn": my_exhaust_fn,
+    "discard_fn": my_discard_fn,
+    "heroes": [my_hero0, my_hero1],       # optional: a game's subclassed heroes
+    "ais": [ai0, ai1],                    # optional: deterministic resume
+})
+```
+
+`CardData`/`SpellEffect` round-trip the built-in `EffectType` data; spells that
+rely on an injected `effect_fn`/`id_fn` must be re-hydrated by the game (by
+`card_id`), same as the other Callables. Deserializing a `CardInstance` rebuilds
+its state directly **without** firing `ON_SETUP`, so resuming never re-applies
+on-play effects.
+
 ### History / replay
 
 The engine is deterministic for a fixed seed. `CombatSession.setup(..., ai_seed)`

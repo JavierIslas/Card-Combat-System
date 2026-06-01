@@ -38,6 +38,37 @@ var id_fn: Callable = Callable()
 var effect_fn: Callable = Callable()
 
 
+func serialize() -> Dictionary:
+	## Data-only snapshot of the effect. The injected Callables (id_fn, effect_fn)
+	## are NOT serialized: the game layer re-injects them on deserialize, same as
+	## the other engine hooks. Round-trips built-in EffectType spells faithfully.
+	return {
+		"effect_type": EffectType.keys()[effect_type],
+		"value": value,
+		"target_type": TargetType.keys()[target_type],
+		"buff_health": buff_health,
+		"summon_name": summon_name,
+		"summon_attack": summon_attack,
+		"summon_health": summon_health,
+		"summon_count": summon_count,
+	}
+
+
+static func from_dict(data: Dictionary) -> SpellEffect:
+	var e := SpellEffect.new()
+	var et: int = EffectType.keys().find(data.get("effect_type", "DAMAGE"))
+	e.effect_type = (et if et != -1 else EffectType.DAMAGE) as EffectType
+	var tt: int = TargetType.keys().find(data.get("target_type", "ENEMY_HERO"))
+	e.target_type = (tt if tt != -1 else TargetType.ENEMY_HERO) as TargetType
+	e.value = int(data.get("value", 0))
+	e.buff_health = int(data.get("buff_health", 0))
+	e.summon_name = data.get("summon_name", "")
+	e.summon_attack = int(data.get("summon_attack", 0))
+	e.summon_health = int(data.get("summon_health", 0))
+	e.summon_count = int(data.get("summon_count", 0))
+	return e
+
+
 func apply(target: Variant, _combat_context: Dictionary) -> Dictionary:
 	if effect_fn.is_valid():
 		return effect_fn.call(self, target, _combat_context)

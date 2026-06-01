@@ -24,6 +24,7 @@ func test_from_dict_serialize_round_trip() -> void:
 		"health": 1,
 		"card_type": "CRIATURA",
 		"metadata": {"rareza": "comun"},
+		"spell_effects": [],
 	}
 	var card := CardData.from_dict(data)
 	assert_not_null(card)

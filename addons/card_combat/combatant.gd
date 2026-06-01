@@ -43,3 +43,21 @@ func heal(amount: int) -> void:
 
 func is_alive() -> bool:
 	return current_health > 0
+
+
+func serialize() -> Dictionary:
+	return {
+		"display_name": display_name,
+		"max_health": max_health,
+		"current_health": current_health,
+	}
+
+
+static func deserialize(data: Dictionary) -> Combatant:
+	## Rebuilds a base Combatant. A game with a subclassed hero re-hydrates its own
+	## instance and passes it via the deserialize hooks instead.
+	var c := Combatant.new()
+	c.display_name = data.get("display_name", "")
+	c.max_health = int(data.get("max_health", 30))
+	c.current_health = int(data.get("current_health", c.max_health))
+	return c

@@ -122,15 +122,32 @@ func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatD
 	deck.max_board_size = config.max_board_size
 	deck.max_hand_size = config.max_hand_size
 	deck.discard_fn = discard_fn
-	# Mirror the deck's card-level signals into the session event_log so the log
-	# alone is a full replay/spectator stream. The deck signals stay intact for
-	# live listeners; the session is the single owner of event_log appends.
+	_wire_deck_events(deck)
+	deck.draw_initial_hand(config.initial_hand_size)
+	return deck
+
+
+func _wire_deck_events(deck: CombatDeck) -> void:
+	## Mirror the deck's card-level signals into the session event_log so the log
+	## alone is a full replay/spectator stream. The deck signals stay intact for
+	## live listeners; the session is the single owner of event_log appends. Shared
+	## by _make_deck and deserialize so a resumed combat keeps logging.
 	deck.card_drawn.connect(func(card: CardData) -> void: _emit_card_drawn(card, deck.owner_id))
 	deck.card_played.connect(func(inst: CardInstance) -> void: _emit_card_played(inst, deck.owner_id))
 	deck.mana_changed.connect(func(new_mana: int) -> void: _emit_mana_changed(deck.owner_id, new_mana))
 	deck.deck_exhausted.connect(func() -> void: _emit_deck_exhausted(deck.owner_id))
-	deck.draw_initial_hand(config.initial_hand_size)
-	return deck
+
+
+func _deck_hooks() -> Dictionary:
+	## Non-serializable deck config, re-supplied to CombatDeck.deserialize.
+	return {
+		"ability_fn": ability_fn,
+		"max_permanent_buffs": config.max_permanent_buffs_per_card,
+		"exhaust_fn": exhaust_fn,
+		"discard_fn": discard_fn,
+		"max_board_size": config.max_board_size,
+		"max_hand_size": config.max_hand_size,
+	}
 
 
 func _seed_ai(side: int, ai_seed: int) -> void:
@@ -321,6 +338,162 @@ func get_dead_creatures(side: int) -> Array:
 	if decks[side] == null:
 		return []
 	return _dead_creatures[side]
+
+
+# --- Serialization (save/resume + authoritative networking) ---------------
+# The non-serializable hooks (config, ability_fn, damage_fn, exhaust_fn,
+# discard_fn) and AIs are re-injected via the deserialize `hooks` dictionary;
+# everything else is captured as primitives so the snapshot round-trips. Cross-
+# references (attack pairs, blockers) are encoded by board index; dead creatures
+# (already off-board) are stored as full instances.
+
+func serialize() -> Dictionary:
+	return {
+		"phase": CombatState.Phase.keys()[phase],
+		"active_side": active_side,
+		"winner_side": winner_side,
+		"turn_number": turn_number,
+		"combat_over": _combat_over,
+		"heroes": [_serialize_hero(0), _serialize_hero(1)],
+		"decks": [decks[0].serialize(), decks[1].serialize()],
+		"event_log": event_log.map(func(ev: CombatEvent) -> Dictionary: return ev.serialize()),
+		"dead_creatures": [_serialize_dead(0), _serialize_dead(1)],
+		"attack_pairs": [_serialize_pairs(0), _serialize_pairs(1)],
+		"block_assignments": _serialize_blocks(),
+	}
+
+
+func _serialize_hero(side: int) -> Variant:
+	return heroes[side].serialize() if heroes[side] != null else null
+
+
+func _serialize_dead(side: int) -> Array:
+	return _dead_creatures[side].map(func(inst: CardInstance) -> Dictionary: return inst.serialize())
+
+
+func _serialize_pairs(side: int) -> Array:
+	var out: Array = []
+	for pair in _attack_pairs[side]:
+		var def_idx: int = -1
+		if pair.defender != null:
+			def_idx = decks[1 - side].get_board().find(pair.defender)
+		out.append({
+			"attacker": decks[side].get_board().find(pair.attacker),
+			"defender": def_idx,
+		})
+	return out
+
+
+func _serialize_blocks() -> Array:
+	var out: Array = []
+	var passive: int = 1 - active_side
+	for attacker in _block_assignments:
+		out.append({
+			"attacker": decks[active_side].get_board().find(attacker),
+			"blocker": decks[passive].get_board().find(_block_assignments[attacker]),
+		})
+	return out
+
+
+static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSession:
+	## Rebuilds a session from serialize(). `hooks` re-supplies the non-serializable
+	## pieces: config, ability_fn, damage_fn, exhaust_fn, discard_fn, and optionally
+	## `heroes` (for a game's subclassed hero) and `ais` (for deterministic resume).
+	var session := CombatSession.new()
+	session.config = hooks.get("config", CombatConfig.new())
+	session.ability_fn = hooks.get("ability_fn", Callable())
+	session.damage_fn = hooks.get("damage_fn", Callable())
+	session.exhaust_fn = hooks.get("exhaust_fn", Callable())
+	session.discard_fn = hooks.get("discard_fn", Callable())
+	session._resolver.damage_fn = session.damage_fn
+	session._restore_scalars(data)
+	session._restore_heroes(data, hooks.get("heroes", null))
+	session._restore_decks(data)
+	session._restore_log(data)
+	session._restore_dead(data)
+	session._restore_pairs_and_blocks(data)
+	session._restore_ais(hooks.get("ais", null))
+	return session
+
+
+func _restore_scalars(data: Dictionary) -> void:
+	var idx: int = CombatState.Phase.keys().find(data.get("phase", "INICIO"))
+	phase = (idx if idx != -1 else CombatState.Phase.INICIO) as CombatState.Phase
+	active_side = int(data.get("active_side", 0))
+	winner_side = int(data.get("winner_side", -1))
+	turn_number = int(data.get("turn_number", 0))
+	_combat_over = data.get("combat_over", false)
+
+
+func _restore_heroes(data: Dictionary, override: Variant) -> void:
+	var raw: Array = data.get("heroes", [null, null])
+	for side in 2:
+		if override is Array and override.size() == 2 and override[side] != null:
+			heroes[side] = override[side]
+			if raw[side] is Dictionary:
+				heroes[side].current_health = int(raw[side].get("current_health", heroes[side].current_health))
+		elif raw[side] is Dictionary:
+			heroes[side] = Combatant.deserialize(raw[side])
+		else:
+			heroes[side] = null
+
+
+func _restore_decks(data: Dictionary) -> void:
+	var deck_hooks: Dictionary = _deck_hooks()
+	var raw: Array = data.get("decks", [])
+	for side in 2:
+		decks[side] = CombatDeck.deserialize(raw[side], deck_hooks)
+		_wire_deck_events(decks[side])
+
+
+func _restore_log(data: Dictionary) -> void:
+	var log: Array[CombatEvent] = []
+	for ed in data.get("event_log", []):
+		log.append(CombatEvent.deserialize(ed))
+	event_log = log
+
+
+func _restore_dead(data: Dictionary) -> void:
+	var raw: Array = data.get("dead_creatures", [[], []])
+	_dead_creatures = [[], []]
+	for side in 2:
+		for d in raw[side]:
+			_dead_creatures[side].append(CardInstance.deserialize(d, ability_fn))
+
+
+func _restore_pairs_and_blocks(data: Dictionary) -> void:
+	var raw_pairs: Array = data.get("attack_pairs", [[], []])
+	_attack_pairs = [[], []]
+	for side in 2:
+		for p in raw_pairs[side]:
+			var attacker: CardInstance = _board_at(side, int(p.get("attacker", -1)))
+			if attacker == null:
+				continue
+			var defender: Variant = _board_at(1 - side, int(p.get("defender", -1)))
+			_attack_pairs[side].append(CombatPair.new(attacker, defender))
+	_block_assignments.clear()
+	var passive: int = 1 - active_side
+	for b in data.get("block_assignments", []):
+		var atk: CardInstance = _board_at(active_side, int(b.get("attacker", -1)))
+		var blk: CardInstance = _board_at(passive, int(b.get("blocker", -1)))
+		if atk != null and blk != null:
+			_block_assignments[atk] = blk
+
+
+func _board_at(side: int, idx: int) -> CardInstance:
+	if idx < 0:
+		return null
+	var board: Array[CardInstance] = decks[side].get_board()
+	return board[idx] if idx < board.size() else null
+
+
+func _restore_ais(override: Variant) -> void:
+	if override is Array and override.size() == 2:
+		ais = override
+	# Seed a reference AI for any side left without one (resume loses the original
+	# AI seed, so determinism requires re-injecting the AIs via hooks).
+	_seed_ai(0, -1)
+	_seed_ai(1, -1)
 
 
 func auto_resolve() -> void:

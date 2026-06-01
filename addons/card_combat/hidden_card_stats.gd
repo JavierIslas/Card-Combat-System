@@ -22,6 +22,15 @@ extends Resource
 @export var total_mana_invested: int = 0
 
 
+func serialize() -> Dictionary:
+	return {
+		"declared_attack": declared_attack,
+		"declared_health": declared_health,
+		"declared_abilities": declared_abilities.duplicate(),
+		"total_mana_invested": total_mana_invested,
+	}
+
+
 static func from_dict(data: Dictionary) -> HiddenCardStats:
 	var stats := HiddenCardStats.new()
 	stats.declared_attack = int(data.get("declared_attack", 0))

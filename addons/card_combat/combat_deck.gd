@@ -235,6 +235,62 @@ func get_graveyard() -> Array[CardData]:
 	return _graveyard
 
 
+func serialize() -> Dictionary:
+	## Snapshot of one side's state. Hooks (ability_fn, exhaust_fn, discard_fn) and
+	## caps are NOT stored: the session re-injects them on deserialize. The RNG seed
+	## and state are kept so further shuffles stay deterministic after a resume.
+	return {
+		"owner_id": owner_id,
+		"mana": _mana,
+		"max_mana": _max_mana,
+		"rng_seed": _rng.seed,
+		"rng_state": _rng.state,
+		"draw_pile": _serialize_cards(_draw_pile),
+		"hand": _serialize_cards(_hand),
+		"graveyard": _serialize_cards(_graveyard),
+		"board": _board.map(func(inst: CardInstance) -> Dictionary: return inst.serialize()),
+	}
+
+
+func _serialize_cards(cards: Array[CardData]) -> Array:
+	return cards.map(func(card: CardData) -> Dictionary: return card.serialize())
+
+
+static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatDeck:
+	## Rebuilds a deck from a snapshot. `hooks` re-supplies the non-serializable
+	## config: ability_fn, max_permanent_buffs, exhaust_fn, discard_fn, max_board_size
+	## and max_hand_size. Board instances are rebuilt with the ability_fn already set.
+	var deck := CombatDeck.new()
+	deck.owner_id = int(data.get("owner_id", 0))
+	deck.ability_fn = hooks.get("ability_fn", Callable())
+	deck.max_permanent_buffs = int(hooks.get("max_permanent_buffs", -1))
+	deck.exhaust_fn = hooks.get("exhaust_fn", Callable())
+	deck.discard_fn = hooks.get("discard_fn", Callable())
+	deck.max_board_size = int(hooks.get("max_board_size", -1))
+	deck.max_hand_size = int(hooks.get("max_hand_size", -1))
+	deck._mana = int(data.get("mana", 0))
+	deck._max_mana = int(data.get("max_mana", 1))
+	deck._rng.seed = int(data.get("rng_seed", 0))
+	deck._rng.state = int(data.get("rng_state", 0))
+	deck._draw_pile = _deserialize_cards(data.get("draw_pile", []))
+	deck._hand = _deserialize_cards(data.get("hand", []))
+	deck._graveyard = _deserialize_cards(data.get("graveyard", []))
+	var board: Array[CardInstance] = []
+	for d in data.get("board", []):
+		board.append(CardInstance.deserialize(d, deck.ability_fn))
+	deck._board = board
+	return deck
+
+
+static func _deserialize_cards(raw: Array) -> Array[CardData]:
+	var cards: Array[CardData] = []
+	for d in raw:
+		var card := CardData.from_dict(d)
+		if card != null:
+			cards.append(card)
+	return cards
+
+
 var mana: int:
 	get: return _mana
 

@@ -175,3 +175,57 @@ func _die() -> void:
 func _fire(trigger: Trigger) -> void:
 	if ability_fn.is_valid():
 		ability_fn.call(self, trigger)
+
+
+func serialize() -> Dictionary:
+	## Full state snapshot for save/resume. The ability_fn Callable is NOT stored;
+	## it is re-injected on deserialize (by the owning deck), same as other hooks.
+	return {
+		"card_data": card_data.serialize() if card_data != null else {},
+		"owner_id": owner_id,
+		"is_hidden": is_hidden,
+		"is_dead": is_dead,
+		"hidden_stats": hidden_stats.serialize() if hidden_stats != null else null,
+		"current_attack": current_attack,
+		"current_health": current_health,
+		"current_max_health": current_max_health,
+		"can_attack_this_turn": can_attack_this_turn,
+		"damage_taken_this_turn": damage_taken_this_turn,
+		"times_attacked": times_attacked,
+		"has_attacked_this_turn": has_attacked_this_turn,
+		"immunity_hits_remaining": immunity_hits_remaining,
+		"permanent_buff_count": permanent_buff_count,
+		"max_permanent_buffs": max_permanent_buffs,
+		"buff_attack_total": _buff_attack_total,
+		"buff_health_total": _buff_health_total,
+		"temp_attack_total": _temp_attack_total,
+		"temp_health_total": _temp_health_total,
+	}
+
+
+static func deserialize(data: Dictionary, p_ability_fn: Callable = Callable()) -> CardInstance:
+	## Rebuilds the instance state directly WITHOUT calling setup(), so resuming a
+	## saved combat does not re-fire ON_SETUP (which would re-apply on-play effects).
+	var inst := CardInstance.new()
+	inst.card_data = CardData.from_dict(data.get("card_data", {}))
+	inst.owner_id = int(data.get("owner_id", 0))
+	inst.is_hidden = data.get("is_hidden", false)
+	inst.is_dead = data.get("is_dead", false)
+	var hs: Variant = data.get("hidden_stats", null)
+	inst.hidden_stats = HiddenCardStats.from_dict(hs) if hs is Dictionary else null
+	inst.current_attack = int(data.get("current_attack", 0))
+	inst.current_health = int(data.get("current_health", 0))
+	inst.current_max_health = int(data.get("current_max_health", 0))
+	inst.can_attack_this_turn = data.get("can_attack_this_turn", false)
+	inst.damage_taken_this_turn = int(data.get("damage_taken_this_turn", 0))
+	inst.times_attacked = int(data.get("times_attacked", 0))
+	inst.has_attacked_this_turn = data.get("has_attacked_this_turn", false)
+	inst.immunity_hits_remaining = int(data.get("immunity_hits_remaining", 0))
+	inst.permanent_buff_count = int(data.get("permanent_buff_count", 0))
+	inst.max_permanent_buffs = int(data.get("max_permanent_buffs", -1))
+	inst._buff_attack_total = int(data.get("buff_attack_total", 0))
+	inst._buff_health_total = int(data.get("buff_health_total", 0))
+	inst._temp_attack_total = int(data.get("temp_attack_total", 0))
+	inst._temp_health_total = int(data.get("temp_health_total", 0))
+	inst.ability_fn = p_ability_fn
+	return inst

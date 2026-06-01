@@ -52,10 +52,20 @@ static func from_dict(data: Dictionary) -> CardData:
 	var meta: Variant = data.get("metadata", {})
 	if meta is Dictionary:
 		card.metadata = (meta as Dictionary).duplicate()
+	var effects: Variant = data.get("spell_effects", [])
+	if effects is Array:
+		var parsed: Array[SpellEffect] = []
+		for e in effects:
+			if e is Dictionary:
+				parsed.append(SpellEffect.from_dict(e))
+		card.spell_effects = parsed
 	return card
 
 
 func serialize() -> Dictionary:
+	var effects: Array = []
+	for e in spell_effects:
+		effects.append(e.serialize())
 	return {
 		"card_id": card_id,
 		"name": name,
@@ -64,4 +74,5 @@ func serialize() -> Dictionary:
 		"health": health,
 		"card_type": CardType.keys()[card_type],
 		"metadata": metadata.duplicate(),
+		"spell_effects": effects,
 	}

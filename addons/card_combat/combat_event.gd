@@ -44,3 +44,10 @@ func serialize() -> Dictionary:
 		"type": EventType.keys()[type],
 		"payload": payload.duplicate(true),
 	}
+
+
+static func deserialize(data: Dictionary) -> CombatEvent:
+	var idx: int = EventType.keys().find(data.get("type", "PHASE_CHANGED"))
+	var t: EventType = (idx if idx != -1 else EventType.PHASE_CHANGED) as EventType
+	var payload_in: Variant = data.get("payload", {})
+	return CombatEvent.new(t, (payload_in as Dictionary).duplicate(true) if payload_in is Dictionary else {})
