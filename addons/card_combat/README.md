@@ -24,7 +24,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CombatPair` | Declared attacker/defender pair |
 | `CombatDamageResolver` | Resolves damage for the combat pairs |
 | `SpellEffect` | Spell effect (damage/heal/summon) |
-| `CombatConfig` | Balance parameters (mana, cap, starting hand, board limit) |
+| `CombatConfig` | Balance parameters (mana, cap, starting hand, board/hand limits, permanent-buff cap) |
 | `CombatAI` | Base AI contract: defines the 5 signatures; subclass for a custom AI |
 | `DummyAI` | Reference/default AI (random, optional seed); `extends CombatAI` |
 
@@ -39,9 +39,12 @@ packaging / future export) and can be mirrored to a standalone repo.
 3. **`CombatSession.config: CombatConfig`** — reassign before `setup()` to
    change balance without touching the engine. Includes
    `max_permanent_buffs_per_card` (cap of permanent buffs per card;
-   `-1` = unlimited). The engine knows no rules like "+1/+1 cap 3": the game
-   sets the cap here and applies whatever delta it wants with
-   `apply_permanent_buff`.
+   `-1` = unlimited), `max_board_size` (creatures allowed on a side's board;
+   `-1` = unlimited; a full board rejects `play_creature` and drops extra summons)
+   and `max_hand_size` (cards held in hand; `-1` = unlimited; an overdraw burns the
+   drawn card to the graveyard, see `discard_fn`). The engine knows no rules like
+   "+1/+1 cap 3": the game sets the caps here and applies whatever delta it wants
+   with `apply_permanent_buff`.
 4. **`Combatant`** — the game passes its hero (subclass) and builds the enemy
    `Combatant` from its own templates.
 5. **`CombatSession.damage_fn: Callable`** — damage formula, seeded into the
@@ -71,6 +74,10 @@ packaging / future export) and can be mirrored to a standalone repo.
        # game-defined semantics, reading effect.value / context as needed
        return {"success": true, "drained": effect.value}
    ```
+8. **`CombatSession.discard_fn: Callable`** — overdraw hook, seeded into both decks
+   on `setup()`. Signature: `(card: CardData, owner_id: int)`. Called when a card is
+   drawn with a full hand (`config.max_hand_size`) and burned to the graveyard.
+   Empty = the card is burned silently.
 
 ### Permanent buffs (generic)
 
@@ -166,7 +173,7 @@ Signal catalog per class:
 |-------|--------|------|
 | `CombatSession` | `phase_changed(old, new)` | every FSM transition |
 | `CombatSession` | `combat_ended(winner_side)` | on entering `FINAL` (`-1` = no winner) |
-| `CombatSession` | `creature_died(card, owner)` | a creature dies resolving combat |
+| `CombatSession` | `creature_died(card, owner)` | a creature dies, whether in combat or by a spell (AOE/single-target) |
 | `CombatSession` | `combatant_damaged(side, amount)` | the hero of `side` takes damage |
 | `CombatSession` | `spell_fizzled(card)` | a single-target spell was cast with no valid target (not consumed) |
 | `CombatDeck` | `card_drawn(card)` | a card is drawn from the deck |
