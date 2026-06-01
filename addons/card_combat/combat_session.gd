@@ -19,6 +19,7 @@ signal combat_ended(player_won: bool)
 signal creature_died(card: CardInstance, owner: int)
 signal hero_damaged(amount: int)
 signal enemy_damaged(amount: int)
+signal spell_fizzled(card: CardData)
 
 # Safety guards (engine internals, not game balance): cap auto_resolve loop
 # iterations and the number of card plays resolved automatically per turn.
@@ -113,11 +114,15 @@ func start() -> void:
 
 func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0, target: Variant = null) -> bool:
 	## `target` only applies to single-target spells (e.g. PLAYER_CREATURE). A
-	## single-target spell with no valid target is NOT applied (it warns and is
-	## skipped) — the caller is responsible for picking a target.
+	## single-target spell cast with no valid target fizzles: it is NOT consumed
+	## (mana and card stay), `spell_fizzled` is emitted and play_card returns false.
+	## The caller is responsible for picking a target and retrying.
 	if not _can_play_from_hand(card):
 		return false
 	if card.card_type == CardData.CardType.HECHIZO:
+		if _spell_needs_missing_target(card, target):
+			_emit_spell_fizzled(card)
+			return false
 		if not _consume_spell(card):
 			return false
 		_apply_spell_effects(card, 0, target)
@@ -138,6 +143,18 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 	var context: Dictionary = {"session": self, "owner_id": 0}
 	effect.apply(target, context)
 	return true
+
+
+func _spell_needs_missing_target(card: CardData, target: Variant) -> bool:
+	## A spell fizzles when any of its effects is single-target (PLAYER_CREATURE)
+	## and no living creature target was provided. Casting is atomic: the whole
+	## spell is rejected so a half-applied multi-effect card can't be consumed.
+	if target is CardInstance and not target.is_dead:
+		return false
+	for effect in card.spell_effects:
+		if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE:
+			return true
+	return false
 
 
 func _can_play_from_hand(card: CardData) -> bool:
@@ -332,6 +349,12 @@ func _emit_creature_died(card: CardInstance, owner: int) -> void:
 func _emit_combat_ended(player_won: bool) -> void:
 	combat_ended.emit(player_won)
 	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBAT_ENDED, {"player_won": player_won}))
+
+
+func _emit_spell_fizzled(card: CardData) -> void:
+	spell_fizzled.emit(card)
+	var card_id: String = card.card_id if card != null else ""
+	event_log.append(CombatEvent.new(CombatEvent.EventType.SPELL_FIZZLED, {"card_id": card_id}))
 
 
 func _enter_phase(p: CombatState.Phase) -> void:
@@ -536,8 +559,9 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 		SpellEffect.TargetType.PLAYER_HERO:
 			caster_hero.heal(effect.value)
 		SpellEffect.TargetType.PLAYER_CREATURE:
-			# A single-target spell requires an explicit, living target. With no
-			# valid target the effect is skipped (loud), not silently retargeted.
+			# Public casting via play_card() already rejects a missing target before
+			# consuming (see _spell_needs_missing_target). This is a low-level guard
+			# for internal callers (e.g. the AI turn) that bypass that check.
 			if target is CardInstance and not target.is_dead:
 				effect.apply(target, {})
 			else:

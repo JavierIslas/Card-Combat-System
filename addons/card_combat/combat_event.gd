@@ -24,6 +24,7 @@ enum EventType {
 	ENEMY_DAMAGED,
 	CREATURE_DIED,
 	COMBAT_ENDED,
+	SPELL_FIZZLED,
 }
 
 var type: EventType = EventType.PHASE_CHANGED

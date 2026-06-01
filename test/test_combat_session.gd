@@ -389,23 +389,27 @@ func test_play_card_hechizo_usa_target_explicito_en_player_creature() -> void:
 	assert_eq(c0.current_attack, 1, "board[0] no se toca")
 
 
-func test_play_card_hechizo_player_creature_sin_target_no_aplica() -> void:
-	# FIX 4.2 (breaking): sin target explicito, un hechizo PLAYER_CREATURE NO se
-	# aplica (falla ruidoso con push_warning), en vez de caer a board[0].
+func test_play_card_hechizo_player_creature_sin_target_fizzle() -> void:
+	# FIX 4.2 (breaking): sin target valido, un hechizo PLAYER_CREATURE hace fizzle:
+	# NO se consume (mana y carta intactos), emite spell_fizzled y play_card da false.
 	_setup_basico()
 	_session.start()
 	var c0 := CardInstance.new()
 	c0.setup(_creature(0, 1, 1), 0)
-	var c1 := CardInstance.new()
-	c1.setup(_creature(0, 1, 1), 0)
 	_session.player_deck.add_to_board(c0)
-	_session.player_deck.add_to_board(c1)
-	var spell := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
+	var spell := _spell(1, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
 	_session.player_deck._hand.append(spell)
+	var mana_antes: int = _session.player_deck.mana
+	watch_signals(_session)
 	var ok := _session.play_card(spell)
-	assert_true(ok, "el hechizo se consume aunque no haya target")
-	assert_eq(c0.current_attack, 1, "ya no hay fallback a board[0]")
-	assert_eq(c1.current_attack, 1, "el resto del board tampoco se toca")
+	assert_false(ok, "play_card devuelve false: el hechizo no se jugo")
+	assert_signal_emitted(_session, "spell_fizzled")
+	assert_eq(_session.player_deck.mana, mana_antes, "el mana NO se consume")
+	assert_true(spell in _session.player_deck._hand, "la carta sigue en la mano")
+	assert_eq(c0.current_attack, 1, "ninguna criatura recibe el buff (sin fallback a board[0])")
+	var fizzles := _session.event_log.filter(
+		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.SPELL_FIZZLED)
+	assert_eq(fizzles.size(), 1, "el fizzle queda espejado en el event_log")
 
 
 func test_play_spell_aplica_effect_a_target_explicito() -> void:
