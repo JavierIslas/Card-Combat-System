@@ -161,14 +161,6 @@ func refresh_creatures_for_turn() -> void:
 			inst.can_attack_this_turn = true
 
 
-func get_attackers() -> Array[CardInstance]:
-	var result: Array[CardInstance] = []
-	for inst in _board:
-		if not inst.is_dead and inst.can_attack_this_turn:
-			result.append(inst)
-	return result
-
-
 func get_defenders() -> Array[CardInstance]:
 	var result: Array[CardInstance] = []
 	for inst in _board:

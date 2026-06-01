@@ -534,7 +534,7 @@ func _resolve_side_attacks(pairs: Array, target_hero: Combatant, target_side: in
 	## resulting creature deaths.
 	if pairs.is_empty():
 		return
-	var result: Dictionary = _resolver.resolve_combat(pairs, target_hero.current_health)
+	var result: Dictionary = _resolver.resolve_combat(pairs)
 	_damage_hero(target_side, result["hero_damage"])
 	var pairs_result: Array = result["pairs_result"]
 	if not pairs_result.is_empty():

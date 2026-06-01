@@ -37,7 +37,7 @@ func test_trade_mutuo_ambos_mueren() -> void:
 	var a := _make_creature(3, 3)
 	var d := _make_creature(3, 3)
 	var pair := CombatPair.new(a, d)
-	var result := _resolver.resolve_combat([pair], 30)
+	var result := _resolver.resolve_combat([pair])
 	var pr: Dictionary = result["pairs_result"][0]
 	assert_true(pr["attacker_died"], "atacante muere")
 	assert_true(pr["defender_died"], "defensor muere")
@@ -49,7 +49,7 @@ func test_dano_simultaneo_intercambio_completo() -> void:
 	var a := _make_creature(5, 2)
 	var d := _make_creature(2, 4)
 	var pair := CombatPair.new(a, d)
-	_resolver.resolve_combat([pair], 30)
+	_resolver.resolve_combat([pair])
 	assert_eq(a.current_health, 0, "atacante recibe 2 (muere, vida 2)")
 	assert_eq(d.current_health, 0, "defensor recibe 5 sobre 4 de vida → muere")
 
@@ -57,7 +57,7 @@ func test_dano_simultaneo_intercambio_completo() -> void:
 func test_ataque_directo_al_heroe() -> void:
 	var a := _make_creature(4, 3)
 	var pair := CombatPair.new(a, null)
-	var result := _resolver.resolve_combat([pair], 30)
+	var result := _resolver.resolve_combat([pair])
 	assert_eq(result["hero_damage"], 4, "daño directo al héroe")
 	var pr: Dictionary = result["pairs_result"][0]
 	assert_null(pr["defender"])
@@ -68,7 +68,7 @@ func test_ninguno_muere_si_ambos_sobreviven() -> void:
 	var a := _make_creature(1, 10)  # pega 1, recibe 5 → vive con 5
 	var d := _make_creature(5, 2)   # pega 5, recibe 1 → vive con 1
 	var pair := CombatPair.new(a, d)
-	var result := _resolver.resolve_combat([pair], 30)
+	var result := _resolver.resolve_combat([pair])
 	var pr: Dictionary = result["pairs_result"][0]
 	assert_false(pr["attacker_died"], "atacante sobrevive (10-5=5)")
 	assert_false(pr["defender_died"], "defensor sobrevive (2-1=1)")
@@ -81,7 +81,7 @@ func test_dos_atacantes_mismo_bloqueador() -> void:
 	var a1 := _make_creature(2, 5)
 	var a2 := _make_creature(2, 5)
 	var d := _make_creature(1, 3)
-	var result := _resolver.resolve_combat([CombatPair.new(a1, d), CombatPair.new(a2, d)], 30)
+	var result := _resolver.resolve_combat([CombatPair.new(a1, d), CombatPair.new(a2, d)])
 	assert_true(d.is_dead, "el defensor muere por el dano combinado (2+2 sobre 3)")
 	assert_eq(a1.current_health, 4, "cada atacante recibe el ataque del defensor (1)")
 	assert_eq(a2.current_health, 4)

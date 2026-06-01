@@ -20,7 +20,7 @@ extends RefCounted
 var damage_fn: Callable = Callable()
 
 
-func resolve_combat(pairs: Array, _defender_hp: int) -> Dictionary:
+func resolve_combat(pairs: Array) -> Dictionary:
 	var pairs_result: Array = []
 	var hero_damage: int = 0
 
