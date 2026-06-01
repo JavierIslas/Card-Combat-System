@@ -91,6 +91,21 @@ session.setup(hero, hero_cards, enemy, enemy_cards)
 session.start()
 ```
 
+### Casting single-target spells
+
+A spell with a `PLAYER_CREATURE` effect needs an explicit, living target. Pass it
+as the last argument of `play_card`:
+
+```gdscript
+var ok := session.play_card(spell, false, 0, 0, chosen_creature)
+```
+
+If no valid target is given, the spell **fizzles**: it is not consumed (mana and
+card stay in hand), `play_card` returns `false`, and the session emits
+`spell_fizzled(card)`. GDScript has no exceptions, so the contract is expressed
+through the return value plus the signal — the caller (UI or AI) reacts by
+prompting for a target and retrying, instead of wasting the card.
+
 ## AI
 
 The AI contract lives in the base class `CombatAI`, which defines the four
@@ -106,7 +121,7 @@ The engine exposes its state two ways: live **signals** (below), and a structure
 **`CombatSession.event_log: Array[CombatEvent]`** that mirrors the session-level
 signals as a replay-friendly stream. Each `CombatEvent` has a `type`
 (`PHASE_CHANGED`, `HERO_DAMAGED`, `ENEMY_DAMAGED`, `CREATURE_DIED`,
-`COMBAT_ENDED`) and a serializable `payload`; `event.serialize()` round-trips it
+`COMBAT_ENDED`, `SPELL_FIZZLED`) and a serializable `payload`; `event.serialize()` round-trips it
 (e.g. `creature_died` logs `{owner, card_id}`, not the live instance). The log is
 cleared on `setup()`. Card-level events (`card_drawn`, `card_played`) stay on
 `CombatDeck`, not in the session log. Consume the log when you want the whole run
@@ -121,6 +136,7 @@ Signal catalog per class:
 | `CombatSession` | `creature_died(card, owner)` | a creature dies resolving combat |
 | `CombatSession` | `hero_damaged(amount)` | the player hero takes damage |
 | `CombatSession` | `enemy_damaged(amount)` | the enemy hero takes damage |
+| `CombatSession` | `spell_fizzled(card)` | a single-target spell was cast with no valid target (not consumed) |
 | `CombatDeck` | `card_drawn(card)` | a card is drawn from the deck |
 | `CombatDeck` | `deck_exhausted` | failed draw on empty deck (see `exhaust_fn` hook) |
 | `CombatDeck` | `card_played(instance)` | a creature enters the board |
