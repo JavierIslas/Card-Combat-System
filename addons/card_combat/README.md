@@ -60,6 +60,17 @@ packaging / future export) and can be mirrored to a standalone repo.
    session.exhaust_fn = func(owner_id):
        (player_hero if owner_id == 0 else enemy).take_damage(1)
    ```
+7. **`SpellEffect.effect_fn: Callable`** — full override of effect resolution, for
+   effect types outside the engine's `EffectType` catalog. Signature:
+   `(effect: SpellEffect, target, context) -> Dictionary`. When set, it replaces
+   the built-in `match`; empty = engine default. Lets the game add custom spells
+   without editing the engine:
+   ```gdscript
+   var drain := SpellEffect.new()
+   drain.effect_fn = func(effect, target, context):
+       # game-defined semantics, reading effect.value / context as needed
+       return {"success": true, "drained": effect.value}
+   ```
 
 ### Permanent buffs (generic)
 
