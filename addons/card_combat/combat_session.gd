@@ -165,6 +165,11 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 	## declared spell_effects and target_type.
 	if not _can_play_from_hand(card):
 		return false
+	# Same fizzle contract as play_card: a single-target effect with no living
+	# target is rejected before consuming, so the card and mana are not wasted.
+	if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE and not (target is CardInstance and not target.is_dead):
+		_emit_spell_fizzled(card)
+		return false
 	if not _consume_spell(card):
 		return false
 	var context: Dictionary = {"session": self, "owner_id": active_side}

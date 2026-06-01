@@ -619,3 +619,23 @@ func test_play_spell_aplica_effect_a_target_explicito() -> void:
 	var ok := _session.play_spell(card, effect, _session.heroes[1])
 	assert_true(ok, "el hechizo manual se juega")
 	assert_eq(_session.heroes[1].current_health, 25, "cura 5 al target explicito (20 -> 25)")
+
+
+func test_play_spell_single_target_sin_target_hace_fizzle() -> void:
+	# play_spell ad-hoc honra el mismo contrato de fizzle que play_card: un effect
+	# PLAYER_CREATURE sin target vivo no consume la carta ni el maná.
+	_setup_basico()
+	_session.start()
+	var card := _spell(1, SpellEffect.EffectType.DAMAGE, 2, SpellEffect.TargetType.PLAYER_CREATURE)
+	_session.decks[0]._hand.append(card)
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.DAMAGE
+	effect.value = 2
+	effect.target_type = SpellEffect.TargetType.PLAYER_CREATURE
+	var mana_antes: int = _session.decks[0].mana
+	watch_signals(_session)
+	var ok := _session.play_spell(card, effect, null)
+	assert_false(ok, "play_spell devuelve false sin target válido")
+	assert_signal_emitted(_session, "spell_fizzled")
+	assert_eq(_session.decks[0].mana, mana_antes, "el maná NO se consume")
+	assert_true(card in _session.decks[0]._hand, "la carta sigue en la mano")
