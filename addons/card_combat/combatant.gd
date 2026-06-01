@@ -25,11 +25,15 @@ signal died
 @export var current_health: int = 30
 
 
-func take_damage(amount: int) -> void:
-	current_health = maxi(current_health - amount, 0)
+func take_damage(amount: int) -> int:
+	## Returns the damage actually applied (clamped so overkill is not counted),
+	## mirroring CardInstance.take_damage for API parity.
+	var actual: int = mini(maxi(amount, 0), current_health)
+	current_health -= actual
 	health_changed.emit(current_health)
 	if current_health == 0:
 		died.emit()
+	return actual
 
 
 func heal(amount: int) -> void:

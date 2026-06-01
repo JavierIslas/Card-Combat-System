@@ -48,3 +48,12 @@ func test_no_emite_died_si_sobrevive() -> void:
 	watch_signals(_combatant)
 	_combatant.take_damage(5)
 	assert_signal_not_emitted(_combatant, "died")
+
+func test_take_damage_devuelve_dano_real() -> void:
+	# A4: returns the damage actually applied, clamped so overkill is not counted.
+	assert_eq(_combatant.take_damage(10), 10, "daño normal se devuelve íntegro")
+
+
+func test_take_damage_devuelve_dano_clampeado_en_overkill() -> void:
+	_combatant.take_damage(25)  # 5 restante
+	assert_eq(_combatant.take_damage(100), 5, "overkill devuelve solo el daño hasta 0")
