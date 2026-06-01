@@ -14,7 +14,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 
 | Class | Role |
 |-------|------|
-| `Combatant` | Generic participant: `current_health/max_health`, `take_damage`, `heal`, signals. The player hero extends it; the enemy is instantiated directly |
+| `Combatant` | Generic participant: `current_health/max_health`, `take_damage`, `heal`, signals. Each side's hero is one of these (`heroes[side]`) |
 | `CardData` | Card core (id/cost/stats/type) + opaque `metadata: Dictionary` for game-specific fields |
 | `CardInstance` | Card in play (turn state, health, flags). Fires ability triggers via `ability_fn` |
 | `HiddenCardStats` | Declared vs. hidden stats for bluffing |
@@ -58,7 +58,7 @@ packaging / future export) and can be mirrored to a standalone repo.
    the hero on fatigue:
    ```gdscript
    session.exhaust_fn = func(owner_id):
-       (player_hero if owner_id == 0 else enemy).take_damage(1)
+       session.heroes[owner_id].take_damage(1)
    ```
 7. **`SpellEffect.effect_fn: Callable`** — full override of effect resolution, for
    effect types outside the engine's `EffectType` catalog. Signature:
@@ -81,14 +81,38 @@ from `CombatConfig`). It also raises `current_max_health`, which is the cap
 respected by `heal()`. For "+1/+1 with cap 3", the game sets
 `config.max_permanent_buffs_per_card = 3` and calls `inst.apply_permanent_buff(1, 1)`.
 
+## Turn model (alternating, symmetric, PvP-ready)
+
+The combat is **symmetric per side** (`0`/`1`): there is no built-in "player vs
+enemy". Each turn one side is **active** (takes its turn and attacks) and the
+other is **passive** (declares blockers). The engine is agnostic to who drives
+each side — human UI, AI, or a network peer — which is what makes it PvP-ready.
+`turn_number` counts half-turns (one per side turn).
+
+FSM per side turn:
+`PREPARACION → PRINCIPAL → ATAQUE → DEFENSA → RESOLVER → (swap side) → …`
+
+| Phase | Driven by | What |
+|-------|-----------|------|
+| `PREPARACION` | active | only the active side ramps mana, draws and refreshes |
+| `PRINCIPAL` | active | `play_card` |
+| `ATAQUE` | active | `declare_attacker(attacker, target?)` (target = a passive creature, or null for the hero) |
+| `DEFENSA` | **passive** | `declare_blocker(attacker, blocker)` — redirects that attack to the blocker |
+| `RESOLVER` | engine | resolves the active side's attacks, then hands the turn over |
+
+State is indexed by side: `heroes[0/1]`, `decks[0/1]`, `ais[0/1]`, `active_side`,
+`winner_side` (`-1` = no winner). Assign `ais[side]` before `setup()` to inject a
+controller for a side; otherwise `setup()` seeds a reference `DummyAI`.
+
 ## Minimal wiring
 
 ```gdscript
 var session := CombatSession.new()
 session.ability_fn = my_ability_handler   # optional
 session.config.starting_max_mana = 2      # optional
-session.setup(hero, hero_cards, enemy, enemy_cards)
-session.start()
+session.ais[0] = my_player_ai             # optional; else a seeded DummyAI
+session.setup(side0_hero, side0_cards, side1_hero, side1_cards, seed)
+session.start()                           # or session.auto_resolve() to run headless
 ```
 
 ### Casting single-target spells
@@ -113,14 +137,17 @@ signatures: `choose_card_to_play`, `choose_attackers`, `choose_attack_target`,
 `choose_blockers`. Its stubs return empty and emit `push_error`, so an
 incomplete subclass fails loudly. `DummyAI extends CombatAI` is the default AI
 and the reference example. For a stronger AI, subclass `CombatAI` and override
-those methods. It operates only on `CardData` and `CardInstance`.
+those methods. It operates only on `CardData` and `CardInstance`. Both the
+attacking (`choose_attackers`/`choose_attack_target`) and defending
+(`choose_blockers`) sides go through this same contract — an AI is just a driver
+for whichever side(s) you assign it to via `ais[side]`.
 
 ## Observability (signals + event_log)
 
 The engine exposes its state two ways: live **signals** (below), and a structured
 **`CombatSession.event_log: Array[CombatEvent]`** that mirrors the session-level
 signals as a replay-friendly stream. Each `CombatEvent` has a `type`
-(`PHASE_CHANGED`, `HERO_DAMAGED`, `ENEMY_DAMAGED`, `CREATURE_DIED`,
+(`PHASE_CHANGED`, `COMBATANT_DAMAGED`, `CREATURE_DIED`,
 `COMBAT_ENDED`, `SPELL_FIZZLED`) and a serializable `payload`; `event.serialize()` round-trips it
 (e.g. `creature_died` logs `{owner, card_id}`, not the live instance). The log is
 cleared on `setup()`. Card-level events (`card_drawn`, `card_played`) stay on
@@ -132,10 +159,9 @@ Signal catalog per class:
 | Class | Signal | When |
 |-------|--------|------|
 | `CombatSession` | `phase_changed(old, new)` | every FSM transition |
-| `CombatSession` | `combat_ended(player_won)` | on entering `FINAL` |
+| `CombatSession` | `combat_ended(winner_side)` | on entering `FINAL` (`-1` = no winner) |
 | `CombatSession` | `creature_died(card, owner)` | a creature dies resolving combat |
-| `CombatSession` | `hero_damaged(amount)` | the player hero takes damage |
-| `CombatSession` | `enemy_damaged(amount)` | the enemy hero takes damage |
+| `CombatSession` | `combatant_damaged(side, amount)` | the hero of `side` takes damage |
 | `CombatSession` | `spell_fizzled(card)` | a single-target spell was cast with no valid target (not consumed) |
 | `CombatDeck` | `card_drawn(card)` | a card is drawn from the deck |
 | `CombatDeck` | `deck_exhausted` | failed draw on empty deck (see `exhaust_fn` hook) |
@@ -150,13 +176,13 @@ Signal catalog per class:
 ### History / replay
 
 The engine is deterministic for a fixed seed. `CombatSession.setup(..., ai_seed)`
-seeds both deck shuffles and the enemy `DummyAI`; the player AI is seeded by you
-(`DummyAI.setup(seed)`, or `auto_resolve(player_ai, player_ai_seed)`). With those
-seeds and the starting cards fixed, the same inputs reproduce the same match
-bit-for-bit — including a byte-identical serialized `event_log`. Two ways to use
-this: persist just the seeds (and the starting cards) and re-run the combat to
-rebuild the history, or capture `event_log` (via `serialize()`) as the recorded
-run directly. Either way the engine stores no extra state of its own.
+seeds both deck shuffles and, for any side without an injected AI, a reference
+`DummyAI` (one per side, derived from `ai_seed`). With the seed and the starting
+cards fixed, the same inputs reproduce the same match bit-for-bit — including a
+byte-identical serialized `event_log`. Two ways to use this: persist just the seed
+(and the starting cards) and re-run the combat to rebuild the history, or capture
+`event_log` (via `serialize()`) as the recorded run directly. Either way the
+engine stores no extra state of its own.
 
 ## What does NOT live here (game layer)
 
