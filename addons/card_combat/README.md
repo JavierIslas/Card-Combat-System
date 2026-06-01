@@ -27,6 +27,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CombatConfig` | Balance parameters (mana, cap, starting hand, board/hand limits, permanent-buff cap) |
 | `CombatAI` | Base AI contract: defines the 5 signatures; subclass for a custom AI |
 | `DummyAI` | Reference/default AI (random, optional seed); `extends CombatAI` |
+| `HeuristicAI` | Optional stronger AI (greedy, deterministic): curve-filling plays, value trades, threat blocking; `extends CombatAI`. Inject via `ais[side]`; DummyAI stays the default |
 
 ## Injection points (how the game layer specializes it)
 
