@@ -318,6 +318,37 @@ func test_auto_play_aplica_hechizo_del_lado_activo() -> void:
 	assert_eq(_session.heroes[1].current_health, 23, "el hechizo del lado activo surte efecto en auto-play")
 
 
+func test_auto_play_targetea_hechizo_single_target_via_ai() -> void:
+	# La IA elige el target de un hechizo PLAYER_CREATURE en auto-play; antes el
+	# hechizo caia al push_warning por falta de target.
+	_setup_basico()
+	var ai := DummyAI.new()
+	ai.setup(1)
+	_session.ais[0] = ai
+	_session.start()
+	var ally := CardInstance.new()
+	ally.setup(_creature(0, 2, 2), 0)
+	_session.decks[0].add_to_board(ally)
+	var buff := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 3, SpellEffect.TargetType.PLAYER_CREATURE)
+	_session.decks[0]._hand.append(buff)
+	_session._auto_play_active()
+	assert_eq(ally.current_attack, 5, "la IA targeteo la criatura viva y aplico el buff")
+
+
+func test_auto_play_saltea_single_target_sin_criaturas() -> void:
+	# Sin criaturas vivas la IA no puede targetear: el hechizo se saltea y NO se
+	# consume (queda en mano), en vez de caer al guard de bajo nivel.
+	_setup_basico()
+	var ai := DummyAI.new()
+	ai.setup(1)
+	_session.ais[0] = ai
+	_session.start()
+	var buff := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 3, SpellEffect.TargetType.PLAYER_CREATURE)
+	_session.decks[0]._hand.append(buff)
+	_session._auto_play_active()
+	assert_true(_session.decks[0]._hand.has(buff), "el hechizo sin target posible queda en mano")
+
+
 func test_declare_attacker_rechaza_doble_declaracion() -> void:
 	# Regresion bug #1: declarar el mismo atacante dos veces no duplica el par.
 	_setup_basico()

@@ -1,11 +1,12 @@
 extends GutTest
 ## Caracterizacion del contrato base CombatAI: DummyAI es-un CombatAI y tanto la
-## base como la implementacion de referencia exponen las 4 firmas del contrato.
+## base como la implementacion de referencia exponen las 5 firmas del contrato.
 
 const CONTRACT_METHODS := [
 	"choose_card_to_play",
 	"choose_attackers",
 	"choose_attack_target",
+	"choose_spell_target",
 	"choose_blockers",
 ]
 

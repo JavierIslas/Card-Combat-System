@@ -363,17 +363,50 @@ func _snapshot_hand(deck: CombatDeck) -> Array[CardData]:
 func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 	## Plays cards from `side`'s hand until the AI passes or the per-turn cap is
 	## hit. Shared by both sides' auto-play so spells and creatures resolve the
-	## same way regardless of who is active.
-	var card_to_play: CardData = side_ai.choose_card_to_play(_snapshot_hand(deck), deck.mana)
+	## same way regardless of who is active. A single-target spell asks the AI for
+	## a target; if none fits it is skipped (not consumed) and hidden from the AI
+	## for the rest of the turn so it isn't re-picked uselessly.
+	var skipped: Array[CardData] = []
+	var card_to_play: CardData = side_ai.choose_card_to_play(_playable_hand(deck, skipped), deck.mana)
 	var plays: int = 0
 	while card_to_play != null and plays < MAX_PLAYS_PER_TURN:
 		if card_to_play.card_type == CardData.CardType.HECHIZO:
-			deck.play_spell(card_to_play)
-			_apply_spell_effects(card_to_play, side)
+			var target: Variant = _ai_spell_target(card_to_play, side, side_ai)
+			if _spell_needs_missing_target(card_to_play, target):
+				skipped.append(card_to_play)
+			else:
+				deck.play_spell(card_to_play)
+				_apply_spell_effects(card_to_play, side, target)
+				plays += 1
 		else:
 			deck.play_creature(card_to_play)
-		plays += 1
-		card_to_play = side_ai.choose_card_to_play(_snapshot_hand(deck), deck.mana)
+			plays += 1
+		card_to_play = side_ai.choose_card_to_play(_playable_hand(deck, skipped), deck.mana)
+
+
+func _ai_spell_target(card: CardData, side: int, side_ai: CombatAI) -> Variant:
+	## Consult the AI for a single-target spell's target. Other spells resolve
+	## relative to the caster, so they need no explicit target.
+	if not _spell_is_single_target(card):
+		return null
+	return side_ai.choose_spell_target(card, decks[side].get_board(), decks[1 - side].get_board())
+
+
+func _spell_is_single_target(card: CardData) -> bool:
+	for effect in card.spell_effects:
+		if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE:
+			return true
+	return false
+
+
+func _playable_hand(deck: CombatDeck, skipped: Array[CardData]) -> Array[CardData]:
+	## Hand snapshot minus cards already skipped this turn (e.g. untargetable
+	## single-target spells), so the AI doesn't keep re-picking them.
+	var hand: Array[CardData] = []
+	for card in _snapshot_hand(deck):
+		if not skipped.has(card):
+			hand.append(card)
+	return hand
 
 
 func _transition_to(new_phase: CombatState.Phase) -> void:

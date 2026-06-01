@@ -66,6 +66,35 @@ func test_choose_attack_target_null_si_board_vacio() -> void:
 	assert_null(ai.choose_attack_target(_inst(1, 1), vacio), "sin defensores, ataca al heroe (null)")
 
 
+func test_choose_spell_target_elige_criatura_viva_de_cualquier_lado() -> void:
+	var ai := DummyAI.new()
+	ai.setup(1)
+	var ally := _inst(2, 2, 0)
+	var enemy := _inst(3, 3, 1)
+	var target: Variant = ai.choose_spell_target(_card("hechizo", 1), [ally], [enemy])
+	assert_true(target == ally or target == enemy, "targetea una criatura viva de algun tablero")
+
+
+func test_choose_spell_target_null_sin_criaturas_vivas() -> void:
+	var ai := DummyAI.new()
+	ai.setup(1)
+	var muerto := _inst(2, 2, 1)
+	muerto.is_dead = true
+	var vacio: Array[CardInstance] = []
+	assert_null(ai.choose_spell_target(_card("hechizo", 1), vacio, [muerto]), "sin criaturas vivas devuelve null")
+
+
+func test_choose_spell_target_determinista_con_seed() -> void:
+	var spell := _card("hechizo", 1)
+	var own: Array[CardInstance] = [_inst(1, 1, 0), _inst(2, 2, 0)]
+	var enemy: Array[CardInstance] = [_inst(3, 3, 1)]
+	var ai1 := DummyAI.new()
+	ai1.setup(7)
+	var ai2 := DummyAI.new()
+	ai2.setup(7)
+	assert_eq(ai1.choose_spell_target(spell, own, enemy), ai2.choose_spell_target(spell, own, enemy), "mismo seed, mismo target")
+
+
 func test_choose_blockers_no_reutiliza_bloqueador() -> void:
 	# Regresion bug #4: un bloqueador no puede asignarse a mas de un atacante.
 	var ai := DummyAI.new()

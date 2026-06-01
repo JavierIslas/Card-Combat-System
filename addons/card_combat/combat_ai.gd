@@ -39,6 +39,15 @@ func choose_attack_target(_attacker: CardInstance, _enemy_board: Array[CardInsta
 	return null
 
 
+func choose_spell_target(_spell: CardData, _own_board: Array[CardInstance], _enemy_board: Array[CardInstance]) -> Variant:
+	## Pick a living CardInstance for a single-target spell, or null if none fits.
+	## Both boards are passed because the engine is agnostic about which side a
+	## spell hits: inspect `_spell.spell_effects` (a DAMAGE wants an enemy, a BUFF
+	## an ally) to decide. Returning null makes the spell skip without being cast.
+	push_error("CombatAI.choose_spell_target not implemented")
+	return null
+
+
 func choose_blockers(_attackers: Array[CardInstance], _own_board: Array[CardInstance]) -> Dictionary:
 	## Map attacker CardInstance -> blocker CardInstance for incoming attacks.
 	push_error("CombatAI.choose_blockers not implemented")
