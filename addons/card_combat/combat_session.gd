@@ -598,8 +598,11 @@ func _record_death(inst: CardInstance) -> void:
 
 
 func _check_victory() -> void:
-	var dead_hero: bool = heroes[0].current_health <= 0 or heroes[1].current_health <= 0
-	if dead_hero or _is_stalemate():
+	# Guard null heroes the same way _resolve_winner does: a side may run headless
+	# without a hero (e.g. board-only scenarios) and must not crash here.
+	var dead0: bool = heroes[0] != null and heroes[0].current_health <= 0
+	var dead1: bool = heroes[1] != null and heroes[1].current_health <= 0
+	if dead0 or dead1 or _is_stalemate():
 		_combat_over = true
 		_transition_to(CombatState.Phase.FINAL)
 

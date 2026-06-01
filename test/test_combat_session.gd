@@ -639,3 +639,13 @@ func test_play_spell_single_target_sin_target_hace_fizzle() -> void:
 	assert_signal_emitted(_session, "spell_fizzled")
 	assert_eq(_session.decks[0].mana, mana_antes, "el maná NO se consume")
 	assert_true(card in _session.decks[0]._hand, "la carta sigue en la mano")
+
+
+func test_check_victory_tolera_heroe_nulo() -> void:
+	# Regression A1: a side may have a null hero (board-only / headless scenarios);
+	# _check_victory must guard it like _resolve_winner instead of crashing.
+	_setup_basico()
+	_session.heroes[1] = null
+	_session.auto_resolve()
+	assert_eq(_session.phase, CombatState.Phase.FINAL, "el combate cierra sin crashear con un héroe nulo")
+	assert_eq(_session.winner_side, -1, "sin héroe válido no se declara ganador")
