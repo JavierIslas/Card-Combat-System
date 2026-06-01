@@ -167,7 +167,7 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 		return false
 	# Same fizzle contract as play_card: a single-target effect with no living
 	# target is rejected before consuming, so the card and mana are not wasted.
-	if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE and not (target is CardInstance and not target.is_dead):
+	if _effect_needs_missing_target(effect, target):
 		_emit_spell_fizzled(card)
 		return false
 	if not _consume_spell(card):
@@ -181,12 +181,19 @@ func _spell_needs_missing_target(card: CardData, target: Variant) -> bool:
 	## A spell fizzles when any of its effects is single-target (PLAYER_CREATURE)
 	## and no living creature target was provided. Casting is atomic: the whole
 	## spell is rejected so a half-applied multi-effect card can't be consumed.
-	if target is CardInstance and not target.is_dead:
-		return false
 	for effect in card.spell_effects:
-		if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE:
+		if _effect_needs_missing_target(effect, target):
 			return true
 	return false
+
+
+func _effect_needs_missing_target(effect: SpellEffect, target: Variant) -> bool:
+	## Single source of truth for the fizzle predicate: a single-target effect
+	## (PLAYER_CREATURE) cast with no living creature target. Shared by play_card
+	## (via _spell_needs_missing_target) and the ad-hoc play_spell path.
+	if effect.target_type != SpellEffect.TargetType.PLAYER_CREATURE:
+		return false
+	return not (target is CardInstance and not target.is_dead)
 
 
 func _can_play_from_hand(card: CardData) -> bool:
