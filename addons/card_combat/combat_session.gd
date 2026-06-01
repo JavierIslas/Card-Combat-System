@@ -112,8 +112,9 @@ func start() -> void:
 
 
 func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0, target: Variant = null) -> bool:
-	## `target` only applies to single-target spells (e.g. PLAYER_CREATURE); when
-	## null, single-target effects fall back to their default pick (board[0]).
+	## `target` only applies to single-target spells (e.g. PLAYER_CREATURE). A
+	## single-target spell with no valid target is NOT applied (it warns and is
+	## skipped) — the caller is responsible for picking a target.
 	if not _can_play_from_hand(card):
 		return false
 	if card.card_type == CardData.CardType.HECHIZO:
@@ -535,14 +536,12 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 		SpellEffect.TargetType.PLAYER_HERO:
 			caster_hero.heal(effect.value)
 		SpellEffect.TargetType.PLAYER_CREATURE:
-			# Use the explicit target when provided; otherwise fall back to the
-			# first creature on the caster's board for backward compatibility.
+			# A single-target spell requires an explicit, living target. With no
+			# valid target the effect is skipped (loud), not silently retargeted.
 			if target is CardInstance and not target.is_dead:
 				effect.apply(target, {})
 			else:
-				var board: Array[CardInstance] = caster_deck.get_board()
-				if not board.is_empty():
-					effect.apply(board[0], {})
+				push_warning("PLAYER_CREATURE spell with no valid target — not applied")
 		SpellEffect.TargetType.ENEMY_CREATURES:
 			var enemies: Array[CardInstance] = opponent_deck.get_board()
 			effect.apply(enemies, {})

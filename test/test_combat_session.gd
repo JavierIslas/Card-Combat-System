@@ -389,9 +389,9 @@ func test_play_card_hechizo_usa_target_explicito_en_player_creature() -> void:
 	assert_eq(c0.current_attack, 1, "board[0] no se toca")
 
 
-func test_play_card_hechizo_player_creature_fallback_a_board_cero() -> void:
-	# Chunk B: sin target explicito, PLAYER_CREATURE mantiene el fallback a
-	# board[0] (retrocompatibilidad).
+func test_play_card_hechizo_player_creature_sin_target_no_aplica() -> void:
+	# FIX 4.2 (breaking): sin target explicito, un hechizo PLAYER_CREATURE NO se
+	# aplica (falla ruidoso con push_warning), en vez de caer a board[0].
 	_setup_basico()
 	_session.start()
 	var c0 := CardInstance.new()
@@ -403,9 +403,9 @@ func test_play_card_hechizo_player_creature_fallback_a_board_cero() -> void:
 	var spell := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
 	_session.player_deck._hand.append(spell)
 	var ok := _session.play_card(spell)
-	assert_true(ok, "el hechizo se juega sin target")
-	assert_eq(c0.current_attack, 3, "fallback a board[0] (1 + 2)")
-	assert_eq(c1.current_attack, 1, "el resto del board no se toca")
+	assert_true(ok, "el hechizo se consume aunque no haya target")
+	assert_eq(c0.current_attack, 1, "ya no hay fallback a board[0]")
+	assert_eq(c1.current_attack, 1, "el resto del board tampoco se toca")
 
 
 func test_play_spell_aplica_effect_a_target_explicito() -> void:
