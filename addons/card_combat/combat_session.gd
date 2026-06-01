@@ -551,11 +551,15 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			var allies: Array[CardInstance] = caster_deck.get_board()
 			effect.apply(allies, {})
 		SpellEffect.TargetType.SUMMON_BOARD:
-			var result: Dictionary = effect.apply(null, {"owner_id": side})
+			# Seed the deck-owned hooks via context so _apply_summon builds the
+			# instances already configured (fires ON_SETUP with the handler).
+			var result: Dictionary = effect.apply(null, {
+				"owner_id": side,
+				"ability_fn": caster_deck.ability_fn,
+				"max_permanent_buffs": caster_deck.max_permanent_buffs,
+			})
 			var summoned: Array = result.get("summoned", [])
 			for inst in summoned:
-				inst.ability_fn = caster_deck.ability_fn
-				inst.max_permanent_buffs = caster_deck.max_permanent_buffs
 				caster_deck.add_to_board(inst)
 
 

@@ -31,8 +31,16 @@ var summon_count: int = 0
 ## Si no se inyecta, se usa un slug básico agnóstico (ver _make_summon_id).
 var id_fn: Callable = Callable()
 
+## Resolución completa del efecto, inyectable por la capa-juego para tipos de
+## efecto fuera del catálogo del motor (EffectType). Firma:
+## (effect: SpellEffect, target: Variant, context: Dictionary) -> Dictionary.
+## Si no se inyecta, se usa el match interno por EffectType.
+var effect_fn: Callable = Callable()
+
 
 func apply(target: Variant, _combat_context: Dictionary) -> Dictionary:
+	if effect_fn.is_valid():
+		return effect_fn.call(self, target, _combat_context)
 	match effect_type:
 		EffectType.DAMAGE:
 			return _apply_damage(target)
@@ -43,7 +51,7 @@ func apply(target: Variant, _combat_context: Dictionary) -> Dictionary:
 		EffectType.AOE_DAMAGE:
 			return _apply_aoe_damage(target)
 		EffectType.SUMMON:
-			return _apply_summon(int(_combat_context.get("owner_id", 0)))
+			return _apply_summon(_combat_context)
 		_:
 			return _empty_result()
 
@@ -110,9 +118,14 @@ func _apply_aoe_damage(target: Variant) -> Dictionary:
 	return _empty_result()
 
 
-func _apply_summon(owner_id: int = 0) -> Dictionary:
+func _apply_summon(context: Dictionary) -> Dictionary:
 	if summon_count <= 0:
 		return _empty_result()
+	# Seed the hooks the deck owns BEFORE setup() so the summoned creature fires
+	# ON_SETUP with the game handler already in place (no post-hoc re-seeding).
+	var owner_id: int = int(context.get("owner_id", 0))
+	var ability: Callable = context.get("ability_fn", Callable())
+	var buff_cap: int = int(context.get("max_permanent_buffs", -1))
 	var summoned: Array[CardInstance] = []
 	for i in summon_count:
 		var data := CardData.new()
@@ -122,6 +135,8 @@ func _apply_summon(owner_id: int = 0) -> Dictionary:
 		data.health = summon_health
 		data.card_type = CardData.CardType.CRIATURA
 		var inst := CardInstance.new()
+		inst.ability_fn = ability
+		inst.max_permanent_buffs = buff_cap
 		inst.setup(data, owner_id)
 		summoned.append(inst)
 	return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": 0, "summoned": summoned}

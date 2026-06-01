@@ -118,6 +118,23 @@ func test_summon_id_fn_inyectado() -> void:
 	assert_eq(result["summoned"][0].card_data.card_id, "GAME::Lobo::0/1", "usa el id_fn del juego")
 
 
+func test_effect_fn_inyectado_reemplaza_el_match() -> void:
+	# El effect_fn inyectado corta el match interno: la capa-juego resuelve un
+	# tipo de efecto fuera del catálogo del motor.
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.DAMAGE
+	effect.value = 99
+	# The lambda reads e.value (instead of capturing `effect`) to avoid a
+	# RefCounted reference cycle that would leak the SpellEffect at exit.
+	effect.effect_fn = func(e: SpellEffect, _t: Variant, _c: Dictionary) -> Dictionary:
+		return {"success": true, "custom": true, "seen_value": e.value}
+	var target := _make_instance(0, 5)
+	var result := effect.apply(target, {})
+	assert_true(result.get("custom", false), "el effect_fn resuelve el efecto")
+	assert_eq(result.get("seen_value", -1), 99, "recibe el propio SpellEffect como primer arg")
+	assert_eq(target.current_health, 5, "el match interno (DAMAGE) no corrió")
+
+
 func test_buff_sube_current_max_health() -> void:
 	# Regresion bug #2: un buff de vida debe subir current_max_health para que una
 	# cura posterior pueda alcanzar el nuevo maximo.

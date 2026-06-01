@@ -245,6 +245,26 @@ func test_invocacion_enemiga_owner_uno() -> void:
 	assert_eq(board[0].owner_id, 1, "owner del enemigo, no 0")
 
 
+func test_invocacion_siembra_ability_fn_antes_del_setup() -> void:
+	# Regresion: la criatura invocada hereda el ability_fn del lado y dispara
+	# ON_SETUP con el handler ya sembrado (antes se re-sembraba tras setup()).
+	var triggers: Array = []
+	_session.ability_fn = func(_inst: CardInstance, trigger: int) -> void:
+		triggers.append(trigger)
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	var summon := _spell(0, SpellEffect.EffectType.SUMMON, 0, SpellEffect.TargetType.SUMMON_BOARD)
+	summon.spell_effects[0].summon_name = "Eco"
+	summon.spell_effects[0].summon_attack = 1
+	summon.spell_effects[0].summon_health = 1
+	summon.spell_effects[0].summon_count = 1
+	_session._apply_spell_effects(summon, 0)
+	var board := _session.player_deck.get_board()
+	assert_eq(board.size(), 1, "la criatura se invoca al board del lanzador")
+	assert_true(board[0].ability_fn.is_valid(), "hereda el ability_fn del lado")
+	assert_true(triggers.has(CardInstance.Trigger.ON_SETUP), "ON_SETUP se dispara con el handler ya sembrado")
+
+
 func test_auto_play_aplica_hechizo_del_jugador() -> void:
 	_setup_basico()
 	_session.start()
