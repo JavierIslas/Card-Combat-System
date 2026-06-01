@@ -90,6 +90,18 @@ func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Comb
 	# Seed the optional damage hook so the resolver uses it for this combat.
 	_resolver.damage_fn = damage_fn
 
+	# Reset combat state BEFORE building decks so the initial-hand draws (emitted
+	# inside _make_deck) land in a freshly cleared event_log.
+	phase = CombatState.Phase.INICIO
+	active_side = 0
+	winner_side = -1
+	turn_number = 0
+	_attack_pairs = [[], []]
+	_block_assignments.clear()
+	_dead_creatures = [[], []]
+	event_log.clear()
+	_combat_over = false
+
 	# Derive a distinct shuffle seed per side from the combat seed so a fixed
 	# ai_seed reproduces both deck orders. A negative seed leaves both decks
 	# randomized (engine default).
@@ -102,16 +114,6 @@ func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Comb
 	_seed_ai(0, ai_seed)
 	_seed_ai(1, ai_seed)
 
-	phase = CombatState.Phase.INICIO
-	active_side = 0
-	winner_side = -1
-	turn_number = 0
-	_attack_pairs = [[], []]
-	_block_assignments.clear()
-	_dead_creatures = [[], []]
-	event_log.clear()
-	_combat_over = false
-
 
 func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatDeck:
 	var deck := CombatDeck.new()
@@ -120,6 +122,13 @@ func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatD
 	deck.max_board_size = config.max_board_size
 	deck.max_hand_size = config.max_hand_size
 	deck.discard_fn = discard_fn
+	# Mirror the deck's card-level signals into the session event_log so the log
+	# alone is a full replay/spectator stream. The deck signals stay intact for
+	# live listeners; the session is the single owner of event_log appends.
+	deck.card_drawn.connect(func(card: CardData) -> void: _emit_card_drawn(card, deck.owner_id))
+	deck.card_played.connect(func(inst: CardInstance) -> void: _emit_card_played(inst, deck.owner_id))
+	deck.mana_changed.connect(func(new_mana: int) -> void: _emit_mana_changed(deck.owner_id, new_mana))
+	deck.deck_exhausted.connect(func() -> void: _emit_deck_exhausted(deck.owner_id))
 	deck.draw_initial_hand(config.initial_hand_size)
 	return deck
 
@@ -471,6 +480,28 @@ func _emit_spell_fizzled(card: CardData) -> void:
 	spell_fizzled.emit(card)
 	var card_id: String = card.card_id if card != null else ""
 	event_log.append(CombatEvent.new(CombatEvent.EventType.SPELL_FIZZLED, {"card_id": card_id}))
+
+
+# Card-level events mirrored from the per-side decks. The deck still emits its own
+# signals for live listeners; here we only append the serializable record so the
+# event_log is a complete, replay-friendly stream.
+
+func _emit_card_drawn(card: CardData, owner: int) -> void:
+	var card_id: String = card.card_id if card != null else ""
+	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_DRAWN, {"owner": owner, "card_id": card_id}))
+
+
+func _emit_card_played(inst: CardInstance, owner: int) -> void:
+	var card_id: String = inst.card_data.card_id if inst != null and inst.card_data != null else ""
+	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_PLAYED, {"owner": owner, "card_id": card_id}))
+
+
+func _emit_mana_changed(owner: int, new_mana: int) -> void:
+	event_log.append(CombatEvent.new(CombatEvent.EventType.MANA_CHANGED, {"owner": owner, "new_mana": new_mana}))
+
+
+func _emit_deck_exhausted(owner: int) -> void:
+	event_log.append(CombatEvent.new(CombatEvent.EventType.DECK_EXHAUSTED, {"owner": owner}))
 
 
 func _enter_phase(p: CombatState.Phase) -> void:

@@ -672,3 +672,24 @@ func test_effect_fn_letal_sobre_aliados_reporta_muerte() -> void:
 	assert_eq(deaths[0], 0, "el owner reportado es el lado 0")
 	assert_true(_session.get_dead_creatures(0).has(aliado), "queda rastreada en get_dead_creatures")
 	assert_false(_session.decks[0].get_board().has(aliado), "sale del tablero")
+
+
+func test_event_log_incluye_eventos_de_carta() -> void:
+	# D: the session event_log mirrors deck-level events (draw/play/mana) so the log
+	# alone is a full replay stream, not just session-level events.
+	var hero_cards: Array[CardData] = [_creature(1, 2, 2)]
+	_session.setup(_hero(10), hero_cards, _hero(10), _empty(), 7)
+	_session.auto_resolve()
+	var types := _logged_types(_session)
+	assert_true(types.has(CombatEvent.EventType.CARD_DRAWN), "el log incluye robos de carta")
+	assert_true(types.has(CombatEvent.EventType.MANA_CHANGED), "el log incluye cambios de maná")
+	assert_true(types.has(CombatEvent.EventType.CARD_PLAYED), "el log incluye criaturas jugadas")
+
+
+func test_event_log_con_cartas_serializa_round_trip() -> void:
+	# Card-level payloads carry only primitives, so the whole stream round-trips.
+	_session.setup(_hero(10), [_creature(1, 2, 2)], _hero(10), _empty(), 7)
+	_session.auto_resolve()
+	for ev in _session.event_log:
+		var data := ev.serialize()
+		assert_true(data.has("type") and data.has("payload"), "cada evento serializa type+payload")

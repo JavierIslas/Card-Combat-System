@@ -159,14 +159,16 @@ returns no living target, the spell is skipped (not consumed) for that turn.
 ## Observability (signals + event_log)
 
 The engine exposes its state two ways: live **signals** (below), and a structured
-**`CombatSession.event_log: Array[CombatEvent]`** that mirrors the session-level
-signals as a replay-friendly stream. Each `CombatEvent` has a `type`
-(`PHASE_CHANGED`, `COMBATANT_DAMAGED`, `CREATURE_DIED`,
-`COMBAT_ENDED`, `SPELL_FIZZLED`) and a serializable `payload`; `event.serialize()` round-trips it
-(e.g. `creature_died` logs `{owner, card_id}`, not the live instance). The log is
-cleared on `setup()`. Card-level events (`card_drawn`, `card_played`) stay on
-`CombatDeck`, not in the session log. Consume the log when you want the whole run
-as data; use the signals when you want live object references.
+**`CombatSession.event_log: Array[CombatEvent]`** that mirrors the signals as a
+replay-friendly stream. Each `CombatEvent` has a `type` (`PHASE_CHANGED`,
+`COMBATANT_DAMAGED`, `CREATURE_DIED`, `COMBAT_ENDED`, `SPELL_FIZZLED`, plus the
+card-level `CARD_DRAWN`, `CARD_PLAYED`, `MANA_CHANGED`, `DECK_EXHAUSTED`) and a
+serializable `payload`; `event.serialize()` round-trips it (e.g. `creature_died`
+logs `{owner, card_id}`, not the live instance). The log is cleared on `setup()`
+(initial-hand draws are logged). The session mirrors the per-side deck signals
+into the log, so the log **alone** is a full replay/spectator stream; the deck
+signals stay intact for live listeners. Consume the log when you want the whole
+run as data; use the signals when you want live object references.
 
 Signal catalog per class:
 
