@@ -649,3 +649,26 @@ func test_check_victory_tolera_heroe_nulo() -> void:
 	_session.auto_resolve()
 	assert_eq(_session.phase, CombatState.Phase.FINAL, "el combate cierra sin crashear con un héroe nulo")
 	assert_eq(_session.winner_side, -1, "sin héroe válido no se declara ganador")
+
+
+func test_effect_fn_letal_sobre_aliados_reporta_muerte() -> void:
+	# Regression A3: a custom effect_fn over PLAYER_CREATURES that kills an ally must
+	# surface the death (creature_died / event_log / get_dead_creatures) and clear
+	# the board, just like ENEMY_CREATURES does.
+	_setup_basico()
+	var aliado := _live_instance(0, 1, 1)
+	_session.decks[0].add_to_board(aliado)
+	var deaths: Array = []
+	_session.creature_died.connect(func(_card: CardInstance, owner: int) -> void: deaths.append(owner))
+	var lethal := SpellEffect.new()
+	lethal.target_type = SpellEffect.TargetType.PLAYER_CREATURES
+	lethal.effect_fn = func(_e: SpellEffect, target: Variant, _ctx: Dictionary) -> Dictionary:
+		for inst in target:
+			inst.take_damage(99)
+		return {"success": true}
+	_session._apply_single_spell_effect(lethal, 0)
+	assert_true(aliado.is_dead, "el effect_fn mata al aliado")
+	assert_eq(deaths.size(), 1, "emite creature_died exactamente una vez")
+	assert_eq(deaths[0], 0, "el owner reportado es el lado 0")
+	assert_true(_session.get_dead_creatures(0).has(aliado), "queda rastreada en get_dead_creatures")
+	assert_false(_session.decks[0].get_board().has(aliado), "sale del tablero")

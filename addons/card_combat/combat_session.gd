@@ -658,6 +658,9 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 		SpellEffect.TargetType.PLAYER_CREATURES:
 			var allies: Array[CardInstance] = caster_deck.get_board()
 			effect.apply(allies, {})
+			# Built-in buffs can't kill, but a custom effect_fn could damage allies;
+			# sweep so any death surfaces like ENEMY_CREATURES (creature_died/log).
+			_check_board_deaths(caster_deck)
 		SpellEffect.TargetType.SUMMON_BOARD:
 			# Seed the deck-owned hooks via context so _apply_summon builds the
 			# instances already configured (fires ON_SETUP with the handler).
