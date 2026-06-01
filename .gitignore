@@ -49,8 +49,10 @@ desktop.ini
 # Godot 4.x build artifacts
 *.gdextension
 
-# Godot 4.x uid files (auto-generated)
+# Godot 4.x uid files (auto-generated). Ignored everywhere EXCEPT the published
+# card_combat addon: the Godot AssetLib requires the .uid files to ship with it.
 *.gd.uid
+!addons/card_combat/**/*.gd.uid
 
 # HTML docs generados
 *.html
