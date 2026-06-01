@@ -25,7 +25,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CombatDamageResolver` | Resolves damage for the combat pairs |
 | `SpellEffect` | Spell effect (damage/heal/summon) |
 | `CombatConfig` | Balance parameters (mana, cap, starting hand, board limit) |
-| `CombatAI` | Base AI contract: defines the 4 signatures; subclass for a custom AI |
+| `CombatAI` | Base AI contract: defines the 5 signatures; subclass for a custom AI |
 | `DummyAI` | Reference/default AI (random, optional seed); `extends CombatAI` |
 
 ## Injection points (how the game layer specializes it)
@@ -132,15 +132,21 @@ prompting for a target and retrying, instead of wasting the card.
 
 ## AI
 
-The AI contract lives in the base class `CombatAI`, which defines the four
+The AI contract lives in the base class `CombatAI`, which defines five
 signatures: `choose_card_to_play`, `choose_attackers`, `choose_attack_target`,
-`choose_blockers`. Its stubs return empty and emit `push_error`, so an
-incomplete subclass fails loudly. `DummyAI extends CombatAI` is the default AI
-and the reference example. For a stronger AI, subclass `CombatAI` and override
-those methods. It operates only on `CardData` and `CardInstance`. Both the
-attacking (`choose_attackers`/`choose_attack_target`) and defending
-(`choose_blockers`) sides go through this same contract — an AI is just a driver
-for whichever side(s) you assign it to via `ais[side]`.
+`choose_spell_target`, `choose_blockers`. Its stubs return empty and emit
+`push_error`, so an incomplete subclass fails loudly. `DummyAI extends CombatAI`
+is the default AI and the reference example. For a stronger AI, subclass
+`CombatAI` and override those methods. It operates only on `CardData` and
+`CardInstance`. Both the attacking (`choose_attackers`/`choose_attack_target`)
+and defending (`choose_blockers`) sides go through this same contract — an AI is
+just a driver for whichever side(s) you assign it to via `ais[side]`.
+
+`choose_spell_target(spell, own_board, enemy_board)` is consulted by `auto_resolve`
+when the AI plays a single-target spell (`PLAYER_CREATURE`): both boards are
+passed because the engine is agnostic about which side a spell hits — inspect
+`spell.spell_effects` to decide (a DAMAGE wants an enemy, a BUFF an ally). If it
+returns no living target, the spell is skipped (not consumed) for that turn.
 
 ## Observability (signals + event_log)
 
