@@ -138,6 +138,17 @@ card stay in hand), `play_card` returns `false`, and the session emits
 through the return value plus the signal — the caller (UI or AI) reacts by
 prompting for a target and retrying, instead of wasting the card.
 
+### Targeting limits (non-goals)
+
+Spell targeting is intentionally minimal and caster-relative. `TargetType`
+resolves everything from the caster's point of view (`ENEMY_HERO`, `PLAYER_HERO`,
+`PLAYER_CREATURE`, `ENEMY_CREATURES`, `PLAYER_CREATURES`, `SUMMON_BOARD`), and a
+spell has a **single** explicit single-target slot (`PLAYER_CREATURE`). The engine
+does **not** provide multi-target "choose N", split targets, or picking among
+several heroes — those are game rules, not engine primitives. A game that needs
+richer targeting expresses it through an injected `effect_fn` (full control over
+resolution) rather than by extending the built-in `TargetType` catalog.
+
 ## AI
 
 The AI contract lives in the base class `CombatAI`, which defines five
