@@ -12,13 +12,16 @@
 
 class_name CombatSession
 extends RefCounted
-## FSM de combate PVE: orquesta turnos, mazos, IA y resolucion de dano.
+## Alternating-turn combat FSM: orchestrates turns, decks, AI and damage
+## resolution. The model is symmetric per `side` (0/1) and agnostic to who drives
+## each side (human UI, AI or a network peer), which makes it PvP-ready. On every
+## turn one side is ACTIVE (takes its turn and attacks) and the other is PASSIVE
+## (declares blockers). turn_number counts half-turns (one per side turn).
 
 signal phase_changed(old_phase: int, new_phase: int)
-signal combat_ended(player_won: bool)
+signal combat_ended(winner_side: int)
 signal creature_died(card: CardInstance, owner: int)
-signal hero_damaged(amount: int)
-signal enemy_damaged(amount: int)
+signal combatant_damaged(side: int, amount: int)
 signal spell_fizzled(card: CardData)
 
 # Safety guards (engine internals, not game balance): cap auto_resolve loop
@@ -32,20 +35,26 @@ const MAX_PLAYS_PER_TURN := 10
 var _auto_resolve_max_iterations: int = AUTO_RESOLVE_MAX_ITERATIONS
 
 var phase: CombatState.Phase = CombatState.Phase.INICIO
-var player_deck: CombatDeck = null
-var enemy_deck: CombatDeck = null
-var player_hero: Combatant = null
-var enemy: Combatant = null
-var ai: CombatAI = null
+## Side taking its turn (0 or 1). The other side (1 - active_side) is passive.
+var active_side: int = 0
+## Winner once the combat ends: 0 or 1, or -1 for no winner (stalemate / both dead).
+var winner_side: int = -1
+## Heroes and decks indexed by side. Drivers (UI/AI/network) interact through the
+## same per-side surface; the engine never assumes which side is "the player".
+var heroes: Array[Combatant] = [null, null]
+var decks: Array[CombatDeck] = [null, null]
+## AI driver per side, used by auto_resolve(). Assign ais[side] before setup() to
+## inject a custom controller; otherwise setup() seeds a reference DummyAI.
+var ais: Array[CombatAI] = [null, null]
 var turn_number: int = 0
-var _player_attack_pairs: Array = []  # Array[CombatPair] - player declared
-var _ai_attack_pairs: Array = []  # Array[CombatPair] - AI declared
-var _block_assignments: Dictionary = {}  # attacker CardInstance -> blocker CardInstance
+# CombatPair declared by each side, indexed by side.
+var _attack_pairs: Array = [[], []]
+# attacker CardInstance -> blocker CardInstance, for the current turn.
+var _block_assignments: Dictionary = {}
 var _combat_over: bool = false
 var _resolver: CombatDamageResolver = CombatDamageResolver.new()
 # Creatures that died during combat, tracked per side for external retrieval.
-var _dead_player_creatures: Array[CardInstance] = []
-var _dead_enemy_creatures: Array[CardInstance] = []
+var _dead_creatures: Array = [[], []]
 
 ## Structured, replay-friendly stream of what the combat did. Mirrors the signals
 ## below; the game layer can consume it instead of wiring each signal. Cleared on
@@ -68,9 +77,10 @@ var damage_fn: Callable = Callable()
 var exhaust_fn: Callable = Callable()
 
 
-func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combatant, enemy_cards: Array[CardData], ai_seed: int = -1) -> void:
-	player_hero = hero
-	enemy = enemy_combatant
+func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Combatant, side1_cards: Array[CardData], ai_seed: int = -1) -> void:
+	## Positional setup: side 0 = first hero/cards, side 1 = second hero/cards.
+	heroes[0] = side0_hero
+	heroes[1] = side1_hero
 
 	# Seed the optional damage hook so the resolver uses it for this combat.
 	_resolver.damage_fn = damage_fn
@@ -78,34 +88,42 @@ func setup(hero: Combatant, hero_cards: Array[CardData], enemy_combatant: Combat
 	# Derive a distinct shuffle seed per side from the combat seed so a fixed
 	# ai_seed reproduces both deck orders. A negative seed leaves both decks
 	# randomized (engine default).
-	var player_shuffle_seed: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 1
-	var enemy_shuffle_seed: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 2
+	var seed0: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 1
+	var seed1: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 2
+	decks[0] = _make_deck(side0_cards, 0, seed0)
+	decks[1] = _make_deck(side1_cards, 1, seed1)
 
-	player_deck = CombatDeck.new()
-	player_deck.setup(hero_cards, 0, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card, player_shuffle_seed)
-	player_deck.exhaust_fn = exhaust_fn
-	player_deck.draw_initial_hand(config.initial_hand_size)
-
-	enemy_deck = CombatDeck.new()
-	enemy_deck.setup(enemy_cards, 1, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card, enemy_shuffle_seed)
-	enemy_deck.exhaust_fn = exhaust_fn
-	enemy_deck.draw_initial_hand(config.initial_hand_size)
-
-	# Injectable: honor an AI assigned before setup() (must follow the DummyAI
-	# contract); otherwise fall back to the seeded reference AI.
-	if ai == null:
-		ai = DummyAI.new()
-		ai.setup(ai_seed)
+	# Seed a reference AI per side unless a driver already assigned one.
+	_seed_ai(0, ai_seed)
+	_seed_ai(1, ai_seed)
 
 	phase = CombatState.Phase.INICIO
+	active_side = 0
+	winner_side = -1
 	turn_number = 0
-	_player_attack_pairs.clear()
-	_ai_attack_pairs.clear()
+	_attack_pairs = [[], []]
 	_block_assignments.clear()
-	_dead_player_creatures.clear()
-	_dead_enemy_creatures.clear()
+	_dead_creatures = [[], []]
 	event_log.clear()
 	_combat_over = false
+
+
+func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatDeck:
+	var deck := CombatDeck.new()
+	deck.setup(cards, side, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card, shuffle_seed)
+	deck.exhaust_fn = exhaust_fn
+	deck.draw_initial_hand(config.initial_hand_size)
+	return deck
+
+
+func _seed_ai(side: int, ai_seed: int) -> void:
+	## Honor an AI assigned to ais[side] before setup; otherwise seed a reference
+	## DummyAI (deterministic for a fixed seed, distinct per side).
+	if ais[side] != null:
+		return
+	var dummy := DummyAI.new()
+	dummy.setup(ai_seed if ai_seed < 0 else ai_seed * 2 + side + 1)
+	ais[side] = dummy
 
 
 func start() -> void:
@@ -113,10 +131,11 @@ func start() -> void:
 
 
 func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0, target: Variant = null) -> bool:
-	## `target` only applies to single-target spells (e.g. PLAYER_CREATURE). A
-	## single-target spell cast with no valid target fizzles: it is NOT consumed
-	## (mana and card stay), `spell_fizzled` is emitted and play_card returns false.
-	## The caller is responsible for picking a target and retrying.
+	## Plays a card from the ACTIVE side's hand. `target` only applies to
+	## single-target spells (e.g. PLAYER_CREATURE). A single-target spell cast with
+	## no valid target fizzles: it is NOT consumed (mana and card stay),
+	## `spell_fizzled` is emitted and play_card returns false. The caller is
+	## responsible for picking a target and retrying.
 	if not _can_play_from_hand(card):
 		return false
 	if card.card_type == CardData.CardType.HECHIZO:
@@ -125,9 +144,9 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 			return false
 		if not _consume_spell(card):
 			return false
-		_apply_spell_effects(card, 0, target)
+		_apply_spell_effects(card, active_side, target)
 		return true
-	var inst: CardInstance = player_deck.play_creature(card, as_hidden, declared_attack, declared_health)
+	var inst: CardInstance = decks[active_side].play_creature(card, as_hidden, declared_attack, declared_health)
 	return inst != null
 
 
@@ -140,7 +159,7 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 		return false
 	if not _consume_spell(card):
 		return false
-	var context: Dictionary = {"session": self, "owner_id": 0}
+	var context: Dictionary = {"session": self, "owner_id": active_side}
 	effect.apply(target, context)
 	return true
 
@@ -158,36 +177,70 @@ func _spell_needs_missing_target(card: CardData, target: Variant) -> bool:
 
 
 func _can_play_from_hand(card: CardData) -> bool:
-	## Shared precondition: a card can only be played from hand during PRINCIPAL,
-	## while the combat is live and the deck can afford it.
+	## Shared precondition: a card can only be played from the active side's hand
+	## during PRINCIPAL, while the combat is live and the deck can afford it.
 	if phase != CombatState.Phase.PRINCIPAL:
 		return false
 	if _combat_over:
 		return false
-	return player_deck.can_play_card(card)
+	return decks[active_side].can_play_card(card)
 
 
 func _consume_spell(card: CardData) -> bool:
 	## Single source of truth for moving a spell out of hand and spending mana.
-	return player_deck.play_spell(card) != null
+	return decks[active_side].play_spell(card) != null
 
 
 func declare_attacker(attacker: CardInstance, target: Variant = null) -> void:
+	## Active-side action: declare an attacker, optionally directed at a passive
+	## creature (`target`); null targets the passive hero. A blocker declared in
+	## DEFENSA can later redirect this pair's damage.
 	if phase != CombatState.Phase.PRINCIPAL and phase != CombatState.Phase.ATAQUE:
 		return
 	if _combat_over:
 		return
 	if attacker == null:
 		return
-	# Only allow player creatures
-	if not player_deck.get_board().has(attacker):
+	if not decks[active_side].get_board().has(attacker):
 		return
 	# Reject summoning-sick creatures and double declarations.
 	if not attacker.can_attack_this_turn or attacker.has_attacked_this_turn:
 		return
 	var pair = CombatPair.new(attacker, target)
-	_player_attack_pairs.append(pair)
+	_attack_pairs[active_side].append(pair)
 	attacker.has_attacked_this_turn = true
+
+
+func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> void:
+	## Passive-side action during DEFENSA: assign one of the passive side's
+	## defenders to intercept an attacker declared by the active side. This
+	## redirects that attack's damage to the blocker, overriding any directed
+	## target. A blocker can only be assigned once per turn.
+	if phase != CombatState.Phase.DEFENSA:
+		return
+	if _combat_over:
+		return
+	if attacker == null or blocker == null:
+		return
+	var passive: int = 1 - active_side
+	if not decks[passive].get_defenders().has(blocker):
+		return
+	if blocker.is_dead:
+		return
+	if _block_assignments.values().has(blocker):
+		return
+	var pair: CombatPair = _find_attack_pair(attacker)
+	if pair == null:
+		return
+	pair.defender = blocker
+	_block_assignments[attacker] = blocker
+
+
+func _find_attack_pair(attacker: CardInstance) -> CombatPair:
+	for pair in _attack_pairs[active_side]:
+		if pair.attacker == attacker:
+			return pair
+	return null
 
 
 func end_main_phase() -> void:
@@ -199,9 +252,9 @@ func end_main_phase() -> void:
 func end_attack_phase() -> void:
 	if phase != CombatState.Phase.ATAQUE:
 		return
-	# If no attackers and enemy is dead, go to final
-	if _player_attack_pairs.is_empty() and _ai_attack_pairs.is_empty() and enemy.current_health <= 0:
-		_transition_to(CombatState.Phase.FINAL)
+	# A spell in PRINCIPAL may have already killed a hero: settle victory first.
+	_check_victory()
+	if _combat_over:
 		return
 	_transition_to(CombatState.Phase.DEFENSA)
 
@@ -225,45 +278,37 @@ func advance() -> void:
 
 
 func get_result() -> Dictionary:
-	var player_won: bool = enemy.current_health <= 0
 	return {
-		"player_won": player_won,
+		"winner_side": winner_side,
 		"turn_number": turn_number,
-		"hero_hp": player_hero.current_health if player_hero != null else 0,
-		"enemy_hp": enemy.current_health if enemy != null else 0,
+		"hp": [
+			heroes[0].current_health if heroes[0] != null else 0,
+			heroes[1].current_health if heroes[1] != null else 0,
+		],
 	}
 
 
-func get_dead_player_creatures() -> Array[CardInstance]:
-	if player_deck == null:
+func get_dead_creatures(side: int) -> Array:
+	if decks[side] == null:
 		return []
-	return _dead_player_creatures
+	return _dead_creatures[side]
 
 
-func get_dead_enemy_creatures() -> Array[CardInstance]:
-	if enemy_deck == null:
-		return []
-	return _dead_enemy_creatures
-
-
-func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
-	## Drives the whole combat headless. Honors an injected player AI; when null,
-	## falls back to a seeded reference DummyAI (deterministic for a fixed seed).
-	if player_ai == null:
-		var dummy := DummyAI.new()
-		dummy.setup(player_ai_seed)
-		player_ai = dummy
+func auto_resolve() -> void:
+	## Drives the whole combat headless using the per-side AIs in `ais` (seeded in
+	## setup, or injected by a driver before setup). Deterministic for a fixed seed.
 	start()
 	var iterations_left: int = _auto_resolve_max_iterations
 	while phase != CombatState.Phase.FINAL and not _combat_over and iterations_left > 0:
 		iterations_left -= 1
 		match phase:
 			CombatState.Phase.PRINCIPAL:
-				_auto_play_player(player_ai)
+				_auto_play_active()
 				end_main_phase()
 			CombatState.Phase.ATAQUE:
 				end_attack_phase()
 			CombatState.Phase.DEFENSA:
+				_auto_declare_blockers()
 				end_defense_phase()
 			CombatState.Phase.PREPARACION, CombatState.Phase.RESOLVER:
 				pass
@@ -276,13 +321,34 @@ func auto_resolve(player_ai: CombatAI = null, player_ai_seed: int = 99) -> void:
 		_transition_to(CombatState.Phase.FINAL)
 
 
-func _auto_play_player(player_ai: CombatAI) -> void:
-	_play_hand(player_deck, 0, player_ai)
-	var attackers: Array[CardInstance] = player_ai.choose_attackers(player_deck.get_board())
-	var enemy_board: Array[CardInstance] = enemy_deck.get_defenders()
+func _auto_play_active() -> void:
+	## Headless turn of the active side: play its hand, then declare attackers
+	## (optionally directed) via its AI.
+	var side: int = active_side
+	var deck: CombatDeck = decks[side]
+	var side_ai: CombatAI = ais[side]
+	_play_hand(deck, side, side_ai)
+	var passive_board: Array[CardInstance] = decks[1 - side].get_defenders()
+	var attackers: Array[CardInstance] = side_ai.choose_attackers(deck.get_board())
 	for attacker in attackers:
-		var target: Variant = player_ai.choose_attack_target(attacker, enemy_board)
+		var target: Variant = side_ai.choose_attack_target(attacker, passive_board)
 		declare_attacker(attacker, target)
+
+
+func _auto_declare_blockers() -> void:
+	## Headless defense: the passive side's AI assigns blockers to the active
+	## side's attackers.
+	var passive: int = 1 - active_side
+	var def_ai: CombatAI = ais[passive]
+	var attackers: Array[CardInstance] = []
+	for pair in _attack_pairs[active_side]:
+		attackers.append(pair.attacker)
+	if attackers.is_empty():
+		return
+	var own_board: Array[CardInstance] = decks[passive].get_defenders()
+	var blocks: Dictionary = def_ai.choose_blockers(attackers, own_board)
+	for attacker in blocks:
+		declare_blocker(attacker, blocks[attacker])
 
 
 func _snapshot_hand(deck: CombatDeck) -> Array[CardData]:
@@ -296,8 +362,8 @@ func _snapshot_hand(deck: CombatDeck) -> Array[CardData]:
 
 func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 	## Plays cards from `side`'s hand until the AI passes or the per-turn cap is
-	## hit. Shared by the player's auto-play and the AI's turn so both resolve
-	## spells and creatures the same way.
+	## hit. Shared by both sides' auto-play so spells and creatures resolve the
+	## same way regardless of who is active.
 	var card_to_play: CardData = side_ai.choose_card_to_play(_snapshot_hand(deck), deck.mana)
 	var plays: int = 0
 	while card_to_play != null and plays < MAX_PLAYS_PER_TURN:
@@ -318,8 +384,8 @@ func _transition_to(new_phase: CombatState.Phase) -> void:
 
 
 # --- Signal + event-log emitters (single source for each combat event) ---
-# Each helper emits the legacy signal AND appends a structured CombatEvent, so
-# existing listeners keep working while event_log offers a replay-friendly stream.
+# Each helper emits the signal AND appends a structured CombatEvent, so existing
+# listeners keep working while event_log offers a replay-friendly stream.
 
 func _emit_phase_changed(old_phase: int, new_phase: int) -> void:
 	phase_changed.emit(old_phase, new_phase)
@@ -328,14 +394,11 @@ func _emit_phase_changed(old_phase: int, new_phase: int) -> void:
 	}))
 
 
-func _emit_hero_damaged(amount: int) -> void:
-	hero_damaged.emit(amount)
-	event_log.append(CombatEvent.new(CombatEvent.EventType.HERO_DAMAGED, {"amount": amount}))
-
-
-func _emit_enemy_damaged(amount: int) -> void:
-	enemy_damaged.emit(amount)
-	event_log.append(CombatEvent.new(CombatEvent.EventType.ENEMY_DAMAGED, {"amount": amount}))
+func _emit_combatant_damaged(side: int, amount: int) -> void:
+	combatant_damaged.emit(side, amount)
+	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBATANT_DAMAGED, {
+		"side": side, "amount": amount,
+	}))
 
 
 func _emit_creature_died(card: CardInstance, owner: int) -> void:
@@ -346,9 +409,9 @@ func _emit_creature_died(card: CardInstance, owner: int) -> void:
 	}))
 
 
-func _emit_combat_ended(player_won: bool) -> void:
-	combat_ended.emit(player_won)
-	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBAT_ENDED, {"player_won": player_won}))
+func _emit_combat_ended(winner: int) -> void:
+	combat_ended.emit(winner)
+	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBAT_ENDED, {"winner_side": winner}))
 
 
 func _emit_spell_fizzled(card: CardData) -> void:
@@ -376,17 +439,14 @@ func _enter_phase(p: CombatState.Phase) -> void:
 func _enter_preparacion() -> void:
 	turn_number += 1
 
-	_ramp_mana_for(player_deck)
-	player_deck.draw_card()
-	player_deck.refresh_creatures_for_turn()
+	# Only the active side ramps mana, draws and refreshes on its own turn.
+	var deck: CombatDeck = decks[active_side]
+	_ramp_mana_for(deck)
+	deck.draw_card()
+	deck.refresh_creatures_for_turn()
 
-	_ramp_mana_for(enemy_deck)
-	enemy_deck.draw_card()
-	enemy_deck.refresh_creatures_for_turn()
-
-	# Clear attack state from previous turn
-	_player_attack_pairs.clear()
-	_ai_attack_pairs.clear()
+	# Clear the active side's attack state from its previous turn.
+	_attack_pairs[active_side].clear()
 	_block_assignments.clear()
 
 	# Auto-advance to PRINCIPAL
@@ -413,50 +473,36 @@ func _enter_ataque() -> void:
 
 
 func _enter_defensa() -> void:
+	# Blocking is driver-driven (declare_blocker / auto_resolve), so the engine
+	# does not auto-assign here — that would assume the passive side is an AI.
 	if _combat_over:
 		return
-	# IA assigns blockers for each player attacker
-	var enemy_board: Array[CardInstance] = enemy_deck.get_defenders()
-	if not _player_attack_pairs.is_empty() and not enemy_board.is_empty():
-		var attackers: Array[CardInstance] = []
-		for pair in _player_attack_pairs:
-			attackers.append(pair.attacker)
-		_block_assignments = ai.choose_blockers(attackers, enemy_board)
-		for pair in _player_attack_pairs:
-			if _block_assignments.has(pair.attacker):
-				pair.defender = _block_assignments[pair.attacker]
 
 
 func _enter_resolve() -> void:
-	# --- Resolve player attacks ---
-	_resolve_side_attacks(_player_attack_pairs, enemy)
-	_player_attack_pairs.clear()
+	# Resolve the active side's declared attacks against the passive side.
+	var passive: int = 1 - active_side
+	_resolve_side_attacks(_attack_pairs[active_side], heroes[passive], passive)
+	_attack_pairs[active_side].clear()
 	_block_assignments.clear()
 
 	_check_victory()
 	if _combat_over:
 		return
 
-	# --- AI turn: play cards + declare attacks ---
-	_run_ai_turn()
-
-	# --- Resolve AI attacks ---
-	_resolve_side_attacks(_ai_attack_pairs, player_hero)
-	_ai_attack_pairs.clear()
-
-	_check_victory()
-	if not _combat_over:
-		_transition_to(CombatState.Phase.PREPARACION)
+	# Hand the turn to the other side.
+	active_side = passive
+	_transition_to(CombatState.Phase.PREPARACION)
 
 
-func _resolve_side_attacks(pairs: Array, target_hero: Combatant) -> void:
+func _resolve_side_attacks(pairs: Array, target_hero: Combatant, target_side: int) -> void:
 	## Resolves one side's declared attacks: deals unblocked damage to the target
-	## hero (via _damage_hero, which routes the right signal) and processes the
-	## resulting creature deaths. Shared by the player and AI resolution blocks.
+	## hero (emitting combatant_damaged for target_side) and processes the
+	## resulting creature deaths.
 	if pairs.is_empty():
 		return
 	var result: Dictionary = _resolver.resolve_combat(pairs, target_hero.current_health)
-	_damage_hero(target_hero, result["hero_damage"])
+	_damage_hero(target_side, result["hero_damage"])
 	var pairs_result: Array = result["pairs_result"]
 	if not pairs_result.is_empty():
 		_process_death_results(pairs_result)
@@ -465,75 +511,54 @@ func _resolve_side_attacks(pairs: Array, target_hero: Combatant) -> void:
 func _enter_final() -> void:
 	if not _combat_over:
 		_combat_over = true
-	var player_won: bool = enemy.current_health <= 0
-	_emit_combat_ended(player_won)
+	_resolve_winner()
+	_emit_combat_ended(winner_side)
 
 
-func _run_ai_turn() -> void:
-	_play_hand(enemy_deck, 1, ai)
-
-	# AI declares attackers
-	var ai_attackers: Array[CardInstance] = ai.choose_attackers(enemy_deck.get_board())
-	var player_board: Array[CardInstance] = player_deck.get_defenders()
-
-	# AI attack pairs stored separately for resolve phase
-	for attacker in ai_attackers:
-		var target: Variant = ai.choose_attack_target(attacker, player_board)
-		var pair = CombatPair.new(attacker, target)
-		_ai_attack_pairs.append(pair)
+func _resolve_winner() -> void:
+	## A side wins when the opposing hero is dead and its own is not. Both dead or
+	## a stalemate leaves no winner (-1).
+	var dead0: bool = heroes[0] != null and heroes[0].current_health <= 0
+	var dead1: bool = heroes[1] != null and heroes[1].current_health <= 0
+	if dead1 and not dead0:
+		winner_side = 0
+	elif dead0 and not dead1:
+		winner_side = 1
+	else:
+		winner_side = -1
 
 
 func _process_death_results(pairs_result: Array) -> void:
-	var dead_player: Array[CardInstance] = []
-	var dead_enemy: Array[CardInstance] = []
-
 	for pr in pairs_result:
 		var attacker: CardInstance = pr["attacker"]
 		var defender: Variant = pr["defender"]
-
 		if pr["attacker_died"]:
-			if attacker.owner_id == 0:
-				dead_player.append(attacker)
-			else:
-				dead_enemy.append(attacker)
-			_emit_creature_died(attacker, attacker.owner_id)
-
+			_record_death(attacker)
 		if defender != null and pr["defender_died"]:
-			if defender.owner_id == 0:
-				dead_player.append(defender)
-			else:
-				dead_enemy.append(defender)
-			_emit_creature_died(defender, defender.owner_id)
+			_record_death(defender)
+	# Remove dead from both boards.
+	decks[0].remove_dead_creatures()
+	decks[1].remove_dead_creatures()
 
-	# Track dead creatures per side for external retrieval
-	for inst in dead_player:
-		if not _dead_player_creatures.has(inst):
-			_dead_player_creatures.append(inst)
-	for inst in dead_enemy:
-		if not _dead_enemy_creatures.has(inst):
-			_dead_enemy_creatures.append(inst)
 
-	# Remove dead from boards
-	player_deck.remove_dead_creatures()
-	enemy_deck.remove_dead_creatures()
+func _record_death(inst: CardInstance) -> void:
+	var side: int = inst.owner_id
+	if not _dead_creatures[side].has(inst):
+		_dead_creatures[side].append(inst)
+	_emit_creature_died(inst, side)
 
 
 func _check_victory() -> void:
-	if enemy.current_health <= 0:
-		_combat_over = true
-		_transition_to(CombatState.Phase.FINAL)
-	elif player_hero != null and player_hero.current_health <= 0:
-		_combat_over = true
-		_transition_to(CombatState.Phase.FINAL)
-	elif _is_stalemate():
+	var dead_hero: bool = heroes[0].current_health <= 0 or heroes[1].current_health <= 0
+	if dead_hero or _is_stalemate():
 		_combat_over = true
 		_transition_to(CombatState.Phase.FINAL)
 
 
 func _is_stalemate() -> bool:
-	var player_has_nothing: bool = player_deck.hand_size == 0 and player_deck.board_size == 0 and player_deck.draw_pile_size == 0
-	var enemy_has_nothing: bool = enemy_deck.hand_size == 0 and enemy_deck.board_size == 0 and enemy_deck.draw_pile_size == 0
-	if player_has_nothing and enemy_has_nothing:
+	var s0_nothing: bool = decks[0].hand_size == 0 and decks[0].board_size == 0 and decks[0].draw_pile_size == 0
+	var s1_nothing: bool = decks[1].hand_size == 0 and decks[1].board_size == 0 and decks[1].draw_pile_size == 0
+	if s0_nothing and s1_nothing:
 		return true
 	if turn_number >= config.stalemate_turn_limit:
 		return true
@@ -546,22 +571,21 @@ func _apply_spell_effects(card: CardData, side: int, target: Variant = null) -> 
 
 
 func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null) -> void:
-	## Resolución agnóstica desde la óptica del lanzador (side 0 = jugador,
-	## 1 = enemigo). TargetType se interpreta relativo al lanzador, así un mismo
-	## hechizo sirve a ambos lados sin lógica duplicada.
-	var caster_hero: Combatant = player_hero if side == 0 else enemy
-	var opponent_hero: Combatant = enemy if side == 0 else player_hero
-	var caster_deck: CombatDeck = player_deck if side == 0 else enemy_deck
-	var opponent_deck: CombatDeck = enemy_deck if side == 0 else player_deck
+	## Resolución agnóstica desde la óptica del lanzador (`side`). TargetType se
+	## interpreta relativo al lanzador, así un mismo hechizo sirve a ambos lados
+	## sin lógica duplicada.
+	var caster_hero: Combatant = heroes[side]
+	var caster_deck: CombatDeck = decks[side]
+	var opponent_deck: CombatDeck = decks[1 - side]
 	match effect.target_type:
 		SpellEffect.TargetType.ENEMY_HERO:
-			_damage_hero(opponent_hero, effect.value)
+			_damage_hero(1 - side, effect.value)
 		SpellEffect.TargetType.PLAYER_HERO:
 			caster_hero.heal(effect.value)
 		SpellEffect.TargetType.PLAYER_CREATURE:
 			# Public casting via play_card() already rejects a missing target before
 			# consuming (see _spell_needs_missing_target). This is a low-level guard
-			# for internal callers (e.g. the AI turn) that bypass that check.
+			# for internal callers (e.g. auto-play) that bypass that check.
 			if target is CardInstance and not target.is_dead:
 				effect.apply(target, {})
 			else:
@@ -586,14 +610,11 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 				caster_deck.add_to_board(inst)
 
 
-func _damage_hero(hero: Combatant, amount: int) -> void:
+func _damage_hero(side: int, amount: int) -> void:
 	if amount <= 0:
 		return
-	hero.take_damage(amount)
-	if hero == enemy:
-		_emit_enemy_damaged(amount)
-	elif hero == player_hero:
-		_emit_hero_damaged(amount)
+	heroes[side].take_damage(amount)
+	_emit_combatant_damaged(side, amount)
 
 
 func _check_board_deaths(deck: CombatDeck) -> void:
@@ -603,4 +624,3 @@ func _check_board_deaths(deck: CombatDeck) -> void:
 			dead.append(inst)
 	for inst in dead:
 		deck.remove_from_board(inst)
-		_emit_creature_died(inst, inst.owner_id)

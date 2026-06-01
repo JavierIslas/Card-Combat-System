@@ -11,7 +11,7 @@
 # LICENSE_COMMERCIAL.md or contact islasjavieralf@gmail.com.
 
 class_name CombatState
-## Fases de la FSM de combate PVE. Enum puro sin dependencias.
+## Fases de la FSM de combate por turnos alternados. Enum puro sin dependencias.
 
 enum Phase {
 	INICIO,
@@ -28,8 +28,14 @@ static func phase_name(phase: Phase) -> String:
 	return Phase.keys()[phase]
 
 
-static func is_player_action_phase(phase: Phase) -> bool:
+static func is_active_action_phase(phase: Phase) -> bool:
+	## Phases driven by the ACTIVE side (the one taking its turn).
 	return phase in [Phase.PRINCIPAL, Phase.ATAQUE]
+
+
+static func is_passive_action_phase(phase: Phase) -> bool:
+	## Phases driven by the PASSIVE side (the defender declaring blockers).
+	return phase == Phase.DEFENSA
 
 
 static func is_auto_phase(phase: Phase) -> bool:

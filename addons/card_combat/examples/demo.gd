@@ -52,12 +52,13 @@ func _run_combat() -> void:
 	var hero := _make_hero("Player", 30)
 	var enemy := _make_hero("Enemy", 30)
 
-	# Enemy AI is the seeded DummyAI created inside setup(); the player AI is the
-	# one we build and inject.
+	# Side 1's AI is the seeded DummyAI created inside setup(); inject side 0's AI
+	# before setup so it survives (setup only seeds empty ais slots).
 	var player_ai := DummyAI.new()
 	player_ai.setup(_run_index)
+	session.ais[0] = player_ai
 	session.setup(hero, _starter_deck(), enemy, _starter_deck(), _run_index + 100)
-	session.auto_resolve(player_ai)
+	session.auto_resolve()
 
 	_log_result(session.get_result())
 	_flush_log()
@@ -66,9 +67,8 @@ func _run_combat() -> void:
 func _connect_signals(session: CombatSession) -> void:
 	session.phase_changed.connect(_on_phase_changed)
 	session.creature_died.connect(_on_creature_died)
-	session.hero_damaged.connect(func(amount: int) -> void: _push("Player hero takes %d" % amount))
-	session.enemy_damaged.connect(func(amount: int) -> void: _push("Enemy hero takes %d" % amount))
-	session.combat_ended.connect(func(player_won: bool) -> void: _push("Combat ended — player_won=%s" % player_won))
+	session.combatant_damaged.connect(func(side: int, amount: int) -> void: _push("Side %d hero takes %d" % [side, amount]))
+	session.combat_ended.connect(func(winner_side: int) -> void: _push("Combat ended — winner_side=%d" % winner_side))
 
 
 func _on_phase_changed(old_phase: int, new_phase: int) -> void:
@@ -115,8 +115,9 @@ func _push(line: String) -> void:
 
 func _log_result(result: Dictionary) -> void:
 	_push("")
-	_push("Result: player_won=%s  turns=%d  hero_hp=%d  enemy_hp=%d" % [
-		result["player_won"], result["turn_number"], result["hero_hp"], result["enemy_hp"],
+	var hp: Array = result["hp"]
+	_push("Result: winner_side=%d  turns=%d  hp0=%d  hp1=%d" % [
+		result["winner_side"], result["turn_number"], hp[0], hp[1],
 	])
 
 

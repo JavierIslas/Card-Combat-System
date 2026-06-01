@@ -1,6 +1,6 @@
 extends GutTest
-## Caracterizacion de CombatSession: FSM, rampa de mana, auto_resolve, regresiones
-## de hechizos y validacion de declaracion de ataque.
+## Caracterizacion de CombatSession: FSM de turnos alternados, rampa de mana,
+## auto_resolve, bloqueo bilateral, regresiones de hechizos y declaracion de ataque.
 
 
 var _session: CombatSession
@@ -58,20 +58,18 @@ func _starter() -> Array[CardData]:
 	return cards
 
 
-func _run_seeded(combat_seed: int, player_seed: int) -> Dictionary:
+func _run_seeded(combat_seed: int) -> Dictionary:
 	var session := CombatSession.new()
-	var player_ai := DummyAI.new()
-	player_ai.setup(player_seed)
 	session.setup(_hero(), _starter(), _hero(), _starter(), combat_seed)
-	session.auto_resolve(player_ai)
+	session.auto_resolve()
 	return session.get_result()
 
 
 func test_mismo_seed_reproduce_la_partida() -> void:
-	# Replay guarantee: same combat seed (seeds both deck shuffles + enemy AI)
-	# plus same player AI seed and starting cards => identical match.
-	var first := _run_seeded(7, 3)
-	var second := _run_seeded(7, 3)
+	# Replay guarantee: same combat seed (seeds both deck shuffles + both AIs) plus
+	# the same starting cards => identical match.
+	var first := _run_seeded(7)
+	var second := _run_seeded(7)
 	assert_gt(first["turn_number"], 1, "la partida realmente avanzó turnos")
 	assert_eq(first, second, "mismo seed reproduce el resultado del combate")
 
@@ -81,6 +79,7 @@ func test_start_va_a_principal_en_turno_uno() -> void:
 	_session.start()
 	assert_eq(_session.phase, CombatState.Phase.PRINCIPAL, "tras start queda en PRINCIPAL")
 	assert_eq(_session.turn_number, 1, "primer turno")
+	assert_eq(_session.active_side, 0, "el lado 0 arranca activo")
 
 
 func _serialized_log(session: CombatSession) -> Array:
@@ -94,7 +93,7 @@ func test_event_log_registra_el_combate() -> void:
 	var hero_cards: Array[CardData] = [_creature(1, 2, 2)]
 	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
 	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
-	_session.auto_resolve(null, 7)
+	_session.auto_resolve()
 	assert_gt(_session.event_log.size(), 0, "el combate deja eventos en el log")
 	var last: CombatEvent = _session.event_log[-1]
 	assert_eq(last.type, CombatEvent.EventType.COMBAT_ENDED, "el último evento es el fin del combate")
@@ -104,16 +103,16 @@ func test_event_log_es_determinista_por_seed() -> void:
 	# Same seeds => identical serialized event stream (replay-friendly).
 	var first := CombatSession.new()
 	first.setup(_hero(10), _starter(), _hero(10), _starter(), 11)
-	first.auto_resolve(null, 5)
+	first.auto_resolve()
 	var second := CombatSession.new()
 	second.setup(_hero(10), _starter(), _hero(10), _starter(), 11)
-	second.auto_resolve(null, 5)
+	second.auto_resolve()
 	assert_eq(_serialized_log(first), _serialized_log(second), "mismo seed reproduce el log de eventos")
 
 
 func test_event_log_se_limpia_en_setup() -> void:
 	_setup_basico()
-	_session.auto_resolve(null, 7)
+	_session.auto_resolve()
 	assert_gt(_session.event_log.size(), 0, "hay eventos tras un combate")
 	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
 	assert_eq(_session.event_log.size(), 0, "setup limpia el log para reutilizar la sesión")
@@ -136,25 +135,25 @@ func _dead_instance(owner: int) -> CardInstance:
 
 func test_get_dead_creatures_rastrea_cada_lado() -> void:
 	_setup_basico()
-	var dead_enemy := _dead_instance(1)
-	var dead_player := _dead_instance(0)
+	var dead_side1 := _dead_instance(1)
+	var dead_side0 := _dead_instance(0)
 	var pairs: Array = [{
-		"attacker": dead_player,
-		"defender": dead_enemy,
+		"attacker": dead_side0,
+		"defender": dead_side1,
 		"attacker_died": true,
 		"defender_died": true,
 	}]
 	_session._process_death_results(pairs)
-	var enemy_dead := _session.get_dead_enemy_creatures()
-	var player_dead := _session.get_dead_player_creatures()
-	assert_eq(enemy_dead.size(), 1, "la criatura enemiga muerta se rastrea")
-	assert_true(enemy_dead.has(dead_enemy), "es la instancia enemiga correcta")
-	assert_eq(player_dead.size(), 1, "la criatura del jugador sigue rastreándose")
-	assert_true(player_dead.has(dead_player), "es la instancia del jugador correcta")
+	var s1_dead := _session.get_dead_creatures(1)
+	var s0_dead := _session.get_dead_creatures(0)
+	assert_eq(s1_dead.size(), 1, "la criatura del lado 1 muerta se rastrea")
+	assert_true(s1_dead.has(dead_side1), "es la instancia del lado 1 correcta")
+	assert_eq(s0_dead.size(), 1, "la criatura del lado 0 sigue rastreándose")
+	assert_true(s0_dead.has(dead_side0), "es la instancia del lado 0 correcta")
 
 
-func test_get_dead_enemy_creatures_vacio_sin_combate() -> void:
-	assert_eq(_session.get_dead_enemy_creatures(), [], "sin enemy_deck devuelve vacío")
+func test_get_dead_creatures_vacio_sin_combate() -> void:
+	assert_eq(_session.get_dead_creatures(1), [], "sin deck del lado devuelve vacío")
 
 
 func test_emite_phase_changed_al_iniciar() -> void:
@@ -167,23 +166,37 @@ func test_emite_phase_changed_al_iniciar() -> void:
 func test_rampa_de_mana_primer_turno() -> void:
 	_setup_basico()
 	_session.start()
-	assert_eq(_session.player_deck.mana, 2, "gana mana hasta su max inicial (2)")
-	assert_eq(_session.player_deck.max_mana, 4, "el max sube por la rampa (2 -> 4)")
+	assert_eq(_session.decks[0].mana, 2, "gana mana hasta su max inicial (2)")
+	assert_eq(_session.decks[0].max_mana, 4, "el max sube por la rampa (2 -> 4)")
 
 
-func test_rampa_de_mana_es_simetrica_para_ambos_lados() -> void:
-	# _ramp_mana_for applies the same rule to both decks.
+func test_solo_el_lado_activo_rampa_en_su_turno() -> void:
+	# Alternating turns: only the active side ramps/draws on its own turn; the
+	# passive side does not ramp while it's not its turn.
 	_setup_basico()
 	_session.start()
-	assert_eq(_session.enemy_deck.mana, _session.player_deck.mana, "ambos lados ganan el mismo maná")
-	assert_eq(_session.enemy_deck.max_mana, _session.player_deck.max_mana, "ambos lados rampean igual el max")
+	assert_eq(_session.active_side, 0, "es el turno del lado 0")
+	assert_eq(_session.decks[0].mana, 2, "el lado activo gana mana")
+	assert_eq(_session.decks[1].mana, 0, "el lado pasivo NO rampa en el turno del 0")
+
+
+func test_el_turno_alterna_el_lado_activo() -> void:
+	# After RESOLVER the turn passes to the other side.
+	_session.setup(_hero(30), [_creature(5, 1, 1)], _hero(30), [_creature(5, 1, 1)], 1)
+	_session.start()
+	assert_eq(_session.active_side, 0, "arranca el lado 0")
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()
+	assert_eq(_session.active_side, 1, "tras resolver, el turno pasa al lado 1")
+	assert_eq(_session.phase, CombatState.Phase.PRINCIPAL, "y arranca el PRINCIPAL del lado 1")
 
 
 func test_auto_resolve_termina_en_final() -> void:
 	var hero_cards: Array[CardData] = [_creature(1, 2, 2), _creature(1, 1, 3)]
 	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
 	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
-	_session.auto_resolve(null, 7)
+	_session.auto_resolve()
 	assert_eq(_session.phase, CombatState.Phase.FINAL, "auto_resolve llega a FINAL sin colgarse")
 
 
@@ -194,10 +207,10 @@ func test_auto_resolve_corta_al_agotar_iteraciones() -> void:
 	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
 	_session.setup(_hero(30), hero_cards, _hero(30), enemy_cards, 7)
 	_session._auto_resolve_max_iterations = 1
-	_session.auto_resolve(null, 7)
+	_session.auto_resolve()
 	assert_eq(_session.phase, CombatState.Phase.FINAL, "el guard fuerza FINAL al agotar iteraciones")
-	assert_gt(_session.enemy.current_health, 0, "no terminó por victoria (corte forzado)")
-	assert_gt(_session.player_hero.current_health, 0, "no terminó por derrota (corte forzado)")
+	assert_gt(_session.heroes[1].current_health, 0, "no terminó por victoria (corte forzado)")
+	assert_gt(_session.heroes[0].current_health, 0, "no terminó por derrota (corte forzado)")
 	assert_lt(_session.turn_number, _session.config.stalemate_turn_limit, "tampoco es tablas")
 
 
@@ -205,33 +218,61 @@ func test_get_result_tiene_claves_esperadas() -> void:
 	_setup_basico()
 	_session.start()
 	var result := _session.get_result()
-	assert_has(result, "player_won")
+	assert_has(result, "winner_side")
 	assert_has(result, "turn_number")
-	assert_has(result, "hero_hp")
-	assert_has(result, "enemy_hp")
+	assert_has(result, "hp")
 
 
-func test_play_card_hechizo_dana_al_enemigo() -> void:
+func test_winner_side_es_el_lado_del_heroe_vivo() -> void:
+	_session.setup(_hero(5), _empty(), _hero(30), _empty(), 1)
+	_session.heroes[0].take_damage(5)
+	_session._check_victory()
+	assert_eq(_session.phase, CombatState.Phase.FINAL, "muerto un héroe, el combate termina")
+	assert_eq(_session.winner_side, 1, "gana el lado cuyo héroe sigue vivo")
+
+
+func test_winner_side_menos_uno_en_tablas() -> void:
+	# Empty decks resolve to a stalemate on the first turn: no winner.
+	_setup_basico()
+	_session.auto_resolve()
+	assert_eq(_session.phase, CombatState.Phase.FINAL, "termina por tablas")
+	assert_eq(_session.winner_side, -1, "tablas: sin ganador")
+
+
+func test_play_card_hechizo_dana_al_lado_opuesto() -> void:
 	_setup_basico()
 	_session.start()
 	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 6, SpellEffect.TargetType.ENEMY_HERO)
-	_session.player_deck._hand.append(spell)
+	_session.decks[0]._hand.append(spell)
 	var ok := _session.play_card(spell)
 	assert_true(ok, "el hechizo se juega")
-	assert_eq(_session.enemy.current_health, 24, "30 - 6 al heroe enemigo")
+	assert_eq(_session.heroes[1].current_health, 24, "30 - 6 al héroe del lado opuesto")
 
 
-func test_hechizo_enemigo_player_hero_cura_al_enemigo() -> void:
+func test_combatant_damaged_espejado_en_event_log() -> void:
 	_setup_basico()
 	_session.start()
-	_session.enemy.take_damage(10)
+	watch_signals(_session)
+	_session._damage_hero(1, 5)
+	assert_signal_emitted(_session, "combatant_damaged")
+	var dmg := _session.event_log.filter(
+		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.COMBATANT_DAMAGED)
+	assert_eq(dmg.size(), 1, "el daño al héroe queda espejado en el log")
+	assert_eq(dmg[0].payload["side"], 1, "el payload guarda el lado dañado")
+	assert_eq(dmg[0].payload["amount"], 5, "y la cantidad")
+
+
+func test_hechizo_player_hero_cura_al_lanzador() -> void:
+	_setup_basico()
+	_session.start()
+	_session.heroes[1].take_damage(10)
 	var heal := _spell(0, SpellEffect.EffectType.HEAL, 5, SpellEffect.TargetType.PLAYER_HERO)
 	_session._apply_spell_effects(heal, 1)
-	assert_eq(_session.enemy.current_health, 25, "PLAYER_HERO = heroe propio del lanzador")
-	assert_eq(_session.player_hero.current_health, 30, "el jugador NO recibe dano")
+	assert_eq(_session.heroes[1].current_health, 25, "PLAYER_HERO = héroe propio del lanzador (lado 1)")
+	assert_eq(_session.heroes[0].current_health, 30, "el otro lado NO recibe daño")
 
 
-func test_invocacion_enemiga_owner_uno() -> void:
+func test_invocacion_lado_uno_owner_uno() -> void:
 	_setup_basico()
 	_session.start()
 	var summon := _spell(0, SpellEffect.EffectType.SUMMON, 0, SpellEffect.TargetType.SUMMON_BOARD)
@@ -240,9 +281,9 @@ func test_invocacion_enemiga_owner_uno() -> void:
 	summon.spell_effects[0].summon_health = 1
 	summon.spell_effects[0].summon_count = 2
 	_session._apply_spell_effects(summon, 1)
-	var board := _session.enemy_deck.get_board()
-	assert_eq(board.size(), 2, "dos criaturas invocadas al board enemigo")
-	assert_eq(board[0].owner_id, 1, "owner del enemigo, no 0")
+	var board := _session.decks[1].get_board()
+	assert_eq(board.size(), 2, "dos criaturas invocadas al board del lado 1")
+	assert_eq(board[0].owner_id, 1, "owner del lado 1, no 0")
 
 
 func test_invocacion_siembra_ability_fn_antes_del_setup() -> void:
@@ -259,21 +300,22 @@ func test_invocacion_siembra_ability_fn_antes_del_setup() -> void:
 	summon.spell_effects[0].summon_health = 1
 	summon.spell_effects[0].summon_count = 1
 	_session._apply_spell_effects(summon, 0)
-	var board := _session.player_deck.get_board()
+	var board := _session.decks[0].get_board()
 	assert_eq(board.size(), 1, "la criatura se invoca al board del lanzador")
 	assert_true(board[0].ability_fn.is_valid(), "hereda el ability_fn del lado")
 	assert_true(triggers.has(CardInstance.Trigger.ON_SETUP), "ON_SETUP se dispara con el handler ya sembrado")
 
 
-func test_auto_play_aplica_hechizo_del_jugador() -> void:
+func test_auto_play_aplica_hechizo_del_lado_activo() -> void:
 	_setup_basico()
-	_session.start()
-	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 7, SpellEffect.TargetType.ENEMY_HERO)
-	_session.player_deck._hand.append(spell)
 	var ai := DummyAI.new()
 	ai.setup(1)
-	_session._auto_play_player(ai)
-	assert_eq(_session.enemy.current_health, 23, "el hechizo del jugador surte efecto en auto_resolve")
+	_session.ais[0] = ai
+	_session.start()
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 7, SpellEffect.TargetType.ENEMY_HERO)
+	_session.decks[0]._hand.append(spell)
+	_session._auto_play_active()
+	assert_eq(_session.heroes[1].current_health, 23, "el hechizo del lado activo surte efecto en auto-play")
 
 
 func test_declare_attacker_rechaza_doble_declaracion() -> void:
@@ -283,10 +325,10 @@ func test_declare_attacker_rechaza_doble_declaracion() -> void:
 	var inst := CardInstance.new()
 	inst.setup(_creature(0, 2, 2), 0)
 	inst.can_attack_this_turn = true
-	_session.player_deck.add_to_board(inst)
+	_session.decks[0].add_to_board(inst)
 	_session.declare_attacker(inst, null)
 	_session.declare_attacker(inst, null)
-	assert_eq(_session._player_attack_pairs.size(), 1, "la segunda declaracion se ignora")
+	assert_eq(_session._attack_pairs[0].size(), 1, "la segunda declaracion se ignora")
 
 
 func test_declare_attacker_rechaza_mareo_de_invocacion() -> void:
@@ -296,9 +338,55 @@ func test_declare_attacker_rechaza_mareo_de_invocacion() -> void:
 	var inst := CardInstance.new()
 	inst.setup(_creature(0, 2, 2), 0)
 	inst.can_attack_this_turn = false
-	_session.player_deck.add_to_board(inst)
+	_session.decks[0].add_to_board(inst)
 	_session.declare_attacker(inst, null)
-	assert_eq(_session._player_attack_pairs.size(), 0, "sin can_attack no se declara")
+	assert_eq(_session._attack_pairs[0].size(), 0, "sin can_attack no se declara")
+
+
+func test_declare_blocker_redirige_dano_al_bloqueador() -> void:
+	# Bloqueo bilateral: el lado pasivo (1) interpone un bloqueador a un ataque del
+	# lado activo (0) dirigido al héroe; el daño se redirige al bloqueador.
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.new()
+	atk.setup(_creature(0, 3, 3), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var blk := CardInstance.new()
+	blk.setup(_creature(0, 1, 4), 1)
+	_session.decks[1].add_to_board(blk)
+	_session.declare_attacker(atk, null)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.declare_blocker(atk, blk)
+	_session.end_defense_phase()
+	assert_eq(_session.heroes[1].current_health, 30, "el héroe pasivo no recibe daño: fue bloqueado")
+	assert_eq(blk.current_health, 1, "el bloqueador recibe el ataque (4 - 3)")
+	assert_eq(atk.current_health, 2, "el atacante recibe el golpe del bloqueador (3 - 1)")
+
+
+func test_bloqueo_bilateral_el_lado_cero_tambien_bloquea() -> void:
+	# La otra dirección: en el turno del lado 1, el lado 0 (ahora pasivo) bloquea.
+	_session.setup(_hero(30), [_creature(9, 1, 1)], _hero(30), [_creature(9, 1, 1)], 1)
+	_session.start()
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()
+	assert_eq(_session.active_side, 1, "es el turno del lado 1")
+	var atk := CardInstance.new()
+	atk.setup(_creature(0, 3, 3), 1)
+	atk.can_attack_this_turn = true
+	_session.decks[1].add_to_board(atk)
+	var blk := CardInstance.new()
+	blk.setup(_creature(0, 0, 5), 0)
+	_session.decks[0].add_to_board(blk)
+	_session.declare_attacker(atk, null)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.declare_blocker(atk, blk)
+	_session.end_defense_phase()
+	assert_eq(_session.heroes[0].current_health, 30, "el héroe del lado 0 no recibe daño: bloqueo")
+	assert_eq(blk.current_health, 2, "el bloqueador del lado 0 recibe 3 (5 - 3)")
 
 
 # Minimal AI subclass honoring the DummyAI contract; used to prove that
@@ -307,8 +395,8 @@ class _StubAI:
 	extends DummyAI
 
 
-# Spy AI that records whether auto_resolve routed the player turn through it.
-class _SpyPlayerAI:
+# Spy AI that records whether auto_resolve routed the active turn through it.
+class _SpyAI:
 	extends DummyAI
 	var chose_card: bool = false
 
@@ -317,44 +405,44 @@ class _SpyPlayerAI:
 		return super.choose_card_to_play(hand, mana)
 
 
-func test_auto_resolve_usa_ai_de_jugador_inyectada() -> void:
-	# Chunk D: la IA de jugador inyectada conduce el turno del jugador.
-	var hero_cards: Array[CardData] = [_creature(1, 2, 2)]
-	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
-	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
-	var spy := _SpyPlayerAI.new()
+func test_auto_resolve_usa_ai_inyectada_por_lado() -> void:
+	# La IA inyectada en ais[0] conduce el turno del lado 0.
+	var spy := _SpyAI.new()
 	spy.setup(7)
-	_session.auto_resolve(spy)
-	assert_true(spy.chose_card, "auto_resolve usa la IA de jugador inyectada")
+	_session.ais[0] = spy
+	_session.setup(_hero(10), [_creature(1, 2, 2)], _hero(10), [_creature(1, 1, 2)], 7)
+	_session.auto_resolve()
+	assert_true(spy.chose_card, "auto_resolve usa la IA inyectada del lado 0")
 
 
 func test_auto_resolve_sin_ai_es_determinista_por_seed() -> void:
-	# Chunk D: sin IA inyectada, auto_resolve sigue siendo determinista por seed.
+	# Sin IA inyectada, auto_resolve sigue siendo determinista por seed.
 	var first := CombatSession.new()
 	first.setup(_hero(10), [_creature(1, 2, 2)], _hero(10), [_creature(1, 1, 2)], 7)
-	first.auto_resolve(null, 42)
+	first.auto_resolve()
 	var second := CombatSession.new()
 	second.setup(_hero(10), [_creature(1, 2, 2)], _hero(10), [_creature(1, 1, 2)], 7)
-	second.auto_resolve(null, 42)
+	second.auto_resolve()
 	assert_eq(first.get_result(), second.get_result(), "mismo seed = mismo resultado")
 
 
-func test_setup_usa_dummy_ai_por_defecto() -> void:
-	# Sin inyeccion, setup() instancia el DummyAI de referencia.
+func test_setup_siembra_dummy_ai_en_ambos_lados() -> void:
+	# Sin inyeccion, setup() instancia el DummyAI de referencia por lado.
 	_setup_basico()
-	assert_true(_session.ai is DummyAI, "cae al DummyAI por defecto")
+	assert_true(_session.ais[0] is DummyAI, "lado 0 cae al DummyAI por defecto")
+	assert_true(_session.ais[1] is DummyAI, "lado 1 cae al DummyAI por defecto")
 
 
-func test_setup_respeta_ai_inyectada() -> void:
-	# Regresion Chunk 1: una IA asignada antes de setup() no debe ser pisada.
+func test_setup_respeta_ai_inyectada_por_lado() -> void:
+	# Una IA asignada antes de setup() no debe ser pisada.
 	var stub := _StubAI.new()
-	_session.ai = stub
+	_session.ais[1] = stub
 	_setup_basico()
-	assert_eq(_session.ai, stub, "setup conserva la IA inyectada")
+	assert_eq(_session.ais[1], stub, "setup conserva la IA inyectada del lado 1")
 
 
 func test_setup_propaga_damage_fn_al_resolver() -> void:
-	# Chunk E: el damage_fn opcional de la sesion se siembra en el resolver.
+	# El damage_fn opcional de la sesion se siembra en el resolver.
 	_session.damage_fn = func(a: CardInstance, _d: CardInstance) -> int:
 		return a.current_attack * 2
 	_setup_basico()
@@ -362,31 +450,30 @@ func test_setup_propaga_damage_fn_al_resolver() -> void:
 
 
 func test_setup_propaga_exhaust_fn_a_los_decks() -> void:
-	# Chunk F: el exhaust_fn opcional de la sesion se siembra en ambos mazos.
+	# El exhaust_fn opcional de la sesion se siembra en ambos mazos.
 	_session.exhaust_fn = func(_owner: int) -> void:
 		pass
 	_setup_basico()
-	assert_true(_session.player_deck.exhaust_fn.is_valid(), "el hook llega al mazo del jugador")
-	assert_true(_session.enemy_deck.exhaust_fn.is_valid(), "el hook llega al mazo enemigo")
+	assert_true(_session.decks[0].exhaust_fn.is_valid(), "el hook llega al mazo del lado 0")
+	assert_true(_session.decks[1].exhaust_fn.is_valid(), "el hook llega al mazo del lado 1")
 
 
 func test_play_card_hechizo_usa_target_explicito_en_player_creature() -> void:
-	# Chunk B: un hechizo PLAYER_CREATURE aplica al target explicito provisto a
-	# play_card(), no siempre a board[0].
+	# Un hechizo PLAYER_CREATURE aplica al target explicito provisto a play_card().
 	_setup_basico()
 	_session.start()
 	var c0 := CardInstance.new()
 	c0.setup(_creature(0, 1, 1), 0)
 	var c1 := CardInstance.new()
 	c1.setup(_creature(0, 1, 1), 0)
-	_session.player_deck.add_to_board(c0)
-	_session.player_deck.add_to_board(c1)
+	_session.decks[0].add_to_board(c0)
+	_session.decks[0].add_to_board(c1)
 	var spell := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
-	_session.player_deck._hand.append(spell)
+	_session.decks[0]._hand.append(spell)
 	var ok := _session.play_card(spell, false, 0, 0, c1)
 	assert_true(ok, "el hechizo se juega")
 	assert_eq(c1.current_attack, 3, "el buff va al target explicito (1 + 2)")
-	assert_eq(c0.current_attack, 1, "board[0] no se toca")
+	assert_eq(c0.current_attack, 1, "la otra criatura no se toca")
 
 
 func test_play_card_hechizo_player_creature_sin_target_fizzle() -> void:
@@ -396,16 +483,16 @@ func test_play_card_hechizo_player_creature_sin_target_fizzle() -> void:
 	_session.start()
 	var c0 := CardInstance.new()
 	c0.setup(_creature(0, 1, 1), 0)
-	_session.player_deck.add_to_board(c0)
+	_session.decks[0].add_to_board(c0)
 	var spell := _spell(1, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
-	_session.player_deck._hand.append(spell)
-	var mana_antes: int = _session.player_deck.mana
+	_session.decks[0]._hand.append(spell)
+	var mana_antes: int = _session.decks[0].mana
 	watch_signals(_session)
 	var ok := _session.play_card(spell)
 	assert_false(ok, "play_card devuelve false: el hechizo no se jugo")
 	assert_signal_emitted(_session, "spell_fizzled")
-	assert_eq(_session.player_deck.mana, mana_antes, "el mana NO se consume")
-	assert_true(spell in _session.player_deck._hand, "la carta sigue en la mano")
+	assert_eq(_session.decks[0].mana, mana_antes, "el mana NO se consume")
+	assert_true(spell in _session.decks[0]._hand, "la carta sigue en la mano")
 	assert_eq(c0.current_attack, 1, "ninguna criatura recibe el buff (sin fallback a board[0])")
 	var fizzles := _session.event_log.filter(
 		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.SPELL_FIZZLED)
@@ -413,16 +500,16 @@ func test_play_card_hechizo_player_creature_sin_target_fizzle() -> void:
 
 
 func test_play_spell_aplica_effect_a_target_explicito() -> void:
-	# Chunk 3: play_spell aplica el effect pasado al target explicito, sin usar
-	# los spell_effects propios de la carta.
+	# play_spell aplica el effect pasado al target explicito, sin usar los
+	# spell_effects propios de la carta.
 	_setup_basico()
 	_session.start()
-	_session.enemy.take_damage(10)
+	_session.heroes[1].take_damage(10)
 	var card := _spell(0, SpellEffect.EffectType.HEAL, 1, SpellEffect.TargetType.PLAYER_HERO)
-	_session.player_deck._hand.append(card)
+	_session.decks[0]._hand.append(card)
 	var effect := SpellEffect.new()
 	effect.effect_type = SpellEffect.EffectType.HEAL
 	effect.value = 5
-	var ok := _session.play_spell(card, effect, _session.enemy)
+	var ok := _session.play_spell(card, effect, _session.heroes[1])
 	assert_true(ok, "el hechizo manual se juega")
-	assert_eq(_session.enemy.current_health, 25, "cura 5 al target explicito (20 -> 25)")
+	assert_eq(_session.heroes[1].current_health, 25, "cura 5 al target explicito (20 -> 25)")

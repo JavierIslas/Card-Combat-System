@@ -3,8 +3,8 @@ extends GutTest
 
 
 func test_init_guarda_tipo_y_payload() -> void:
-	var ev := CombatEvent.new(CombatEvent.EventType.HERO_DAMAGED, {"amount": 5})
-	assert_eq(ev.type, CombatEvent.EventType.HERO_DAMAGED, "guarda el tipo")
+	var ev := CombatEvent.new(CombatEvent.EventType.COMBATANT_DAMAGED, {"side": 1, "amount": 5})
+	assert_eq(ev.type, CombatEvent.EventType.COMBATANT_DAMAGED, "guarda el tipo")
 	assert_eq(ev.payload["amount"], 5, "guarda el payload")
 
 
@@ -22,7 +22,7 @@ func test_serialize_usa_nombre_de_tipo() -> void:
 
 func test_serialize_es_copia_independiente() -> void:
 	var payload := {"amount": 3}
-	var ev := CombatEvent.new(CombatEvent.EventType.ENEMY_DAMAGED, payload)
+	var ev := CombatEvent.new(CombatEvent.EventType.COMBATANT_DAMAGED, payload)
 	var data := ev.serialize()
 	payload["amount"] = 99
 	assert_eq(data["payload"]["amount"], 3, "serialize duplica el payload, no lo referencia")
