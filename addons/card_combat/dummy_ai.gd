@@ -58,16 +58,27 @@ func choose_attack_target(_attacker: CardInstance, enemy_board: Array[CardInstan
 	return enemy_board[_rng.randi() % enemy_board.size()]
 
 
-func choose_spell_target(_spell: CardData, own_board: Array[CardInstance], enemy_board: Array[CardInstance]) -> Variant:
-	# Reference AI: target a random living creature from either board (it does not
-	# read the effect to play optimally). Null when no creature is alive.
+func choose_spell_target(spell: CardData, own_board: Array[CardInstance], enemy_board: Array[CardInstance]) -> Variant:
+	# Reference AI: pick the board that matches the spell's first effect (a damaging
+	# spell wants an enemy, a heal/buff an ally), then a random living creature from
+	# it. Avoids the old behavior of damaging its own creatures. Null if none alive.
+	var board := enemy_board if _targets_enemies(spell) else own_board
 	var candidates: Array[CardInstance] = []
-	for inst in own_board + enemy_board:
+	for inst in board:
 		if not inst.is_dead:
 			candidates.append(inst)
 	if candidates.is_empty():
 		return null
 	return candidates[_rng.randi() % candidates.size()]
+
+
+func _targets_enemies(spell: CardData) -> bool:
+	# A DAMAGE/AOE_DAMAGE spell wants an enemy; HEAL/BUFF_ATTACK an ally. Defaults to
+	# enemy when the spell declares no effects.
+	if spell.spell_effects.is_empty():
+		return true
+	var type: SpellEffect.EffectType = spell.spell_effects[0].effect_type
+	return type == SpellEffect.EffectType.DAMAGE or type == SpellEffect.EffectType.AOE_DAMAGE
 
 
 func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstance]) -> Dictionary:
