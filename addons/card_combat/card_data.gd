@@ -26,7 +26,9 @@ enum CardType { CRIATURA, HECHIZO }
 @export var health: int = 0
 @export var card_type: CardType = CardType.CRIATURA
 @export var metadata: Dictionary = {}
-var spell_effects: Array[SpellEffect] = []
+## Spell effects, authored on the card. Exportable now that SpellEffect is a
+## Resource, so a card defined as a .tres persists its effects natively.
+@export var spell_effects: Array[SpellEffect] = []
 
 
 func get_total_cost() -> int:

@@ -11,20 +11,24 @@
 # LICENSE_COMMERCIAL.md or contact islasjavieralf@gmail.com.
 
 class_name SpellEffect
-extends RefCounted
+extends Resource
+## A spell's effect. Extends Resource (not RefCounted) so CardData.spell_effects
+## can be @export'd and authored/persisted as a .tres alongside the card. The
+## injected Callables (id_fn, effect_fn) stay non-@export: they are re-injected by
+## the game layer, never saved.
 
 enum EffectType { DAMAGE, HEAL, BUFF_ATTACK, AOE_DAMAGE, SUMMON }
 
 enum TargetType { ENEMY_HERO, PLAYER_HERO, PLAYER_CREATURE, ENEMY_CREATURES, PLAYER_CREATURES, SUMMON_BOARD }
 
-var effect_type: EffectType = EffectType.DAMAGE
-var value: int = 0
-var target_type: TargetType = TargetType.ENEMY_HERO
-var buff_health: int = 0
-var summon_name: String = ""
-var summon_attack: int = 0
-var summon_health: int = 0
-var summon_count: int = 0
+@export var effect_type: EffectType = EffectType.DAMAGE
+@export var value: int = 0
+@export var target_type: TargetType = TargetType.ENEMY_HERO
+@export var buff_health: int = 0
+@export var summon_name: String = ""
+@export var summon_attack: int = 0
+@export var summon_health: int = 0
+@export var summon_count: int = 0
 
 ## Generador de id para criaturas invocadas. Inyectable por la capa de juego.
 ## Firma: (name: String, index: int, count: int) -> String.
@@ -123,6 +127,9 @@ func _apply_heal(target: Variant) -> Dictionary:
 
 
 func _apply_buff(target: Variant) -> Dictionary:
+	## `buff_amount` in the result reports the attack delta (`value`) per affected
+	## creature, not a board total nor the health delta (`buff_health`). Callers that
+	## need totals should count the targets themselves.
 	if value <= 0 and buff_health <= 0:
 		return _empty_result()
 	if target is Array:
