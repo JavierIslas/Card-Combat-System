@@ -35,7 +35,13 @@ var current_health: int = 0
 ## cap that heal() respects. The engine does not derive it from game rules.
 var current_max_health: int = 0
 var can_attack_this_turn: bool = false
+## Damage absorbed this turn. The engine writes it (take_damage) and resets it on
+## turn refresh, but never reads it: it is a read hook for the game layer, e.g. an
+## ability that retaliates based on how much it was hurt this turn.
 var damage_taken_this_turn: int = 0
+## Attack counter for the turn. The engine only resets it and round-trips it; it
+## does not increment it. Single-attack rules use has_attacked_this_turn instead.
+## Left as a hook for game layers with multi-attack abilities to increment/read.
 var times_attacked: int = 0
 var has_attacked_this_turn: bool = false
 
