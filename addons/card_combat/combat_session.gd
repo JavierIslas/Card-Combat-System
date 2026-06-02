@@ -61,11 +61,11 @@ var _dead_creatures: Array = [[], []]
 ## setup(). Card-level events (draw/play) live on CombatDeck, not here.
 var event_log: Array[CombatEvent] = []
 
-## Parámetros de balance. Reasignar antes de setup() para personalizar.
+## Balance parameters. Reassign before setup() to customize.
 var config: CombatConfig = CombatConfig.new()
 
-## Handler de habilidades. Lo inyecta la capa de juego antes de setup()
-## (la capa-juego inyecta su handler de habilidades). Vacío = motor agnóstico.
+## Ability handler. Injected by the game layer before setup() (the game layer
+## injects its own ability handler). Empty = engine-agnostic.
 var ability_fn: Callable = Callable()
 
 ## Optional damage formula hook, seeded into the resolver on setup().
@@ -834,9 +834,9 @@ func _apply_spell_effects(card: CardData, side: int, target: Variant = null) -> 
 
 
 func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null) -> void:
-	## Resolución agnóstica desde la óptica del lanzador (`side`). TargetType se
-	## interpreta relativo al lanzador, así un mismo hechizo sirve a ambos lados
-	## sin lógica duplicada.
+	## Agnostic resolution from the caster's perspective (`side`). TargetType is
+	## interpreted relative to the caster, so the same spell serves both sides with
+	## no duplicated logic.
 	var caster_hero: Combatant = heroes[side]
 	var caster_deck: CombatDeck = decks[side]
 	var opponent_deck: CombatDeck = decks[1 - side]

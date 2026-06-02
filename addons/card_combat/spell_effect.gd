@@ -30,13 +30,13 @@ enum TargetType { ENEMY_HERO, PLAYER_HERO, PLAYER_CREATURE, ENEMY_CREATURES, PLA
 @export var summon_health: int = 0
 @export var summon_count: int = 0
 
-## Generador de id para criaturas invocadas. Inyectable por la capa de juego.
-## Firma: (name: String, index: int, count: int) -> String.
-## Si no se inyecta, se usa un slug básico agnóstico (ver _make_summon_id).
+## Id generator for summoned creatures. Injectable by the game layer.
+## Signature: (name: String, index: int, count: int) -> String.
+## If not injected, a basic agnostic slug is used (see _make_summon_id).
 var id_fn: Callable = Callable()
 
-## Resolución completa del efecto, inyectable por la capa-juego para tipos de
-## efecto fuera del catálogo del motor (EffectType). Firma:
+## Full effect resolution, injectable by the game layer for effect types outside
+## the engine catalog (EffectType). Signature:
 ## (effect: SpellEffect, target: Variant, context: Dictionary) -> Dictionary.
 ## Si no se inyecta, se usa el match interno por EffectType.
 var effect_fn: Callable = Callable()
@@ -183,7 +183,7 @@ func _apply_summon(context: Dictionary) -> Dictionary:
 func _make_summon_id(index: int) -> String:
 	if id_fn.is_valid():
 		return id_fn.call(summon_name, index, summon_count)
-	# Default agnóstico: slug básico sin la tabla de acentos del juego.
+	# Agnostic default: basic slug without the game's accent table.
 	var base: String = summon_name.to_lower().replace(" ", "_")
 	if summon_count > 1:
 		return base + "_%d" % index

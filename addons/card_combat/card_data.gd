@@ -12,10 +12,10 @@
 
 class_name CardData
 extends Resource
-## Núcleo genérico de carta: id, coste, stats y tipo. Lo específico del juego
-## (rareza, flavor, textura, abilities) vive en `metadata: Dictionary`, que el
-## motor no interpreta — igual que `HexCell.metadata` en el addon del mapa.
-## La capa-juego (carga de cartas, habilidades, UI) lee/escribe metadata.
+## Generic card core: id, cost, stats and type. Game-specific data (rarity, flavor,
+## texture, abilities) lives in `metadata: Dictionary`, which the engine does not
+## interpret — same as `HexCell.metadata` in the map addon. The game layer (card
+## loading, abilities, UI) reads/writes metadata.
 
 enum CardType { CRIATURA, HECHIZO }
 
@@ -48,7 +48,7 @@ static func from_dict(data: Dictionary) -> CardData:
 	card.health = int(data.get("health", 0))
 	var type_idx := CardType.keys().find(data.get("card_type", "CRIATURA"))
 	if type_idx == -1:
-		push_warning("CardData.from_dict: card_type inválido — %s" % data.get("card_type", ""))
+		push_warning("CardData.from_dict: invalid card_type — %s" % data.get("card_type", ""))
 		return null
 	card.card_type = type_idx as CardType
 	var meta: Variant = data.get("metadata", {})

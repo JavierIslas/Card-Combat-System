@@ -12,33 +12,33 @@
 
 class_name CombatConfig
 extends RefCounted
-## Parámetros de balance del motor de combate. Inyectable por la capa de juego.
-## Los defaults reproducen un balance base; un juego distinto puede instanciar
-## este config con otros valores sin tocar el motor.
+## Balance parameters for the combat engine. Injectable by the game layer. The
+## defaults reproduce a baseline balance; a different game can instance this config
+## with other values without touching the engine.
 
-## Tope de maná máximo que un lado puede acumular.
+## Cap on the maximum mana a side can accumulate.
 var max_mana_cap: int = 10
 
-## Cuánto crece el maná máximo por turno (hasta max_mana_cap).
+## How much the maximum mana grows per turn (up to max_mana_cap).
 var mana_ramp_per_turn: int = 2
 
-## Maná máximo inicial de cada lado al empezar el combate.
+## Starting maximum mana of each side at the start of combat.
 var starting_max_mana: int = 2
 
-## Cartas robadas en la mano inicial.
+## Cards drawn for the initial hand.
 var initial_hand_size: int = 3
 
-## Turno a partir del cual un combate sin recursos se declara tablas.
+## Turn from which a combat with no resources left is declared a stalemate.
 var stalemate_turn_limit: int = 50
 
-## Tope de mejoras permanentes (apply_permanent_buff) por carta.
-## -1 = ilimitado (motor agnóstico). El juego lo fija (p.ej. 3) antes de setup().
+## Cap on permanent buffs (apply_permanent_buff) per card.
+## -1 = unlimited (engine-agnostic). The game sets it (e.g. 3) before setup().
 var max_permanent_buffs_per_card: int = -1
 
-## Tope de criaturas en el tablero de cada lado.
-## -1 = ilimitado (motor agnóstico). El juego lo fija antes de setup().
+## Cap on creatures on each side's board.
+## -1 = unlimited (engine-agnostic). The game sets it before setup().
 var max_board_size: int = -1
 
-## Tope de cartas en la mano de cada lado. Al robar con la mano llena la carta se
-## quema al cementerio (ver discard_fn). -1 = ilimitado (motor agnóstico).
+## Cap on cards in each side's hand. Drawing with a full hand burns the card to the
+## graveyard (see discard_fn). -1 = unlimited (engine-agnostic).
 var max_hand_size: int = -1

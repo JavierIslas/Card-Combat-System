@@ -12,7 +12,7 @@
 
 class_name CombatDeck
 extends RefCounted
-## Estado de un lado durante combate: mano, mazo, tablero, cementerio y pool de mana.
+## One side's state during combat: hand, draw pile, board, graveyard and mana pool.
 
 signal card_drawn(card: CardData)
 signal deck_exhausted
@@ -30,12 +30,12 @@ var _mana: int = 0
 var _max_mana: int = 1
 var owner_id: int = 0
 
-## Handler de habilidades a inyectar en cada CardInstance creada. Lo provee
-## la sesión; vacío = sin semántica de habilidades (motor agnóstico).
+## Ability handler injected into every CardInstance created. Provided by the
+## session; empty = no ability semantics (engine-agnostic).
 var ability_fn: Callable = Callable()
 
-## Tope de mejoras permanentes a sembrar en cada CardInstance. Lo provee la
-## sesión desde CombatConfig; -1 = ilimitado.
+## Cap on permanent buffs seeded into every CardInstance. Provided by the session
+## from CombatConfig; -1 = unlimited.
 var max_permanent_buffs: int = -1
 
 ## Optional fatigue hook, seeded by the session. Signature: (owner_id: int).
@@ -43,12 +43,12 @@ var max_permanent_buffs: int = -1
 ## (engine default behavior unchanged).
 var exhaust_fn: Callable = Callable()
 
-## Tope de criaturas en el tablero. Lo siembra la sesión desde CombatConfig.
-## -1 = ilimitado (motor agnóstico).
+## Cap on creatures on the board. Seeded by the session from CombatConfig.
+## -1 = unlimited (engine-agnostic).
 var max_board_size: int = -1
 
-## Tope de cartas en la mano. Lo siembra la sesión desde CombatConfig.
-## -1 = ilimitado (motor agnóstico).
+## Cap on cards in hand. Seeded by the session from CombatConfig.
+## -1 = unlimited (engine-agnostic).
 var max_hand_size: int = -1
 
 ## Optional discard hook for overdraw, seeded by the session.

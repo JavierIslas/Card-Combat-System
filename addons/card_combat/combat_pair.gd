@@ -12,7 +12,7 @@
 
 class_name CombatPair
 extends RefCounted
-## Par atacante-defensor para resolucion de combate.
+## Attacker-defender pair for combat resolution.
 
 var attacker: CardInstance
 var defender: Variant  # CardInstance or null (direct attack to hero)

@@ -12,10 +12,10 @@
 
 class_name Combatant
 extends Resource
-## Participante de combate genérico: salud + daño/curación con señales.
-## Base agnóstica del motor de combate. La capa-juego la extiende para sus
-## participantes (jugador) o la instancia directamente (enemigo). El motor sólo
-## conoce esta interfaz, nunca los tipos concretos del juego.
+## Generic combat participant: health + damage/heal with signals. Agnostic base of
+## the combat engine. The game layer extends it for its participants (player) or
+## instances it directly (enemy). The engine only knows this interface, never the
+## game's concrete types.
 
 signal health_changed(new_health: int)
 signal died

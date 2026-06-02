@@ -12,7 +12,7 @@
 
 class_name CombatDamageResolver
 extends RefCounted
-## Calculo de dano simultaneo entre criaturas. Logica pura.
+## Simultaneous damage calculation between creatures. Pure logic.
 
 ## Optional damage formula hook. Signature: (attacker, defender) -> int. When
 ## valid it fully replaces the default formula, letting the game layer factor in

@@ -11,7 +11,7 @@
 # LICENSE_COMMERCIAL.md or contact islasjavieralf@gmail.com.
 
 class_name CombatState
-## Fases de la FSM de combate por turnos alternados. Enum puro sin dependencias.
+## Phases of the alternating-turn combat FSM. Pure enum with no dependencies.
 
 enum Phase {
 	INICIO,

@@ -12,12 +12,11 @@
 
 class_name DummyAI
 extends CombatAI
-## IA de referencia del motor: elige jugadas de forma aleatoria con un seed
-## opcional (determinista si `p_seed >= 0`). Es la IA por defecto que usa
-## `CombatSession`; sirve también de ejemplo del contrato que debe cumplir
-## cualquier IA del addon (choose_card_to_play / choose_attackers /
-## choose_attack_target / choose_blockers). Agnóstica del juego: sólo opera
-## sobre `CardData` y `CardInstance`.
+## Engine reference AI: picks plays randomly with an optional seed (deterministic
+## if `p_seed >= 0`). It is the default AI used by `CombatSession`, and doubles as
+## an example of the contract any addon AI must fulfill (choose_card_to_play /
+## choose_attackers / choose_attack_target / choose_blockers). Game-agnostic: it
+## operates only on `CardData` and `CardInstance`.
 
 var _seed: int = 0
 var _rng: RandomNumberGenerator

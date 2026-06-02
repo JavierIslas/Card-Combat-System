@@ -12,15 +12,15 @@
 
 class_name CardInstance
 extends RefCounted
-## Instancia viva de una carta en el tablero de combate. Lógica pura sin dependencia de escena.
+## Live instance of a card on the combat board. Pure logic, no scene dependency.
 
 signal card_died(card: CardInstance)
 signal card_damaged(card: CardInstance, amount: int)
 signal card_revealed(card: CardInstance)
 
-## Disparadores de ciclo de vida. El handler de habilidades (inyectado por el
-## juego vía ability_fn) reacciona a estos puntos; el motor no conoce la
-## semántica concreta de cada habilidad.
+## Lifecycle triggers. The ability handler (injected by the game via ability_fn)
+## reacts to these points; the engine does not know the concrete semantics of each
+## ability.
 enum Trigger { ON_SETUP, ON_TURN_REFRESH, ON_DEATH, ON_REVEAL }
 
 var card_data: CardData = null
@@ -31,20 +31,20 @@ var hidden_stats: HiddenCardStats = null
 
 var current_attack: int = 0
 var current_health: int = 0
-## Vida máxima actual de la instancia (incluye buffs permanentes). Es el tope
-## que respeta heal(). El motor no la deriva de reglas del juego.
+## Current maximum health of the instance (includes permanent buffs). It is the
+## cap that heal() respects. The engine does not derive it from game rules.
 var current_max_health: int = 0
 var can_attack_this_turn: bool = false
 var damage_taken_this_turn: int = 0
 var times_attacked: int = 0
 var has_attacked_this_turn: bool = false
 
-# Inmunidad
+# Immunity
 var immunity_hits_remaining: int = 0
 
-## Mejoras permanentes acumuladas (genéricas: cualquier delta vía
-## apply_permanent_buff). El motor no conoce "+1/+1": el delta y el tope los
-## decide la capa-juego. El tope se siembra desde CombatConfig vía el deck.
+## Accumulated permanent buffs (generic: any delta via apply_permanent_buff). The
+## engine does not know "+1/+1": the delta and the cap are decided by the game
+## layer. The cap is seeded from CombatConfig via the deck.
 var permanent_buff_count: int = 0
 var max_permanent_buffs: int = -1  # -1 = ilimitado
 ## Accumulated permanent-buff deltas. Kept so reveal() can rebuild real stats
@@ -57,8 +57,8 @@ var _buff_health_total: int = 0
 var _temp_attack_total: int = 0
 var _temp_health_total: int = 0
 
-## Handler de habilidades inyectable. Firma: (inst: CardInstance, trigger: int).
-## Si no se inyecta, el motor no aplica semántica de habilidades (agnóstico).
+## Injectable ability handler. Signature: (inst: CardInstance, trigger: int).
+## If not injected, the engine applies no ability semantics (agnostic).
 var ability_fn: Callable = Callable()
 
 
@@ -107,7 +107,7 @@ func reveal() -> void:
 
 
 func take_damage(amount: int) -> int:
-	## Aplica daño. Retorna daño real recibido (puede ser 0 con inmunidad).
+	## Applies damage. Returns the actual damage taken (may be 0 with immunity).
 	if amount <= 0:
 		return 0
 	if immunity_hits_remaining != 0:
@@ -133,9 +133,9 @@ func heal(amount: int) -> void:
 
 
 func apply_permanent_buff(attack_delta: int, health_delta: int, max_buffs: int = -1) -> bool:
-	## Mejora permanente genérica. El delta lo decide la capa-juego; el tope sale
-	## de max_buffs (override puntual) o de max_permanent_buffs (sembrado desde
-	## CombatConfig). Cap < 0 = ilimitado. Retorna false si llegó al tope.
+	## Generic permanent buff. The delta is decided by the game layer; the cap comes
+	## from max_buffs (one-off override) or max_permanent_buffs (seeded from
+	## CombatConfig). Cap < 0 = unlimited. Returns false if the cap was reached.
 	var cap := max_buffs if max_buffs >= 0 else max_permanent_buffs
 	if cap >= 0 and permanent_buff_count >= cap:
 		return false
