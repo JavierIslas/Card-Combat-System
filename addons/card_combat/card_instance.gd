@@ -83,9 +83,13 @@ func reveal() -> void:
 		return
 
 	is_hidden = false
+	# Carry over damage already taken while hidden so revealing does not heal the
+	# creature: the real max is base + buffs, and current health keeps the same
+	# missing-health gap it had under the declared (bluff) stats.
+	var damage_taken: int = current_max_health - current_health
 	current_attack = card_data.attack + _buff_attack_total + _temp_attack_total
-	current_health = card_data.health + _buff_health_total + _temp_health_total
 	current_max_health = card_data.health + _buff_health_total + _temp_health_total
+	current_health = maxi(current_max_health - damage_taken, 0)
 
 	_fire(Trigger.ON_REVEAL)
 

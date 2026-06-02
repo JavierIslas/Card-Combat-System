@@ -137,6 +137,23 @@ func test_reveal_preserva_buffs_permanentes() -> void:
 	assert_eq(inst.current_max_health, 8, "max real 6 + buff 2")
 
 
+func test_reveal_conserva_dano_recibido_oculta() -> void:
+	# Regresion: una criatura oculta que recibio dano no debe curarse al revelar.
+	# Real 5/5, declarada 3/3; recibe 2 (queda 1/3 oculta) -> revela a 3/5 (dano 2),
+	# no a 5/5.
+	var inst := CardInstance.new()
+	var hidden := HiddenCardStats.new()
+	hidden.declared_attack = 1
+	hidden.declared_health = 3
+	inst.hidden_stats = hidden
+	inst.setup(_make_card(2, 5), 0, true)
+	inst.take_damage(2)
+	assert_eq(inst.current_health, 1, "1/3 mientras oculta y danada")
+	inst.reveal()
+	assert_eq(inst.current_max_health, 5, "max real tras revelar")
+	assert_eq(inst.current_health, 3, "real 5 menos 2 de dano, no curada a tope")
+
+
 func test_temp_buff_sube_stats_y_max() -> void:
 	var inst := _make_instance(3, 5)
 	inst.apply_temp_buff(2, 2)
