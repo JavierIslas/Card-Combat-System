@@ -63,10 +63,7 @@ func choose_spell_target(spell: CardData, own_board: Array[CardInstance], enemy_
 	# spell wants an enemy, a heal/buff an ally), then a random living creature from
 	# it. Avoids the old behavior of damaging its own creatures. Null if none alive.
 	var board := enemy_board if _targets_enemies(spell) else own_board
-	var candidates: Array[CardInstance] = []
-	for inst in board:
-		if not inst.is_dead:
-			candidates.append(inst)
+	var candidates: Array[CardInstance] = CardInstance.living(board)
 	if candidates.is_empty():
 		return null
 	return candidates[_rng.randi() % candidates.size()]
@@ -83,12 +80,7 @@ func _targets_enemies(spell: CardData) -> bool:
 
 func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstance]) -> Dictionary:
 	var blocks: Dictionary = {}
-	if own_board.is_empty():
-		return blocks
-	var available: Array[CardInstance] = []
-	for inst in own_board:
-		if not inst.is_dead:
-			available.append(inst)
+	var available: Array[CardInstance] = CardInstance.living(own_board)
 	if available.is_empty():
 		return blocks
 	for atk in attackers:

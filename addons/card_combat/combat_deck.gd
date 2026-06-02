@@ -191,11 +191,7 @@ func refresh_creatures_for_turn() -> void:
 
 
 func get_defenders() -> Array[CardInstance]:
-	var result: Array[CardInstance] = []
-	for inst in _board:
-		if not inst.is_dead:
-			result.append(inst)
-	return result
+	return CardInstance.living(_board)
 
 
 func remove_dead_creatures() -> Array[CardInstance]:

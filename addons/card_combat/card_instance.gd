@@ -62,6 +62,16 @@ var _temp_health_total: int = 0
 var ability_fn: Callable = Callable()
 
 
+static func living(board: Array) -> Array[CardInstance]:
+	## Filter a board down to its living instances. Single source for the "skip the
+	## dead" sweep shared by the decks and AIs, instead of repeating the loop.
+	var result: Array[CardInstance] = []
+	for inst in board:
+		if inst is CardInstance and not inst.is_dead:
+			result.append(inst)
+	return result
+
+
 func setup(data: CardData, p_owner: int, p_hidden: bool = false) -> void:
 	card_data = data
 	owner_id = p_owner

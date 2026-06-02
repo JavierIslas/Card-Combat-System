@@ -78,10 +78,10 @@ func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstan
 	## A blocker is used at most once; chump blocks (defender dies for nothing) are
 	## skipped so we don't waste board presence.
 	var blocks: Dictionary = {}
-	var available: Array[CardInstance] = _living(own_board)
+	var available: Array[CardInstance] = CardInstance.living(own_board)
 	if available.is_empty():
 		return blocks
-	var threats: Array[CardInstance] = _living(attackers)
+	var threats: Array[CardInstance] = CardInstance.living(attackers)
 	threats.sort_custom(func(a: CardInstance, b: CardInstance) -> bool: return a.current_attack > b.current_attack)
 	for atk in threats:
 		var blocker: CardInstance = _best_blocker(atk, available)
@@ -155,14 +155,6 @@ func _first_effect(spell: CardData) -> SpellEffect:
 	if spell.spell_effects.is_empty():
 		return null
 	return spell.spell_effects[0]
-
-
-func _living(board: Array[CardInstance]) -> Array[CardInstance]:
-	var result: Array[CardInstance] = []
-	for inst in board:
-		if not inst.is_dead:
-			result.append(inst)
-	return result
 
 
 func _first_living(board: Array[CardInstance]) -> Variant:
