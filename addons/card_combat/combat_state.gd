@@ -14,13 +14,13 @@ class_name CombatState
 ## Phases of the alternating-turn combat FSM. Pure enum with no dependencies.
 
 enum Phase {
-	INICIO,
-	PREPARACION,
-	PRINCIPAL,
-	ATAQUE,
-	DEFENSA,
-	RESOLVER,
-	FINAL,
+	BEGIN,
+	PREPARATION,
+	MAIN,
+	ATTACK,
+	DEFENSE,
+	RESOLVE,
+	END,
 }
 
 
@@ -30,13 +30,13 @@ static func phase_name(phase: Phase) -> String:
 
 static func is_active_action_phase(phase: Phase) -> bool:
 	## Phases driven by the ACTIVE side (the one taking its turn).
-	return phase in [Phase.PRINCIPAL, Phase.ATAQUE]
+	return phase in [Phase.MAIN, Phase.ATTACK]
 
 
 static func is_passive_action_phase(phase: Phase) -> bool:
 	## Phases driven by the PASSIVE side (the defender declaring blockers).
-	return phase == Phase.DEFENSA
+	return phase == Phase.DEFENSE
 
 
 static func is_auto_phase(phase: Phase) -> bool:
-	return phase in [Phase.INICIO, Phase.PREPARACION, Phase.RESOLVER, Phase.FINAL]
+	return phase in [Phase.BEGIN, Phase.PREPARATION, Phase.RESOLVE, Phase.END]

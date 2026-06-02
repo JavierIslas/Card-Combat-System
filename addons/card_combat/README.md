@@ -98,15 +98,15 @@ each side — human UI, AI, or a network peer — which is what makes it PvP-rea
 `turn_number` counts half-turns (one per side turn).
 
 FSM per side turn:
-`PREPARACION → PRINCIPAL → ATAQUE → DEFENSA → RESOLVER → (swap side) → …`
+`PREPARATION → MAIN → ATTACK → DEFENSE → RESOLVE → (swap side) → …`
 
 | Phase | Driven by | What |
 |-------|-----------|------|
-| `PREPARACION` | active | only the active side ramps mana, draws and refreshes |
-| `PRINCIPAL` | active | `play_card` |
-| `ATAQUE` | active | `declare_attacker(attacker, target?)` (target = a passive creature, or null for the hero) |
-| `DEFENSA` | **passive** | `declare_blocker(attacker, blocker)` — redirects that attack to the blocker |
-| `RESOLVER` | engine | resolves the active side's attacks, then hands the turn over |
+| `PREPARATION` | active | only the active side ramps mana, draws and refreshes |
+| `MAIN` | active | `play_card` |
+| `ATTACK` | active | `declare_attacker(attacker, target?)` (target = a passive creature, or null for the hero) |
+| `DEFENSE` | **passive** | `declare_blocker(attacker, blocker)` — redirects that attack to the blocker |
+| `RESOLVE` | engine | resolves the active side's attacks, then hands the turn over |
 
 State is indexed by side: `heroes[0/1]`, `decks[0/1]`, `ais[0/1]`, `active_side`,
 `winner_side` (`-1` = no winner). Assign `ais[side]` before `setup()` to inject a
@@ -195,7 +195,7 @@ Signal catalog per class:
 | Class | Signal | When |
 |-------|--------|------|
 | `CombatSession` | `phase_changed(old, new)` | every FSM transition |
-| `CombatSession` | `combat_ended(winner_side)` | on entering `FINAL` (`-1` = no winner) |
+| `CombatSession` | `combat_ended(winner_side)` | on entering `END` (`-1` = no winner) |
 | `CombatSession` | `creature_died(card, owner)` | a creature dies, whether in combat or by a spell (AOE/single-target) |
 | `CombatSession` | `combatant_damaged(side, amount)` | the hero of `side` takes damage |
 | `CombatSession` | `spell_fizzled(card)` | a single-target spell was cast with no valid target (not consumed) |

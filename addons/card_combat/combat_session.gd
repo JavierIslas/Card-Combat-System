@@ -34,7 +34,7 @@ const MAX_PLAYS_PER_TURN := 10
 # combat that never converges.
 var _auto_resolve_max_iterations: int = AUTO_RESOLVE_MAX_ITERATIONS
 
-var phase: CombatState.Phase = CombatState.Phase.INICIO
+var phase: CombatState.Phase = CombatState.Phase.BEGIN
 ## Side taking its turn (0 or 1). The other side (1 - active_side) is passive.
 var active_side: int = 0
 ## Winner once the combat ends: 0 or 1, or -1 for no winner (stalemate / both dead).
@@ -92,7 +92,7 @@ func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Comb
 
 	# Reset combat state BEFORE building decks so the initial-hand draws (emitted
 	# inside _make_deck) land in a freshly cleared event_log.
-	phase = CombatState.Phase.INICIO
+	phase = CombatState.Phase.BEGIN
 	active_side = 0
 	winner_side = -1
 	turn_number = 0
@@ -162,7 +162,7 @@ func _seed_ai(side: int, ai_seed: int) -> void:
 
 
 func start() -> void:
-	_transition_to(CombatState.Phase.PREPARACION)
+	_transition_to(CombatState.Phase.PREPARATION)
 
 
 func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0, target: Variant = null) -> bool:
@@ -231,8 +231,8 @@ func _effect_needs_missing_target(effect: SpellEffect, target: Variant) -> bool:
 
 func _can_play_from_hand(card: CardData) -> bool:
 	## Shared precondition: a card can only be played from the active side's hand
-	## during PRINCIPAL, while the combat is live and the deck can afford it.
-	if phase != CombatState.Phase.PRINCIPAL:
+	## during MAIN, while the combat is live and the deck can afford it.
+	if phase != CombatState.Phase.MAIN:
 		return false
 	if _combat_over:
 		return false
@@ -247,8 +247,8 @@ func _consume_spell(card: CardData) -> bool:
 func declare_attacker(attacker: CardInstance, target: Variant = null) -> void:
 	## Active-side action: declare an attacker, optionally directed at a passive
 	## creature (`target`); null targets the passive hero. A blocker declared in
-	## DEFENSA can later redirect this pair's damage.
-	if phase != CombatState.Phase.PRINCIPAL and phase != CombatState.Phase.ATAQUE:
+	## DEFENSE can later redirect this pair's damage.
+	if phase != CombatState.Phase.MAIN and phase != CombatState.Phase.ATTACK:
 		return
 	if _combat_over:
 		return
@@ -265,11 +265,11 @@ func declare_attacker(attacker: CardInstance, target: Variant = null) -> void:
 
 
 func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> void:
-	## Passive-side action during DEFENSA: assign one of the passive side's
+	## Passive-side action during DEFENSE: assign one of the passive side's
 	## defenders to intercept an attacker declared by the active side. This
 	## redirects that attack's damage to the blocker, overriding any directed
 	## target. A blocker can only be assigned once per turn.
-	if phase != CombatState.Phase.DEFENSA:
+	if phase != CombatState.Phase.DEFENSE:
 		return
 	if _combat_over:
 		return
@@ -297,37 +297,37 @@ func _find_attack_pair(attacker: CardInstance) -> CombatPair:
 
 
 func end_main_phase() -> void:
-	if phase != CombatState.Phase.PRINCIPAL:
+	if phase != CombatState.Phase.MAIN:
 		return
-	_transition_to(CombatState.Phase.ATAQUE)
+	_transition_to(CombatState.Phase.ATTACK)
 
 
 func end_attack_phase() -> void:
-	if phase != CombatState.Phase.ATAQUE:
+	if phase != CombatState.Phase.ATTACK:
 		return
-	# A spell in PRINCIPAL may have already killed a hero: settle victory first.
+	# A spell in MAIN may have already killed a hero: settle victory first.
 	_check_victory()
 	if _combat_over:
 		return
-	_transition_to(CombatState.Phase.DEFENSA)
+	_transition_to(CombatState.Phase.DEFENSE)
 
 
 func end_defense_phase() -> void:
-	if phase != CombatState.Phase.DEFENSA:
+	if phase != CombatState.Phase.DEFENSE:
 		return
-	_transition_to(CombatState.Phase.RESOLVER)
+	_transition_to(CombatState.Phase.RESOLVE)
 
 
 func advance() -> void:
-	## Manual driver for the phases that need an external nudge. PREPARACION and
-	## RESOLVER auto-chain inside their _enter_* handlers, and FINAL is terminal,
-	## so only INICIO and PREPARACION are actionable here.
+	## Manual driver for the phases that need an external nudge. PREPARATION and
+	## RESOLVE auto-chain inside their _enter_* handlers, and END is terminal,
+	## so only BEGIN and PREPARATION are actionable here.
 	match phase:
-		CombatState.Phase.INICIO:
+		CombatState.Phase.BEGIN:
 			start()
-		CombatState.Phase.PREPARACION:
-			# Auto-advance to PRINCIPAL
-			_transition_to(CombatState.Phase.PRINCIPAL)
+		CombatState.Phase.PREPARATION:
+			# Auto-advance to MAIN
+			_transition_to(CombatState.Phase.MAIN)
 
 
 func get_result() -> Dictionary:
@@ -424,8 +424,8 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 
 
 func _restore_scalars(data: Dictionary) -> void:
-	var idx: int = CombatState.Phase.keys().find(data.get("phase", "INICIO"))
-	phase = (idx if idx != -1 else CombatState.Phase.INICIO) as CombatState.Phase
+	var idx: int = CombatState.Phase.keys().find(data.get("phase", "BEGIN"))
+	phase = (idx if idx != -1 else CombatState.Phase.BEGIN) as CombatState.Phase
 	active_side = int(data.get("active_side", 0))
 	winner_side = int(data.get("winner_side", -1))
 	turn_number = int(data.get("turn_number", 0))
@@ -508,26 +508,26 @@ func auto_resolve() -> void:
 	## setup, or injected by a driver before setup). Deterministic for a fixed seed.
 	start()
 	var iterations_left: int = _auto_resolve_max_iterations
-	while phase != CombatState.Phase.FINAL and not _combat_over and iterations_left > 0:
+	while phase != CombatState.Phase.END and not _combat_over and iterations_left > 0:
 		iterations_left -= 1
 		match phase:
-			CombatState.Phase.PRINCIPAL:
+			CombatState.Phase.MAIN:
 				_auto_play_active()
 				end_main_phase()
-			CombatState.Phase.ATAQUE:
+			CombatState.Phase.ATTACK:
 				end_attack_phase()
-			CombatState.Phase.DEFENSA:
+			CombatState.Phase.DEFENSE:
 				_auto_declare_blockers()
 				end_defense_phase()
-			CombatState.Phase.PREPARACION, CombatState.Phase.RESOLVER:
+			CombatState.Phase.PREPARATION, CombatState.Phase.RESOLVE:
 				pass
 	if not _combat_over:
-		# Loop exhausted before the combat resolved on its own: force FINAL but
+		# Loop exhausted before the combat resolved on its own: force END but
 		# warn with diagnostics, since a silent termination hides a stuck combat.
 		if iterations_left <= 0:
-			push_warning("CombatSession.auto_resolve hit the iteration cap (%d) at turn %d, phase %s; forcing FINAL" % [_auto_resolve_max_iterations, turn_number, CombatState.phase_name(phase)])
+			push_warning("CombatSession.auto_resolve hit the iteration cap (%d) at turn %d, phase %s; forcing END" % [_auto_resolve_max_iterations, turn_number, CombatState.phase_name(phase)])
 		_combat_over = true
-		_transition_to(CombatState.Phase.FINAL)
+		_transition_to(CombatState.Phase.END)
 
 
 func _auto_play_active() -> void:
@@ -691,17 +691,17 @@ func _emit_deck_exhausted(owner: int) -> void:
 
 func _enter_phase(p: CombatState.Phase) -> void:
 	match p:
-		CombatState.Phase.PREPARACION:
+		CombatState.Phase.PREPARATION:
 			_enter_preparacion()
-		CombatState.Phase.PRINCIPAL:
+		CombatState.Phase.MAIN:
 			_enter_principal()
-		CombatState.Phase.ATAQUE:
+		CombatState.Phase.ATTACK:
 			_enter_ataque()
-		CombatState.Phase.DEFENSA:
+		CombatState.Phase.DEFENSE:
 			_enter_defensa()
-		CombatState.Phase.RESOLVER:
+		CombatState.Phase.RESOLVE:
 			_enter_resolve()
-		CombatState.Phase.FINAL:
+		CombatState.Phase.END:
 			_enter_final()
 
 
@@ -718,8 +718,8 @@ func _enter_preparacion() -> void:
 	_attack_pairs[active_side].clear()
 	_block_assignments.clear()
 
-	# Auto-advance to PRINCIPAL
-	_transition_to(CombatState.Phase.PRINCIPAL)
+	# Auto-advance to MAIN
+	_transition_to(CombatState.Phase.MAIN)
 
 
 func _ramp_mana_for(deck: CombatDeck) -> void:
@@ -761,7 +761,7 @@ func _enter_resolve() -> void:
 
 	# Hand the turn to the other side.
 	active_side = passive
-	_transition_to(CombatState.Phase.PREPARACION)
+	_transition_to(CombatState.Phase.PREPARATION)
 
 
 func _resolve_side_attacks(pairs: Array, target_hero: Combatant, target_side: int) -> void:
@@ -827,7 +827,7 @@ func _check_victory() -> void:
 	var dead1: bool = heroes[1] != null and heroes[1].current_health <= 0
 	if dead0 or dead1 or _is_stalemate():
 		_combat_over = true
-		_transition_to(CombatState.Phase.FINAL)
+		_transition_to(CombatState.Phase.END)
 
 
 func _is_stalemate() -> bool:

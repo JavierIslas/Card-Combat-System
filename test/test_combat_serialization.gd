@@ -144,4 +144,4 @@ func test_session_deserializada_puede_continuar() -> void:
 	session.start()
 	var restored := CombatSession.deserialize(session.serialize())
 	restored.auto_resolve()
-	assert_eq(restored.phase, CombatState.Phase.FINAL, "la sesión deserializada llega a FINAL")
+	assert_eq(restored.phase, CombatState.Phase.END, "la sesión deserializada llega a END")

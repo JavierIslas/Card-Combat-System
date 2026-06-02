@@ -77,7 +77,7 @@ func test_mismo_seed_reproduce_la_partida() -> void:
 func test_start_va_a_principal_en_turno_uno() -> void:
 	_setup_basico()
 	_session.start()
-	assert_eq(_session.phase, CombatState.Phase.PRINCIPAL, "tras start queda en PRINCIPAL")
+	assert_eq(_session.phase, CombatState.Phase.MAIN, "tras start queda en MAIN")
 	assert_eq(_session.turn_number, 1, "primer turno")
 	assert_eq(_session.active_side, 0, "el lado 0 arranca activo")
 
@@ -142,11 +142,11 @@ func test_event_log_se_limpia_en_setup() -> void:
 
 
 func test_advance_desde_inicio_arranca_el_combate() -> void:
-	# advance() keeps INICIO actionable after dropping the dead RESOLVER/FINAL arms.
+	# advance() keeps BEGIN actionable after dropping the dead RESOLVE/END arms.
 	_setup_basico()
-	assert_eq(_session.phase, CombatState.Phase.INICIO, "arranca en INICIO")
+	assert_eq(_session.phase, CombatState.Phase.BEGIN, "arranca en BEGIN")
 	_session.advance()
-	assert_eq(_session.phase, CombatState.Phase.PRINCIPAL, "advance desde INICIO encadena hasta PRINCIPAL")
+	assert_eq(_session.phase, CombatState.Phase.MAIN, "advance desde BEGIN encadena hasta MAIN")
 
 
 func _dead_instance(owner: int) -> CardInstance:
@@ -256,7 +256,7 @@ func test_solo_el_lado_activo_rampa_en_su_turno() -> void:
 
 
 func test_el_turno_alterna_el_lado_activo() -> void:
-	# After RESOLVER the turn passes to the other side.
+	# After RESOLVE the turn passes to the other side.
 	_session.setup(_hero(30), [_creature(5, 1, 1)], _hero(30), [_creature(5, 1, 1)], 1)
 	_session.start()
 	assert_eq(_session.active_side, 0, "arranca el lado 0")
@@ -264,7 +264,7 @@ func test_el_turno_alterna_el_lado_activo() -> void:
 	_session.end_attack_phase()
 	_session.end_defense_phase()
 	assert_eq(_session.active_side, 1, "tras resolver, el turno pasa al lado 1")
-	assert_eq(_session.phase, CombatState.Phase.PRINCIPAL, "y arranca el PRINCIPAL del lado 1")
+	assert_eq(_session.phase, CombatState.Phase.MAIN, "y arranca el MAIN del lado 1")
 
 
 func test_auto_resolve_termina_en_final() -> void:
@@ -272,18 +272,18 @@ func test_auto_resolve_termina_en_final() -> void:
 	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
 	_session.setup(_hero(10), hero_cards, _hero(10), enemy_cards, 7)
 	_session.auto_resolve()
-	assert_eq(_session.phase, CombatState.Phase.FINAL, "auto_resolve llega a FINAL sin colgarse")
+	assert_eq(_session.phase, CombatState.Phase.END, "auto_resolve llega a END sin colgarse")
 
 
 func test_auto_resolve_corta_al_agotar_iteraciones() -> void:
-	# With a tiny cap the loop exits in ATAQUE, before any damage resolves: the
-	# guard must force FINAL even though nobody won, lost, or stalemated.
+	# With a tiny cap the loop exits in ATTACK, before any damage resolves: the
+	# guard must force END even though nobody won, lost, or stalemated.
 	var hero_cards: Array[CardData] = [_creature(1, 2, 2)]
 	var enemy_cards: Array[CardData] = [_creature(1, 1, 2)]
 	_session.setup(_hero(30), hero_cards, _hero(30), enemy_cards, 7)
 	_session._auto_resolve_max_iterations = 1
 	_session.auto_resolve()
-	assert_eq(_session.phase, CombatState.Phase.FINAL, "el guard fuerza FINAL al agotar iteraciones")
+	assert_eq(_session.phase, CombatState.Phase.END, "el guard fuerza END al agotar iteraciones")
 	assert_gt(_session.heroes[1].current_health, 0, "no terminó por victoria (corte forzado)")
 	assert_gt(_session.heroes[0].current_health, 0, "no terminó por derrota (corte forzado)")
 	assert_lt(_session.turn_number, _session.config.stalemate_turn_limit, "tampoco es tablas")
@@ -302,7 +302,7 @@ func test_winner_side_es_el_lado_del_heroe_vivo() -> void:
 	_session.setup(_hero(5), _empty(), _hero(30), _empty(), 1)
 	_session.heroes[0].take_damage(5)
 	_session._check_victory()
-	assert_eq(_session.phase, CombatState.Phase.FINAL, "muerto un héroe, el combate termina")
+	assert_eq(_session.phase, CombatState.Phase.END, "muerto un héroe, el combate termina")
 	assert_eq(_session.winner_side, 1, "gana el lado cuyo héroe sigue vivo")
 
 
@@ -310,7 +310,7 @@ func test_winner_side_menos_uno_en_tablas() -> void:
 	# Empty decks resolve to a stalemate on the first turn: no winner.
 	_setup_basico()
 	_session.auto_resolve()
-	assert_eq(_session.phase, CombatState.Phase.FINAL, "termina por tablas")
+	assert_eq(_session.phase, CombatState.Phase.END, "termina por tablas")
 	assert_eq(_session.winner_side, -1, "tablas: sin ganador")
 
 
@@ -672,7 +672,7 @@ func test_check_victory_tolera_heroe_nulo() -> void:
 	_setup_basico()
 	_session.heroes[1] = null
 	_session.auto_resolve()
-	assert_eq(_session.phase, CombatState.Phase.FINAL, "el combate cierra sin crashear con un héroe nulo")
+	assert_eq(_session.phase, CombatState.Phase.END, "el combate cierra sin crashear con un héroe nulo")
 	assert_eq(_session.winner_side, -1, "sin héroe válido no se declara ganador")
 
 

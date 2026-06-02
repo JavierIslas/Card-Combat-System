@@ -21,7 +21,7 @@ exactly that missing piece, with no rendering and no game assumptions baked in.
 
 ## Features
 
-- Turn FSM: `INICIO → PREPARACION → PRINCIPAL → ATAQUE → DEFENSA → RESOLVER → FINAL`.
+- Turn FSM: `BEGIN → PREPARATION → MAIN → ATTACK → DEFENSE → RESOLVE → END`.
 - Decks: hand / draw pile / board / graveyard and a mana pool per side.
 - Creatures **and** spells (damage / heal / buff / AOE / summon).
 - Attack / defense / block declaration with simultaneous damage resolution.
