@@ -31,7 +31,9 @@ func take_damage(amount: int) -> int:
 	var actual: int = mini(maxi(amount, 0), current_health)
 	current_health -= actual
 	health_changed.emit(current_health)
-	if current_health == 0:
+	# <= 0 (not == 0) to match how the rest of the engine tests for death, so a
+	# direct health set below zero still counts as dead.
+	if current_health <= 0:
 		died.emit()
 	return actual
 
