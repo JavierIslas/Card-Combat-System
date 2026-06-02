@@ -161,7 +161,9 @@ func play_spell(card: CardData) -> CardData:
 
 
 func can_play_card(card: CardData) -> bool:
-	return card.cost <= _mana and _hand.has(card)
+	# Affordability lives on CardData (single source of truth, so a game's cost
+	# modifiers via get_total_cost apply here too); the deck only adds the hand check.
+	return card.can_afford(_mana) and _hand.has(card)
 
 
 func spend_mana(amount: int) -> bool:
