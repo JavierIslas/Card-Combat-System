@@ -27,14 +27,17 @@ func choose_card_to_play(_hand: Array[CardData], _mana: int) -> CardData:
 	return null
 
 
-func choose_attackers(_board: Array[CardInstance]) -> Array[CardInstance]:
-	## Pick which own creatures declare an attack this turn.
+func choose_attackers(_board: Array[CardInstance], _enemy_hero: Combatant = null) -> Array[CardInstance]:
+	## Pick which own creatures declare an attack this turn. `enemy_hero` is supplied
+	## so an AI can reason about lethal (sum of attacks vs the hero's health); it may
+	## be null in board-only scenarios.
 	push_error("CombatAI.choose_attackers not implemented")
 	return []
 
 
-func choose_attack_target(_attacker: CardInstance, _enemy_board: Array[CardInstance]) -> Variant:
+func choose_attack_target(_attacker: CardInstance, _enemy_board: Array[CardInstance], _enemy_hero: Combatant = null) -> Variant:
 	## Pick a defending creature for the attacker, or null to hit the hero.
+	## `enemy_hero` is supplied so the AI can prioritize lethal; it may be null.
 	push_error("CombatAI.choose_attack_target not implemented")
 	return null
 

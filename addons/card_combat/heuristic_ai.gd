@@ -23,6 +23,13 @@ extends CombatAI
 ## accepts a seed only for API parity with DummyAI.
 
 
+## Lethal flag computed in choose_attackers and read by choose_attack_target within
+## the same turn (auto_resolve calls choose_attackers once, then choose_attack_target
+## per attacker). When the chosen attackers can together kill the enemy hero, every
+## attack goes face — even sacrificing favorable trades — to close the game.
+var _lethal_this_turn: bool = false
+
+
 func setup(_p_seed: int = -1) -> void:
 	# State-only heuristics: no RNG needed. Kept for parity with DummyAI.setup.
 	pass
@@ -37,17 +44,25 @@ func choose_card_to_play(hand: Array[CardData], mana: int) -> CardData:
 	return best
 
 
-func choose_attackers(board: Array[CardInstance]) -> Array[CardInstance]:
+func choose_attackers(board: Array[CardInstance], enemy_hero: Combatant = null) -> Array[CardInstance]:
 	var result: Array[CardInstance] = []
+	var total_attack: int = 0
 	for inst in board:
 		if not inst.is_dead and inst.can_attack_this_turn:
 			result.append(inst)
+			total_attack += inst.current_attack
+	# Optimistic lethal: ignores blocks the defender may declare (the attacking AI
+	# can't see them yet), the standard assumption for an attack-step heuristic.
+	_lethal_this_turn = enemy_hero != null and total_attack >= enemy_hero.current_health
 	return result
 
 
-func choose_attack_target(attacker: CardInstance, enemy_board: Array[CardInstance]) -> Variant:
-	## Trade for value: kill the strongest enemy we can kill without dying. If no
-	## such favorable trade exists, swing at the hero (null).
+func choose_attack_target(attacker: CardInstance, enemy_board: Array[CardInstance], _enemy_hero: Combatant = null) -> Variant:
+	## Go face when lethal is on the table; otherwise trade for value: kill the
+	## strongest enemy we can kill without dying. If no favorable trade exists, swing
+	## at the hero (null).
+	if _lethal_this_turn:
+		return null
 	var best: CardInstance = null
 	for enemy in enemy_board:
 		if enemy.is_dead:

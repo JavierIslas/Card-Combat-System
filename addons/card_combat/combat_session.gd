@@ -537,10 +537,11 @@ func _auto_play_active() -> void:
 	var deck: CombatDeck = decks[side]
 	var side_ai: CombatAI = ais[side]
 	_play_hand(deck, side, side_ai)
+	var enemy_hero: Combatant = heroes[1 - side]
 	var passive_board: Array[CardInstance] = decks[1 - side].get_defenders()
-	var attackers: Array[CardInstance] = side_ai.choose_attackers(deck.get_board())
+	var attackers: Array[CardInstance] = side_ai.choose_attackers(deck.get_board(), enemy_hero)
 	for attacker in attackers:
-		var target: Variant = side_ai.choose_attack_target(attacker, passive_board)
+		var target: Variant = side_ai.choose_attack_target(attacker, passive_board, enemy_hero)
 		declare_attacker(attacker, target)
 
 
