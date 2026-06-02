@@ -161,6 +161,14 @@ is the default AI and the reference example. For a stronger AI, subclass
 and defending (`choose_blockers`) sides go through this same contract — an AI is
 just a driver for whichever side(s) you assign it to via `ais[side]`.
 
+The attack-step methods receive the enemy hero so an AI can reason about lethal:
+`choose_attackers(board, enemy_hero)` and `choose_attack_target(attacker,
+enemy_board, enemy_hero)`. `enemy_hero` may be null in board-only scenarios.
+`HeuristicAI` uses it to go face with every attacker when the chosen attackers can
+together kill the hero (optimistic lethal, ignoring blocks the defender may still
+declare). A custom AI subclassing `CombatAI` must include the `enemy_hero`
+parameter in these two overrides.
+
 `choose_spell_target(spell, own_board, enemy_board)` is consulted by `auto_resolve`
 when the AI plays a single-target spell (`PLAYER_CREATURE`): both boards are
 passed because the engine is agnostic about which side a spell hits — inspect
