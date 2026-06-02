@@ -18,6 +18,7 @@ signal card_drawn(card: CardData)
 signal deck_exhausted
 signal card_played(instance: CardInstance)
 signal mana_changed(new_mana: int)
+signal max_mana_changed(new_max: int)
 
 var _draw_pile: Array[CardData] = []
 # Seeded RNG for reproducible shuffles. Seeded by setup(); a negative seed
@@ -181,6 +182,7 @@ func gain_mana(amount: int) -> void:
 
 func increment_max_mana(amount: int = 2) -> void:
 	_max_mana += amount
+	max_mana_changed.emit(_max_mana)
 
 
 func refresh_creatures_for_turn() -> void:

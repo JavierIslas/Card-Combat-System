@@ -154,6 +154,13 @@ func test_increment_max_mana() -> void:
 	assert_eq(_deck.max_mana, 4)
 
 
+func test_increment_max_mana_emite_senal() -> void:
+	_deck.setup(_cards(1), 0, 2)
+	watch_signals(_deck)
+	_deck.increment_max_mana(2)
+	assert_signal_emitted_with_parameters(_deck, "max_mana_changed", [4])
+
+
 # --- can_play_card / play_creature ---
 
 func test_can_play_card_requiere_mana_y_estar_en_mano() -> void:

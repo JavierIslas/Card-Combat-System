@@ -173,7 +173,8 @@ The engine exposes its state two ways: live **signals** (below), and a structure
 **`CombatSession.event_log: Array[CombatEvent]`** that mirrors the signals as a
 replay-friendly stream. Each `CombatEvent` has a `type` (`PHASE_CHANGED`,
 `COMBATANT_DAMAGED`, `CREATURE_DIED`, `COMBAT_ENDED`, `SPELL_FIZZLED`, plus the
-card-level `CARD_DRAWN`, `CARD_PLAYED`, `MANA_CHANGED`, `DECK_EXHAUSTED`) and a
+card-level `CARD_DRAWN`, `CARD_PLAYED`, `MANA_CHANGED`, `MAX_MANA_CHANGED`,
+`DECK_EXHAUSTED`) and a
 serializable `payload`; `event.serialize()` round-trips it (e.g. `creature_died`
 logs `{owner, card_id}`, not the live instance). The log is cleared on `setup()`
 (initial-hand draws are logged). The session mirrors the per-side deck signals
@@ -194,6 +195,7 @@ Signal catalog per class:
 | `CombatDeck` | `deck_exhausted` | failed draw on empty deck (see `exhaust_fn` hook) |
 | `CombatDeck` | `card_played(instance)` | a creature enters the board |
 | `CombatDeck` | `mana_changed(new_mana)` | available mana changes |
+| `CombatDeck` | `max_mana_changed(new_max)` | the maximum mana ramps up (new crystal) |
 | `CardInstance` | `card_died(card)` | the instance dies |
 | `CardInstance` | `card_damaged(card, amount)` | the instance takes damage |
 | `CardInstance` | `card_revealed(card)` | a hidden card is revealed |

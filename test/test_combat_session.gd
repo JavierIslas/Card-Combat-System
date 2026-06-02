@@ -709,6 +709,7 @@ func test_event_log_incluye_eventos_de_carta() -> void:
 	assert_true(types.has(CombatEvent.EventType.CARD_DRAWN), "el log incluye robos de carta")
 	assert_true(types.has(CombatEvent.EventType.MANA_CHANGED), "el log incluye cambios de maná")
 	assert_true(types.has(CombatEvent.EventType.CARD_PLAYED), "el log incluye criaturas jugadas")
+	assert_true(types.has(CombatEvent.EventType.MAX_MANA_CHANGED), "el log incluye la rampa del maná máximo")
 
 
 func test_event_log_con_cartas_serializa_round_trip() -> void:

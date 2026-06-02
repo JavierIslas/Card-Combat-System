@@ -135,6 +135,7 @@ func _wire_deck_events(deck: CombatDeck) -> void:
 	deck.card_drawn.connect(func(card: CardData) -> void: _emit_card_drawn(card, deck.owner_id))
 	deck.card_played.connect(func(inst: CardInstance) -> void: _emit_card_played(inst, deck.owner_id))
 	deck.mana_changed.connect(func(new_mana: int) -> void: _emit_mana_changed(deck.owner_id, new_mana))
+	deck.max_mana_changed.connect(func(new_max: int) -> void: _emit_max_mana_changed(deck.owner_id, new_max))
 	deck.deck_exhausted.connect(func() -> void: _emit_deck_exhausted(deck.owner_id))
 
 
@@ -677,6 +678,10 @@ func _emit_card_played(inst: CardInstance, owner: int) -> void:
 
 func _emit_mana_changed(owner: int, new_mana: int) -> void:
 	event_log.append(CombatEvent.new(CombatEvent.EventType.MANA_CHANGED, {"owner": owner, "new_mana": new_mana}))
+
+
+func _emit_max_mana_changed(owner: int, new_max: int) -> void:
+	event_log.append(CombatEvent.new(CombatEvent.EventType.MAX_MANA_CHANGED, {"owner": owner, "new_max": new_max}))
 
 
 func _emit_deck_exhausted(owner: int) -> void:
