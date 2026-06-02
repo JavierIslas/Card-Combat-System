@@ -881,6 +881,10 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 func _damage_hero(side: int, amount: int) -> void:
 	if amount <= 0:
 		return
+	# A side may run headless without a hero (board-only scenarios), same guard as
+	# _check_victory / _resolve_winner. Skip silently instead of crashing.
+	if heroes[side] == null:
+		return
 	heroes[side].take_damage(amount)
 	_emit_combatant_damaged(side, amount)
 

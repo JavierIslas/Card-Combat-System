@@ -693,3 +693,12 @@ func test_event_log_con_cartas_serializa_round_trip() -> void:
 	for ev in _session.event_log:
 		var data := ev.serialize()
 		assert_true(data.has("type") and data.has("payload"), "cada evento serializa type+payload")
+
+
+func test_damage_hero_tolera_heroe_nulo() -> void:
+	# Regression: _damage_hero must guard a null hero like _check_victory does, so a
+	# board-only scenario (no hero) survives a direct attack / ENEMY_HERO spell.
+	_setup_basico()
+	_session.heroes[0] = null
+	_session._damage_hero(0, 5)
+	assert_eq(_session.heroes[0], null, "no crashea ni materializa un héroe al dañar un lado sin héroe")
