@@ -200,6 +200,12 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 		return false
 	var context: Dictionary = {"session": self, "owner_id": active_side}
 	effect.apply(target, context)
+	# An externally-built effect can kill (damage/AOE/custom effect_fn). Sweep both
+	# boards so those deaths surface like any other (_record_death is idempotent),
+	# matching the play_card path; otherwise an ad-hoc kill would leave a zombie on
+	# the board and break the event_log / get_dead_creatures invariant.
+	_check_board_deaths(decks[0])
+	_check_board_deaths(decks[1])
 	return true
 
 

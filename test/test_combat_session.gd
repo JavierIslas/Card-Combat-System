@@ -621,6 +621,31 @@ func test_play_spell_aplica_effect_a_target_explicito() -> void:
 	assert_eq(_session.heroes[1].current_health, 25, "cura 5 al target explicito (20 -> 25)")
 
 
+func test_play_spell_letal_barre_la_muerte() -> void:
+	# Regression: an ad-hoc play_spell that kills a creature must surface the death
+	# like the play_card path — creature_died, get_dead_creatures, off the board and
+	# CREATURE_DIED in the event_log — instead of leaving a zombie behind.
+	_setup_basico()
+	_session.start()
+	var victima := _live_instance(1, 0, 1)
+	_session.decks[1].add_to_board(victima)
+	var card := _spell(0, SpellEffect.EffectType.DAMAGE, 5, SpellEffect.TargetType.PLAYER_CREATURE)
+	_session.decks[0]._hand.append(card)
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.DAMAGE
+	effect.value = 5
+	effect.target_type = SpellEffect.TargetType.PLAYER_CREATURE
+	var deaths: Array = []
+	_session.creature_died.connect(func(_c: CardInstance, owner: int) -> void: deaths.append(owner))
+	var ok := _session.play_spell(card, effect, victima)
+	assert_true(ok, "el hechizo manual se juega")
+	assert_true(victima.is_dead, "la víctima muere por el efecto ad-hoc")
+	assert_eq(deaths.size(), 1, "emite creature_died exactamente una vez")
+	assert_true(_session.get_dead_creatures(1).has(victima), "queda rastreada en get_dead_creatures")
+	assert_false(_session.decks[1].get_board().has(victima), "sale del tablero")
+	assert_true(_logged_types(_session).has(CombatEvent.EventType.CREATURE_DIED), "CREATURE_DIED entra al event_log")
+
+
 func test_play_spell_single_target_sin_target_hace_fizzle() -> void:
 	# play_spell ad-hoc honra el mismo contrato de fizzle que play_card: un effect
 	# PLAYER_CREATURE sin target vivo no consume la carta ni el maná.
