@@ -288,6 +288,10 @@ static func _deserialize_cards(raw: Array) -> Array[CardData]:
 		var card := CardData.from_dict(d)
 		if card != null:
 			cards.append(card)
+		else:
+			# A corrupt snapshot must not drop cards silently: surface it so a bad
+			# save is diagnosable instead of resuming with a smaller deck.
+			push_warning("CombatDeck.deserialize: dropped an invalid card entry — %s" % d)
 	return cards
 
 
