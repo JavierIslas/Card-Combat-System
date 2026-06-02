@@ -280,3 +280,37 @@ func test_refresh_creatures_habilita_ataque() -> void:
 	inst.can_attack_this_turn = false
 	_deck.refresh_creatures_for_turn()
 	assert_true(inst.can_attack_this_turn, "tras refresh puede atacar")
+
+
+# --- Zonas extra (exilio, mazo extra, etc. — agnósticas al juego) ---
+
+func test_add_to_zone_crea_la_zona_y_guarda_la_carta() -> void:
+	var card := _make_card(1, 1, 1)
+	_deck.add_to_zone("exile", card)
+	assert_eq(_deck.get_zone("exile"), [card], "la carta queda en la zona nombrada")
+
+
+func test_get_zone_inexistente_devuelve_vacio_sin_crearla() -> void:
+	assert_eq(_deck.get_zone("nope"), [], "zona inexistente devuelve array vacío")
+	assert_eq(_deck.zone_names(), [], "consultar no crea la zona")
+
+
+func test_zone_names_lista_las_zonas_creadas() -> void:
+	_deck.add_to_zone("exile", _make_card(1, 1, 1))
+	_deck.add_to_zone("extra_deck", _make_card(1, 1, 1))
+	var names := _deck.zone_names()
+	names.sort()
+	assert_eq(names, ["exile", "extra_deck"], "lista las zonas con cartas")
+
+
+func test_remove_from_zone_saca_la_carta_y_retorna_true() -> void:
+	var card := _make_card(1, 1, 1)
+	_deck.add_to_zone("exile", card)
+	assert_true(_deck.remove_from_zone("exile", card), "retorna true al sacar")
+	assert_eq(_deck.get_zone("exile"), [], "la zona queda vacía")
+
+
+func test_remove_from_zone_ausente_retorna_false() -> void:
+	_deck.add_to_zone("exile", _make_card(1, 1, 1))
+	assert_false(_deck.remove_from_zone("exile", _make_card(2, 2, 2)), "carta no presente retorna false")
+	assert_false(_deck.remove_from_zone("nope", _make_card(1, 1, 1)), "zona inexistente retorna false")

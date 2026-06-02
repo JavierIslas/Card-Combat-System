@@ -18,7 +18,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CardData` | Card core (id/cost/stats/type) + opaque `metadata: Dictionary` for game-specific fields |
 | `CardInstance` | Card in play (turn state, health, flags). Fires ability triggers via `ability_fn` |
 | `HiddenCardStats` | Declared vs. hidden stats for bluffing |
-| `CombatDeck` | Hand, deck, board and mana for one side |
+| `CombatDeck` | Hand, deck, board, graveyard and mana for one side, plus game-defined extra zones |
 | `CombatSession` | Combat FSM: orchestrates turns, decks, AI and resolution |
 | `CombatState` | Phase enum |
 | `CombatPair` | Declared attacker/defender pair |
@@ -88,6 +88,24 @@ comes from `max_buffs` (one-off override) or from `max_permanent_buffs` (seeded
 from `CombatConfig`). It also raises `current_max_health`, which is the cap
 respected by `heal()`. For "+1/+1 with cap 3", the game sets
 `config.max_permanent_buffs_per_card = 3` and calls `inst.apply_permanent_buff(1, 1)`.
+
+### Extra card zones (generic)
+
+Beyond the four core zones (draw pile, hand, board, graveyard), the game can
+keep any number of its own zones — an *exile* pile, an *extra deck*, a *banished*
+stack — without touching the engine. Zones are keyed by an opaque string the
+engine never interprets, mirroring `CardData.metadata`:
+
+```gdscript
+deck.add_to_zone("exile", card)        # creates the zone on first use
+deck.get_zone("exile")                 # live Array[CardData]; [] if absent
+deck.remove_from_zone("exile", card)   # false if the zone or card is absent
+deck.zone_names()                      # names of the zones in use
+```
+
+Extra zones are part of `serialize()`/`deserialize()`, so they survive
+save/resume. Moving a card across zones is the game's job (the engine has no
+rules about what exile or an extra deck *mean*).
 
 ## Turn model (alternating, symmetric, PvP-ready)
 

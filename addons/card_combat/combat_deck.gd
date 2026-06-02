@@ -27,6 +27,9 @@ var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _hand: Array[CardData] = []
 var _board: Array[CardInstance] = []
 var _graveyard: Array[CardData] = []
+# Game-defined card zones beyond the four core ones (e.g. "exile", "extra_deck").
+# Keyed by an opaque name the engine never interprets, mirroring CardData.metadata.
+var _extra_zones: Dictionary = {}
 var _mana: int = 0
 var _max_mana: int = 1
 var owner_id: int = 0
@@ -233,6 +236,37 @@ func get_graveyard() -> Array[CardData]:
 	return _graveyard
 
 
+func add_to_zone(zone_name: String, card: CardData) -> void:
+	## Append a card to a game-defined zone, creating the zone on first use.
+	if not _extra_zones.has(zone_name):
+		_extra_zones[zone_name] = [] as Array[CardData]
+	_extra_zones[zone_name].append(card)
+
+
+func remove_from_zone(zone_name: String, card: CardData) -> bool:
+	## Remove a card from a game-defined zone. Returns false if the zone or the
+	## card is absent, so callers can tell a real removal from a no-op.
+	if not _extra_zones.has(zone_name):
+		return false
+	var zone: Array[CardData] = _extra_zones[zone_name]
+	if not zone.has(card):
+		return false
+	zone.erase(card)
+	return true
+
+
+func get_zone(zone_name: String) -> Array[CardData]:
+	## Live reference to a game-defined zone, or an empty array if it doesn't
+	## exist. Reading never creates the zone (only add_to_zone does).
+	return _extra_zones.get(zone_name, [] as Array[CardData])
+
+
+func zone_names() -> Array[String]:
+	var names: Array[String] = []
+	names.assign(_extra_zones.keys())
+	return names
+
+
 func serialize() -> Dictionary:
 	## Snapshot of one side's state. Hooks (ability_fn, exhaust_fn, discard_fn) and
 	## caps are NOT stored: the session re-injects them on deserialize. The RNG seed
@@ -247,7 +281,15 @@ func serialize() -> Dictionary:
 		"hand": _serialize_cards(_hand),
 		"graveyard": _serialize_cards(_graveyard),
 		"board": _board.map(func(inst: CardInstance) -> Dictionary: return inst.serialize()),
+		"extra_zones": _serialize_extra_zones(),
 	}
+
+
+func _serialize_extra_zones() -> Dictionary:
+	var out: Dictionary = {}
+	for zone_name: String in _extra_zones:
+		out[zone_name] = _serialize_cards(_extra_zones[zone_name])
+	return out
 
 
 func _serialize_cards(cards: Array[CardData]) -> Array:
@@ -277,6 +319,9 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatDeck:
 	for d in data.get("board", []):
 		board.append(CardInstance.deserialize(d, deck.ability_fn))
 	deck._board = board
+	var raw_zones: Dictionary = data.get("extra_zones", {})
+	for zone_name: String in raw_zones:
+		deck._extra_zones[zone_name] = _deserialize_cards(raw_zones[zone_name])
 	return deck
 
 

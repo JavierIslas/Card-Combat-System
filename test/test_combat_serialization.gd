@@ -89,6 +89,21 @@ func test_deck_round_trip_preserva_zonas_y_rng() -> void:
 	assert_eq(restored.max_mana, deck.max_mana, "preserva el maná máximo")
 
 
+func test_deck_round_trip_preserva_zonas_extra() -> void:
+	var deck := CombatDeck.new()
+	deck.setup(_starter(), 0, 3, Callable(), -1, 99)
+	deck.add_to_zone("exile", _creature("exiliada", 4, 5, 5))
+	deck.add_to_zone("extra_deck", _creature("extra1", 6, 7, 7))
+	deck.add_to_zone("extra_deck", _creature("extra2", 8, 9, 9))
+	var restored := CombatDeck.deserialize(deck.serialize())
+	var names := restored.zone_names()
+	names.sort()
+	assert_eq(names, ["exile", "extra_deck"], "preserva los nombres de zona")
+	assert_eq(restored.get_zone("exile").size(), 1, "preserva el contenido de exile")
+	assert_eq(restored.get_zone("exile")[0].card_id, "exiliada", "preserva la carta exiliada")
+	assert_eq(restored.get_zone("extra_deck").size(), 2, "preserva el orden y cantidad del mazo extra")
+
+
 func test_session_round_trip_preserva_estado() -> void:
 	var session := CombatSession.new()
 	session.setup(_hero(20), _starter(), _hero(20), _starter(), 5)
