@@ -68,6 +68,18 @@ var _temp_health_total: int = 0
 var ability_fn: Callable = Callable()
 
 
+static func with_hooks(p_ability_fn: Callable, p_max_buffs: int) -> CardInstance:
+	## Build a bare instance with the deck-owned hooks (ability_fn + permanent-buff
+	## cap) already seeded, but WITHOUT calling setup(): the caller assigns
+	## hidden_stats if needed and then calls setup() so ON_SETUP fires with the
+	## handler in place. Single source for the creation shared by play_creature and
+	## spell summons.
+	var inst := CardInstance.new()
+	inst.ability_fn = p_ability_fn
+	inst.max_permanent_buffs = p_max_buffs
+	return inst
+
+
 static func living(board: Array) -> Array[CardInstance]:
 	## Filter a board down to its living instances. Single source for the "skip the
 	## dead" sweep shared by the decks and AIs, instead of repeating the loop.

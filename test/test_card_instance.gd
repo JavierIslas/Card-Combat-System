@@ -17,6 +17,19 @@ func _make_instance(attack: int, health: int, max_buffs: int = -1) -> CardInstan
 	return inst
 
 
+func test_with_hooks_siembra_hooks_sin_disparar_setup() -> void:
+	# with_hooks deja la instancia con los hooks puestos pero SIN llamar setup(): no
+	# dispara ON_SETUP todavía (el caller hace setup tras asignar hidden_stats).
+	var fired: Array = []
+	var handler := func(_inst: CardInstance, trigger: int) -> void: fired.append(trigger)
+	var inst := CardInstance.with_hooks(handler, 3)
+	assert_eq(inst.max_permanent_buffs, 3, "siembra el tope de mejoras")
+	assert_true(inst.ability_fn.is_valid(), "siembra el ability_fn")
+	assert_eq(fired.size(), 0, "no dispara ningún trigger antes de setup")
+	inst.setup(_make_card(2, 2), 0)
+	assert_true(fired.has(CardInstance.Trigger.ON_SETUP), "el ability_fn ya está puesto cuando setup dispara ON_SETUP")
+
+
 func test_setup_inicializa_stats_y_max_health() -> void:
 	var inst := _make_instance(3, 5)
 	assert_eq(inst.current_attack, 3, "ataque desde card_data")

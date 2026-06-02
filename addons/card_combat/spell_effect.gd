@@ -172,9 +172,7 @@ func _apply_summon(context: Dictionary) -> Dictionary:
 		data.attack = summon_attack
 		data.health = summon_health
 		data.card_type = CardData.CardType.CRIATURA
-		var inst := CardInstance.new()
-		inst.ability_fn = ability
-		inst.max_permanent_buffs = buff_cap
+		var inst := CardInstance.with_hooks(ability, buff_cap)
 		inst.setup(data, owner_id)
 		summoned.append(inst)
 	return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": 0, "summoned": summoned}

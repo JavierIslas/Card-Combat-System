@@ -134,9 +134,7 @@ func play_creature(card: CardData, as_hidden: bool = false, declared_attack: int
 		return null
 	_hand.remove_at(idx)
 
-	var inst := CardInstance.new()
-	inst.ability_fn = ability_fn
-	inst.max_permanent_buffs = max_permanent_buffs
+	var inst := CardInstance.with_hooks(ability_fn, max_permanent_buffs)
 	if as_hidden:
 		var hidden := HiddenCardStats.new()
 		hidden.declared_attack = declared_attack
