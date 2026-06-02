@@ -11,34 +11,36 @@
 # LICENSE_COMMERCIAL.md or contact islasjavieralf@gmail.com.
 
 class_name CombatConfig
-extends RefCounted
+extends Resource
 ## Balance parameters for the combat engine. Injectable by the game layer. The
 ## defaults reproduce a baseline balance; a different game can instance this config
-## with other values without touching the engine.
+## with other values without touching the engine. Extends Resource (not RefCounted)
+## so a game can author a balance preset as a .tres and assign it to
+## CombatSession.config before setup().
 
 ## Cap on the maximum mana a side can accumulate.
-var max_mana_cap: int = 10
+@export var max_mana_cap: int = 10
 
 ## How much the maximum mana grows per turn (up to max_mana_cap).
-var mana_ramp_per_turn: int = 2
+@export var mana_ramp_per_turn: int = 2
 
 ## Starting maximum mana of each side at the start of combat.
-var starting_max_mana: int = 2
+@export var starting_max_mana: int = 2
 
 ## Cards drawn for the initial hand.
-var initial_hand_size: int = 3
+@export var initial_hand_size: int = 3
 
 ## Turn from which a combat with no resources left is declared a stalemate.
-var stalemate_turn_limit: int = 50
+@export var stalemate_turn_limit: int = 50
 
 ## Cap on permanent buffs (apply_permanent_buff) per card.
 ## -1 = unlimited (engine-agnostic). The game sets it (e.g. 3) before setup().
-var max_permanent_buffs_per_card: int = -1
+@export var max_permanent_buffs_per_card: int = -1
 
 ## Cap on creatures on each side's board.
 ## -1 = unlimited (engine-agnostic). The game sets it before setup().
-var max_board_size: int = -1
+@export var max_board_size: int = -1
 
 ## Cap on cards in each side's hand. Drawing with a full hand burns the card to the
 ## graveyard (see discard_fn). -1 = unlimited (engine-agnostic).
-var max_hand_size: int = -1
+@export var max_hand_size: int = -1

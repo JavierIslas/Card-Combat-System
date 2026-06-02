@@ -17,3 +17,9 @@ func test_config_es_mutable_por_la_capa_juego() -> void:
 	cfg.initial_hand_size = 5
 	assert_eq(cfg.max_mana_cap, 20)
 	assert_eq(cfg.initial_hand_size, 5)
+
+
+func test_config_es_resource_autorable() -> void:
+	# CombatConfig extiende Resource para poder autorar presets de balance como .tres.
+	var cfg := CombatConfig.new()
+	assert_true(cfg is Resource, "CombatConfig es un Resource")
