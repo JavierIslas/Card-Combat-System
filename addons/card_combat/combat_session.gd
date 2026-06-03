@@ -677,8 +677,14 @@ func _first_living_side_of_team(team: int) -> int:
 # references (attack pairs, blockers) are encoded by board index; dead creatures
 # (already off-board) are stored as full instances.
 
+## Serialization schema version. Bumped when the snapshot format changes so
+## deserialize can branch on it; a save without the field is treated as legacy (0).
+const SCHEMA_VERSION := 1
+
+
 func serialize() -> Dictionary:
 	return {
+		"schema_version": SCHEMA_VERSION,
 		"phase": CombatState.Phase.keys()[phase],
 		"active_side": active_side,
 		"winner_side": winner_side,
@@ -748,6 +754,9 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	## pieces: config, ability_fn, damage_fn, exhaust_fn, discard_fn, and optionally
 	## `heroes` (for a game's subclassed hero) and `ais` (for deterministic resume).
 	var session := CombatSession.new()
+	# Schema version hook: absent = legacy (0). Kept so future format changes can
+	# branch here; today every field tolerates absence via get(.., default).
+	var _schema: int = int(data.get("schema_version", 0))
 	session.config = hooks.get("config", CombatConfig.new())
 	session.ability_fn = hooks.get("ability_fn", Callable())
 	session.damage_fn = hooks.get("damage_fn", Callable())

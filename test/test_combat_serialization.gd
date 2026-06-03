@@ -214,3 +214,21 @@ func test_session_round_trip_preserva_target_side_de_ataque_dirigido() -> void:
 func _empty() -> Array[CardData]:
 	var a: Array[CardData] = []
 	return a
+
+
+func test_session_serialize_incluye_schema_version() -> void:
+	# #4: the snapshot carries a schema version so future format changes are explicit.
+	var session := CombatSession.new()
+	session.setup(_hero(30), _starter(), _hero(30), _starter(), 1)
+	assert_eq(int(session.serialize().get("schema_version", -1)), 1, "serialize expone schema_version 1")
+
+
+func test_session_deserialize_tolera_save_sin_schema_version() -> void:
+	# #4: an older snapshot without schema_version still deserializes (defaults to legacy).
+	var session := CombatSession.new()
+	session.setup(_hero(30), _starter(), _hero(30), _starter(), 1)
+	session.start()
+	var data := session.serialize()
+	data.erase("schema_version")
+	var restored := CombatSession.deserialize(data)
+	assert_eq(restored.side_count(), 2, "un save sin schema_version deserializa igual")
