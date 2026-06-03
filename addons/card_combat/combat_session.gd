@@ -262,8 +262,7 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 	# boards so those deaths surface like any other (_record_death is idempotent),
 	# matching the play_card path; otherwise an ad-hoc kill would leave a zombie on
 	# the board and break the event_log / get_dead_creatures invariant.
-	_check_board_deaths(decks[0])
-	_check_board_deaths(decks[1])
+	_sweep_all_boards()
 	return true
 
 
@@ -1065,9 +1064,9 @@ func _process_death_results(pairs_result: Array) -> void:
 			_record_death(attacker)
 		if defender != null and pr["defender_died"]:
 			_record_death(defender)
-	# Remove dead from both boards.
-	decks[0].remove_dead_creatures()
-	decks[1].remove_dead_creatures()
+	# Remove dead from every side's board.
+	for s in side_count():
+		decks[s].remove_dead_creatures()
 
 
 func _record_death(inst: CardInstance) -> void:
@@ -1110,7 +1109,6 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 	## interpreted relative to the caster, so the same spell serves both sides with
 	## no duplicated logic.
 	var caster_deck: CombatDeck = decks[side]
-	var opponent_deck: CombatDeck = decks[1 - side]
 	# Unified context for every effect.apply path, so a custom effect_fn always
 	# receives the session and the casting side (it reaches heroes with full
 	# observability via context["session"].deal_damage_to_hero / heal_hero).
@@ -1119,17 +1117,17 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 		SpellEffect.TargetType.ENEMY_HERO:
 			# A custom effect_fn overrides hero damage entirely; the default keeps the
 			# engine's signaled hero-damage so the event_log stays consistent.
+			# (Multi-enemy hero targeting lands with the directed-target chunk; here
+			# the default still hits the lone enemy in a two-team game.)
 			if effect.effect_fn.is_valid():
 				effect.apply(heroes[1 - side], context)
-				_check_board_deaths(decks[0])
-				_check_board_deaths(decks[1])
+				_sweep_all_boards()
 			else:
 				deal_damage_to_hero(1 - side, effect.value)
 		SpellEffect.TargetType.PLAYER_HERO:
 			if effect.effect_fn.is_valid():
 				effect.apply(heroes[side], context)
-				_check_board_deaths(decks[0])
-				_check_board_deaths(decks[1])
+				_sweep_all_boards()
 			else:
 				heal_hero(side, effect.value)
 		SpellEffect.TargetType.PLAYER_CREATURE:
@@ -1143,15 +1141,15 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			else:
 				push_warning("PLAYER_CREATURE spell with no valid target — not applied")
 		SpellEffect.TargetType.ENEMY_CREATURES:
-			var enemies: Array[CardInstance] = opponent_deck.get_board()
-			effect.apply(enemies, context)
-			_check_board_deaths(opponent_deck)
+			# "All enemies" resolves by teams: every enemy side's board, not a single
+			# opponent. In 1v1 this is the one other board, so behavior is unchanged.
+			effect.apply(enemy_boards(side), context)
+			_sweep_all_boards()
 		SpellEffect.TargetType.PLAYER_CREATURES:
-			var allies: Array[CardInstance] = caster_deck.get_board()
-			effect.apply(allies, context)
-			# Built-in buffs can't kill, but a custom effect_fn could damage allies;
-			# sweep so any death surfaces like ENEMY_CREATURES (creature_died/log).
-			_check_board_deaths(caster_deck)
+			# "All allies" covers the caster's own board AND its teammates' (D1). A
+			# built-in buff can't kill, but a custom effect_fn could; sweep regardless.
+			effect.apply(ally_boards(side), context)
+			_sweep_all_boards()
 		SpellEffect.TargetType.SUMMON_BOARD:
 			# Seed the deck-owned hooks via context so _apply_summon builds the
 			# instances already configured (fires ON_SETUP with the handler).
@@ -1198,3 +1196,11 @@ func _check_board_deaths(deck: CombatDeck) -> void:
 	for inst in dead:
 		_record_death(inst)
 		deck.remove_from_board(inst)
+
+
+func _sweep_all_boards() -> void:
+	## Sweep every side's board for spell-caused deaths, generalizing the old
+	## two-deck sweep. A custom effect_fn can hit any side (allies included), so all
+	## boards must be checked, not just the caster's and the lone opponent's.
+	for s in side_count():
+		_check_board_deaths(decks[s])

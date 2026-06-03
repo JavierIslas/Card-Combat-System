@@ -928,3 +928,62 @@ func test_enemy_y_ally_boards_concatenan_por_equipo() -> void:
 	_session.decks[3].add_to_board(enemy_b)
 	assert_eq(_session.ally_boards(0), [ally_creature] as Array[CardInstance], "ally_boards toma el tablero del compañero")
 	assert_eq(_session.enemy_boards(0).size(), 2, "enemy_boards concatena los dos tableros rivales")
+
+
+# --- Chunk 1: spell targeting resolved by teams -------------------------------
+
+func _put_creature(side: int, attack: int, health: int) -> CardInstance:
+	var inst := CardInstance.new()
+	inst.setup(_creature(0, attack, health), side)
+	_session.decks[side].add_to_board(inst)
+	return inst
+
+
+func test_aoe_enemigo_golpea_a_todos_los_rivales_en_ffa() -> void:
+	_session.setup_sides([
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+	], [], 1)
+	var own := _put_creature(0, 1, 5)
+	var rival_a := _put_creature(1, 1, 5)
+	var rival_b := _put_creature(2, 1, 5)
+	var spell := _spell(0, SpellEffect.EffectType.AOE_DAMAGE, 2, SpellEffect.TargetType.ENEMY_CREATURES)
+	_session._apply_spell_effects(spell, 0)
+	assert_eq(rival_a.current_health, 3, "el AoE golpea al primer rival")
+	assert_eq(rival_b.current_health, 3, "el AoE golpea al segundo rival")
+	assert_eq(own.current_health, 5, "el AoE no toca a la propia criatura")
+
+
+func test_aoe_enemigo_respeta_equipos_en_2v2() -> void:
+	_session.setup_sides([
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+	], [0, 0, 1, 1], 1)
+	var teammate := _put_creature(1, 1, 5)
+	var enemy_a := _put_creature(2, 1, 5)
+	var enemy_b := _put_creature(3, 1, 5)
+	var spell := _spell(0, SpellEffect.EffectType.AOE_DAMAGE, 2, SpellEffect.TargetType.ENEMY_CREATURES)
+	_session._apply_spell_effects(spell, 0)
+	assert_eq(teammate.current_health, 5, "el AoE no daña al compañero de equipo")
+	assert_eq(enemy_a.current_health, 3, "el AoE daña al primer enemigo")
+	assert_eq(enemy_b.current_health, 3, "el AoE daña al segundo enemigo")
+
+
+func test_buff_aliado_alcanza_al_companiero_en_2v2() -> void:
+	_session.setup_sides([
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+	], [0, 0, 1, 1], 1)
+	var own := _put_creature(0, 2, 2)
+	var teammate := _put_creature(1, 2, 2)
+	var enemy := _put_creature(2, 2, 2)
+	var spell := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 1, SpellEffect.TargetType.PLAYER_CREATURES)
+	_session._apply_spell_effects(spell, 0)
+	assert_eq(own.current_attack, 3, "el buff alcanza a la propia criatura")
+	assert_eq(teammate.current_attack, 3, "el buff alcanza al compañero de equipo (D1)")
+	assert_eq(enemy.current_attack, 2, "el buff no toca al enemigo")
