@@ -862,28 +862,40 @@ func _auto_play_active() -> void:
 	var deck: CombatDeck = decks[side]
 	var side_ai: CombatAI = ais[side]
 	_play_hand(deck, side, side_ai)
-	var enemy_hero: Combatant = heroes[1 - side]
-	var passive_board: Array[CardInstance] = decks[1 - side].get_defenders()
-	var attackers: Array[CardInstance] = side_ai.choose_attackers(deck.get_board(), enemy_hero)
+	var enemy_heroes: Array[Combatant] = _living_enemy_heroes(side)
+	var enemy_board: Array[CardInstance] = enemy_boards(side)
+	var attackers: Array[CardInstance] = side_ai.choose_attackers(deck.get_board(), enemy_heroes)
 	for attacker in attackers:
-		var target: Variant = side_ai.choose_attack_target(attacker, passive_board, enemy_hero)
+		# null -> swing at a hero; the engine routes it to the first living enemy side.
+		var target: Variant = side_ai.choose_attack_target(attacker, enemy_board, enemy_heroes)
 		declare_attacker(attacker, target)
 
 
+func _living_enemy_heroes(side: int) -> Array[Combatant]:
+	## Heroes of every living enemy side, for the AI's lethal reasoning.
+	var out: Array[Combatant] = []
+	for s in enemies_of(side):
+		if not _is_side_out(s) and heroes[s] != null:
+			out.append(heroes[s])
+	return out
+
+
 func _auto_declare_blockers() -> void:
-	## Headless defense: the passive side's AI assigns blockers to the active
-	## side's attackers.
-	var passive: int = 1 - active_side
-	var def_ai: CombatAI = ais[passive]
+	## Headless defense: each enemy side of the active attacker assigns blockers from
+	## its own defenders, via that side's AI. Generalizes the old single-passive path.
 	var attackers: Array[CardInstance] = []
 	for pair in _attack_pairs[active_side]:
 		attackers.append(pair.attacker)
 	if attackers.is_empty():
 		return
-	var own_board: Array[CardInstance] = decks[passive].get_defenders()
-	var blocks: Dictionary = def_ai.choose_blockers(attackers, own_board)
-	for attacker in blocks:
-		declare_blocker(attacker, blocks[attacker])
+	for s in enemies_of(active_side):
+		if _is_side_out(s):
+			continue
+		var def_ai: CombatAI = ais[s]
+		var own_board: Array[CardInstance] = decks[s].get_defenders()
+		var blocks: Dictionary = def_ai.choose_blockers(attackers, own_board)
+		for attacker in blocks:
+			declare_blocker(attacker, blocks[attacker])
 
 
 func _snapshot_hand(deck: CombatDeck) -> Array[CardData]:
@@ -924,7 +936,7 @@ func _ai_spell_target(card: CardData, side: int, side_ai: CombatAI) -> Variant:
 	## relative to the caster, so they need no explicit target.
 	if not _spell_is_single_target(card):
 		return null
-	return side_ai.choose_spell_target(card, decks[side].get_board(), decks[1 - side].get_board())
+	return side_ai.choose_spell_target(card, ally_boards(side), enemy_boards(side))
 
 
 func _spell_is_single_target(card: CardData) -> bool:

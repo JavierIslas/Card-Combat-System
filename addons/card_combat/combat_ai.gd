@@ -27,25 +27,27 @@ func choose_card_to_play(_hand: Array[CardData], _mana: int) -> CardData:
 	return null
 
 
-func choose_attackers(_board: Array[CardInstance], _enemy_hero: Combatant = null) -> Array[CardInstance]:
-	## Pick which own creatures declare an attack this turn. `enemy_hero` is supplied
-	## so an AI can reason about lethal (sum of attacks vs the hero's health); it may
-	## be null in board-only scenarios.
+func choose_attackers(_board: Array[CardInstance], _enemy_heroes: Array[Combatant] = []) -> Array[CardInstance]:
+	## Pick which own creatures declare an attack this turn. `enemy_heroes` lists the
+	## living heroes of every enemy side (one in 1v1, several in FFA / team games), so
+	## an AI can reason about lethal; it may be empty in board-only scenarios.
 	push_error("CombatAI.choose_attackers not implemented")
 	return []
 
 
-func choose_attack_target(_attacker: CardInstance, _enemy_board: Array[CardInstance], _enemy_hero: Combatant = null) -> Variant:
-	## Pick a defending creature for the attacker, or null to hit the hero.
-	## `enemy_hero` is supplied so the AI can prioritize lethal; it may be null.
+func choose_attack_target(_attacker: CardInstance, _enemy_board: Array[CardInstance], _enemy_heroes: Array[Combatant] = []) -> Variant:
+	## Pick a defending creature for the attacker (any enemy side's creature; each
+	## carries its owner_id), or null to swing at a hero. When null, the engine sends
+	## the hit to the first living enemy side. `enemy_heroes` is the combined enemy
+	## hero list, for lethal reasoning.
 	push_error("CombatAI.choose_attack_target not implemented")
 	return null
 
 
 func choose_spell_target(_spell: CardData, _own_board: Array[CardInstance], _enemy_board: Array[CardInstance]) -> Variant:
 	## Pick a living CardInstance for a single-target spell, or null if none fits.
-	## Both boards are passed because the engine is agnostic about which side a
-	## spell hits: inspect `_spell.spell_effects` (a DAMAGE wants an enemy, a BUFF
+	## Both boards are the combined ally / enemy creatures across sides (each carries
+	## its owner_id). Inspect `_spell.spell_effects` (a DAMAGE wants an enemy, a BUFF
 	## an ally) to decide. Returning null makes the spell skip without being cast.
 	push_error("CombatAI.choose_spell_target not implemented")
 	return null

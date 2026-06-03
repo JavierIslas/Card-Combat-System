@@ -80,9 +80,9 @@ func test_lethal_global_manda_todo_a_la_cara() -> void:
 	var atacante := _inst(3, 3)
 	atacante.can_attack_this_turn = true
 	var hero := _hero(3)
-	ai.choose_attackers([atacante], hero)
+	ai.choose_attackers([atacante], [hero] as Array[Combatant])
 	var trade := _inst(2, 2, 1)  # normalmente sería un trade favorable
-	assert_null(ai.choose_attack_target(atacante, [trade], hero), "con lethal ignora el trade y va al héroe")
+	assert_null(ai.choose_attack_target(atacante, [trade], [hero] as Array[Combatant]), "con lethal ignora el trade y va al héroe")
 
 
 func test_sin_lethal_mantiene_trade_por_valor() -> void:
@@ -91,19 +91,19 @@ func test_sin_lethal_mantiene_trade_por_valor() -> void:
 	var atacante := _inst(3, 3)
 	atacante.can_attack_this_turn = true
 	var hero := _hero(30)
-	ai.choose_attackers([atacante], hero)
+	ai.choose_attackers([atacante], [hero] as Array[Combatant])
 	var trade := _inst(2, 2, 1)
-	assert_eq(ai.choose_attack_target(atacante, [trade], hero), trade, "sin lethal prioriza el trade favorable")
+	assert_eq(ai.choose_attack_target(atacante, [trade], [hero] as Array[Combatant]), trade, "sin lethal prioriza el trade favorable")
 
 
 func test_sin_heroe_no_hay_lethal() -> void:
-	# enemy_hero nulo (escenario board-only): no se activa lethal, mantiene trades.
+	# enemy_heroes vacío (escenario board-only): no se activa lethal, mantiene trades.
 	var ai := HeuristicAI.new()
 	var atacante := _inst(9, 9)
 	atacante.can_attack_this_turn = true
-	ai.choose_attackers([atacante], null)
+	ai.choose_attackers([atacante], [] as Array[Combatant])
 	var trade := _inst(2, 2, 1)
-	assert_eq(ai.choose_attack_target(atacante, [trade], null), trade, "sin héroe enemigo no hay lethal")
+	assert_eq(ai.choose_attack_target(atacante, [trade], [] as Array[Combatant]), trade, "sin héroe enemigo no hay lethal")
 
 
 func test_choose_spell_target_dano_prefiere_letal() -> void:

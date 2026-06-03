@@ -41,7 +41,7 @@ func choose_card_to_play(hand: Array[CardData], mana: int) -> CardData:
 	return affordable[_rng.randi() % affordable.size()]
 
 
-func choose_attackers(board: Array[CardInstance], _enemy_hero: Combatant = null) -> Array[CardInstance]:
+func choose_attackers(board: Array[CardInstance], _enemy_heroes: Array[Combatant] = []) -> Array[CardInstance]:
 	var result: Array[CardInstance] = []
 	for inst in board:
 		if not inst.is_dead and inst.can_attack_this_turn:
@@ -49,7 +49,7 @@ func choose_attackers(board: Array[CardInstance], _enemy_hero: Combatant = null)
 	return result
 
 
-func choose_attack_target(_attacker: CardInstance, enemy_board: Array[CardInstance], _enemy_hero: Combatant = null) -> Variant:
+func choose_attack_target(_attacker: CardInstance, enemy_board: Array[CardInstance], _enemy_heroes: Array[Combatant] = []) -> Variant:
 	if enemy_board.is_empty():
 		return null
 	if _rng.randf() < 0.5:

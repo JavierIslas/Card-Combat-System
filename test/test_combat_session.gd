@@ -1070,3 +1070,36 @@ func test_bloqueador_de_cualquier_lado_enemigo_redirige_el_dano() -> void:
 	_session.end_defense_phase()  # RESOLVE
 	assert_eq(_session.heroes[2].current_health, 30, "el ataque fue bloqueado, el héroe no recibe daño")
 	assert_eq(blk.current_health, 6, "el bloqueador del lado aliado del objetivo recibe el daño")
+
+
+# --- Chunk 3: AI contract (enemy arrays) + multi-side auto_resolve ------------
+
+func _2v2_sides() -> Array:
+	return [
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+	]
+
+
+func test_auto_resolve_ffa_de_tres_lados_llega_a_end() -> void:
+	_session.setup_sides([
+		{"hero": _hero(3), "cards": _starter()},
+		{"hero": _hero(3), "cards": _starter()},
+		{"hero": _hero(3), "cards": _starter()},
+	], [], 5)
+	_session.auto_resolve()
+	assert_eq(_session.phase, CombatState.Phase.END, "el FFA headless llega a END")
+	assert_between(_session.winner_team, -1, 2, "winner_team es un equipo válido o -1")
+
+
+func test_auto_resolve_2v2_es_determinista_con_seed() -> void:
+	var a := CombatSession.new()
+	a.setup_sides(_2v2_sides(), [0, 0, 1, 1], 11)
+	a.auto_resolve()
+	var b := CombatSession.new()
+	b.setup_sides(_2v2_sides(), [0, 0, 1, 1], 11)
+	b.auto_resolve()
+	assert_eq(a.winner_team, b.winner_team, "mismo seed -> mismo equipo ganador")
+	assert_eq(a.turn_number, b.turn_number, "mismo seed -> misma duración")

@@ -44,7 +44,7 @@ func choose_card_to_play(hand: Array[CardData], mana: int) -> CardData:
 	return best
 
 
-func choose_attackers(board: Array[CardInstance], enemy_hero: Combatant = null) -> Array[CardInstance]:
+func choose_attackers(board: Array[CardInstance], enemy_heroes: Array[Combatant] = []) -> Array[CardInstance]:
 	var result: Array[CardInstance] = []
 	var total_attack: int = 0
 	for inst in board:
@@ -53,11 +53,21 @@ func choose_attackers(board: Array[CardInstance], enemy_hero: Combatant = null) 
 			total_attack += inst.current_attack
 	# Optimistic lethal: ignores blocks the defender may declare (the attacking AI
 	# can't see them yet), the standard assumption for an attack-step heuristic.
-	_lethal_this_turn = enemy_hero != null and total_attack >= enemy_hero.current_health
+	# Lethal is measured against the first living enemy hero — the one the engine
+	# defaults unblocked hits to (see CombatSession._default_enemy_side).
+	var target_hero: Combatant = _first_living_hero(enemy_heroes)
+	_lethal_this_turn = target_hero != null and total_attack >= target_hero.current_health
 	return result
 
 
-func choose_attack_target(attacker: CardInstance, enemy_board: Array[CardInstance], _enemy_hero: Combatant = null) -> Variant:
+func _first_living_hero(enemy_heroes: Array[Combatant]) -> Combatant:
+	for h in enemy_heroes:
+		if h != null and h.current_health > 0:
+			return h
+	return null
+
+
+func choose_attack_target(attacker: CardInstance, enemy_board: Array[CardInstance], _enemy_heroes: Array[Combatant] = []) -> Variant:
 	## Go face when lethal is on the table; otherwise trade for value: kill the
 	## strongest enemy we can kill without dying. If no favorable trade exists, swing
 	## at the hero (null).
