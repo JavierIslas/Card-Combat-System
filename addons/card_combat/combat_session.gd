@@ -131,19 +131,12 @@ func setup_sides(sides: Array, side_teams: Array[int] = [], ai_seed: int = -1) -
 	winner_side = -1
 	winner_team = -1
 	turn_number = 0
-	_attack_pairs = []
-	_dead_creatures = []
-	for _i in n:
-		_attack_pairs.append([])
-		_dead_creatures.append([])
 	_block_assignments.clear()
 	event_log.clear()
 	command_log.clear()
 	_combat_over = false
 
-	heroes.resize(n)
-	decks.resize(n)
-	ais.resize(n)
+	_init_side_arrays(n)
 	for side in n:
 		heroes[side] = sides[side].get("hero", null)
 		# Derive a distinct shuffle seed per side from the combat seed so a fixed
@@ -171,6 +164,20 @@ func _default_teams(n: int) -> Array[int]:
 	for side in n:
 		out.append(side)
 	return out
+
+
+func _init_side_arrays(n: int) -> void:
+	## Size the per-side arrays to `n` sides and reset the in-flight attack/dead
+	## tracking, so the rest of the engine indexes by side uniformly. Shared by
+	## setup_sides (fresh combat) and _restore_topology (resume).
+	heroes.resize(n)
+	decks.resize(n)
+	ais.resize(n)
+	_attack_pairs = []
+	_dead_creatures = []
+	for _i in n:
+		_attack_pairs.append([])
+		_dead_creatures.append([])
 
 
 func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatDeck:
@@ -264,12 +271,11 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 	if not _consume_spell(card):
 		return false
 	var context: Dictionary = {"session": self, "owner_id": active_side}
-	effect.apply(target, context)
-	# An externally-built effect can kill (damage/AOE/custom effect_fn). Sweep both
-	# boards so those deaths surface like any other (_record_death is idempotent),
+	# An externally-built effect can kill (damage/AOE/custom effect_fn). Sweeping
+	# afterwards surfaces those deaths like any other (_record_death is idempotent),
 	# matching the play_card path; otherwise an ad-hoc kill would leave a zombie on
 	# the board and break the event_log / get_dead_creatures invariant.
-	_sweep_all_boards()
+	_apply_effect_and_sweep(effect, target, context)
 	return true
 
 
@@ -727,19 +733,23 @@ func _serialize_dead(side: int) -> Array:
 	return _dead_creatures[side].map(func(inst: CardInstance) -> Dictionary: return inst.serialize())
 
 
+func _board_index(inst: CardInstance) -> int:
+	## Inverse of _board_at: a creature's index on its own owner's board (-1 if it
+	## is null or off-board). Single source for the index-encoded cross-references
+	## (attack pairs, blockers) that serialize() round-trips.
+	if inst == null:
+		return -1
+	return decks[inst.owner_id].get_board().find(inst)
+
+
 func _serialize_pairs(side: int) -> Array:
 	var out: Array = []
 	for pair in _attack_pairs[side]:
 		# Defenders can belong to any enemy side, so record the defender's side too.
-		var def_idx: int = -1
-		var def_side: int = -1
-		if pair.defender != null:
-			def_side = pair.defender.owner_id
-			def_idx = decks[def_side].get_board().find(pair.defender)
 		out.append({
-			"attacker": decks[side].get_board().find(pair.attacker),
-			"defender": def_idx,
-			"defender_side": def_side,
+			"attacker": _board_index(pair.attacker),
+			"defender": _board_index(pair.defender),
+			"defender_side": pair.defender.owner_id if pair.defender != null else -1,
 			"target_side": pair.target_side,
 		})
 	return out
@@ -750,8 +760,8 @@ func _serialize_blocks() -> Array:
 	for attacker in _block_assignments:
 		var blocker: CardInstance = _block_assignments[attacker]
 		out.append({
-			"attacker": decks[active_side].get_board().find(attacker),
-			"blocker": decks[blocker.owner_id].get_board().find(blocker),
+			"attacker": _board_index(attacker),
+			"blocker": _board_index(blocker),
 			"blocker_side": blocker.owner_id,
 		})
 	return out
@@ -793,14 +803,7 @@ func _restore_topology(data: Dictionary) -> void:
 	for v in data.get("teams", []):
 		t.append(int(v))
 	teams = t if not t.is_empty() else _default_teams(n)
-	heroes.resize(n)
-	decks.resize(n)
-	ais.resize(n)
-	_attack_pairs = []
-	_dead_creatures = []
-	for _i in n:
-		_attack_pairs.append([])
-		_dead_creatures.append([])
+	_init_side_arrays(n)
 
 
 func _restore_scalars(data: Dictionary) -> void:
@@ -1069,19 +1072,27 @@ func _emit_combatant_healed(side: int, amount: int) -> void:
 	}))
 
 
+func _card_id_of(card: CardData) -> String:
+	## Null-safe card id for event payloads (a missing card logs an empty id).
+	return card.card_id if card != null else ""
+
+
+func _inst_card_id(inst: CardInstance) -> String:
+	## Null-safe card id reached through a CardInstance's CardData.
+	return _card_id_of(inst.card_data) if inst != null else ""
+
+
 func _emit_creature_died(card: CardInstance, owner: int) -> void:
 	creature_died.emit(card, owner)
-	var card_id: String = card.card_data.card_id if card.card_data != null else ""
 	event_log.append(CombatEvent.new(CombatEvent.EventType.CREATURE_DIED, {
-		"owner": owner, "card_id": card_id,
+		"owner": owner, "card_id": _inst_card_id(card),
 	}))
 
 
 func _emit_creature_summoned(card: CardInstance, owner: int) -> void:
 	creature_summoned.emit(card, owner)
-	var card_id: String = card.card_data.card_id if card != null and card.card_data != null else ""
 	event_log.append(CombatEvent.new(CombatEvent.EventType.CREATURE_SUMMONED, {
-		"owner": owner, "card_id": card_id,
+		"owner": owner, "card_id": _inst_card_id(card),
 	}))
 
 
@@ -1092,8 +1103,7 @@ func _emit_combat_ended(winner: int) -> void:
 
 func _emit_spell_fizzled(card: CardData) -> void:
 	spell_fizzled.emit(card)
-	var card_id: String = card.card_id if card != null else ""
-	event_log.append(CombatEvent.new(CombatEvent.EventType.SPELL_FIZZLED, {"card_id": card_id}))
+	event_log.append(CombatEvent.new(CombatEvent.EventType.SPELL_FIZZLED, {"card_id": _card_id_of(card)}))
 
 
 # Card-level events mirrored from the per-side decks. The deck still emits its own
@@ -1101,13 +1111,11 @@ func _emit_spell_fizzled(card: CardData) -> void:
 # event_log is a complete, replay-friendly stream.
 
 func _emit_card_drawn(card: CardData, owner: int) -> void:
-	var card_id: String = card.card_id if card != null else ""
-	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_DRAWN, {"owner": owner, "card_id": card_id}))
+	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_DRAWN, {"owner": owner, "card_id": _card_id_of(card)}))
 
 
 func _emit_card_played(inst: CardInstance, owner: int) -> void:
-	var card_id: String = inst.card_data.card_id if inst != null and inst.card_data != null else ""
-	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_PLAYED, {"owner": owner, "card_id": card_id}))
+	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_PLAYED, {"owner": owner, "card_id": _inst_card_id(inst)}))
 
 
 func _emit_mana_changed(owner: int, new_mana: int) -> void:
@@ -1123,15 +1131,13 @@ func _emit_deck_exhausted(owner: int) -> void:
 
 
 func _enter_phase(p: CombatState.Phase) -> void:
+	# MAIN, ATTACK and DEFENSE have no on-enter work: they wait for driver actions
+	# (play_card / declare_* / end_*). DEFENSE in particular is driver-driven
+	# (declare_blocker / auto_resolve); the engine does not auto-assign blockers,
+	# which would assume the passive side is an AI.
 	match p:
 		CombatState.Phase.PREPARATION:
 			_enter_preparacion()
-		CombatState.Phase.MAIN:
-			_enter_principal()
-		CombatState.Phase.ATTACK:
-			_enter_ataque()
-		CombatState.Phase.DEFENSE:
-			_enter_defensa()
 		CombatState.Phase.RESOLVE:
 			_enter_resolve()
 		CombatState.Phase.END:
@@ -1163,23 +1169,6 @@ func _ramp_mana_for(deck: CombatDeck) -> void:
 	deck.gain_mana(deck.max_mana)
 	if deck.max_mana < config.max_mana_cap:
 		deck.increment_max_mana(mini(config.mana_ramp_per_turn, config.max_mana_cap - deck.max_mana))
-
-
-func _enter_principal() -> void:
-	if _combat_over:
-		return
-
-
-func _enter_ataque() -> void:
-	if _combat_over:
-		return
-
-
-func _enter_defensa() -> void:
-	# Blocking is driver-driven (declare_blocker / auto_resolve), so the engine
-	# does not auto-assign here — that would assume the passive side is an AI.
-	if _combat_over:
-		return
 
 
 func _enter_resolve() -> void:
@@ -1325,6 +1314,15 @@ func _resolve_enemy_hero_side(side: int, target_side: int) -> int:
 	return _default_enemy_side(side)
 
 
+func _apply_effect_and_sweep(effect: SpellEffect, target: Variant, context: Dictionary) -> void:
+	## Apply an effect that can kill across any board (AOE / custom effect_fn / ad-hoc
+	## hero effect_fn), then sweep every board so the deaths surface like any other.
+	## Single source for the "apply then sweep" pair shared by play_spell and the
+	## multi-target / hero-effect_fn branches of _apply_single_spell_effect.
+	effect.apply(target, context)
+	_sweep_all_boards()
+
+
 func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null, target_side: int = -1) -> void:
 	## Agnostic resolution from the caster's perspective (`side`). TargetType is
 	## interpreted relative to the caster, so the same spell serves both sides with
@@ -1344,14 +1342,12 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			if enemy_side < 0:
 				return
 			if effect.effect_fn.is_valid():
-				effect.apply(heroes[enemy_side], context)
-				_sweep_all_boards()
+				_apply_effect_and_sweep(effect, heroes[enemy_side], context)
 			else:
 				deal_damage_to_hero(enemy_side, effect.value)
 		SpellEffect.TargetType.PLAYER_HERO:
 			if effect.effect_fn.is_valid():
-				effect.apply(heroes[side], context)
-				_sweep_all_boards()
+				_apply_effect_and_sweep(effect, heroes[side], context)
 			else:
 				heal_hero(side, effect.value)
 		SpellEffect.TargetType.PLAYER_CREATURE:
@@ -1367,13 +1363,11 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 		SpellEffect.TargetType.ENEMY_CREATURES:
 			# "All enemies" resolves by teams: every enemy side's board, not a single
 			# opponent. In 1v1 this is the one other board, so behavior is unchanged.
-			effect.apply(enemy_boards(side), context)
-			_sweep_all_boards()
+			_apply_effect_and_sweep(effect, enemy_boards(side), context)
 		SpellEffect.TargetType.PLAYER_CREATURES:
 			# "All allies" covers the caster's own board AND its teammates' (D1). A
 			# built-in buff can't kill, but a custom effect_fn could; sweep regardless.
-			effect.apply(ally_boards(side), context)
-			_sweep_all_boards()
+			_apply_effect_and_sweep(effect, ally_boards(side), context)
 		SpellEffect.TargetType.SUMMON_BOARD:
 			# Seed the deck-owned hooks via context so _apply_summon builds the
 			# instances already configured (fires ON_SETUP with the handler).
