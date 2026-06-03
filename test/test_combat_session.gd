@@ -337,6 +337,34 @@ func test_combatant_damaged_espejado_en_event_log() -> void:
 	assert_eq(dmg[0].payload["amount"], 5, "y la cantidad")
 
 
+func test_combatant_healed_espejado_en_event_log() -> void:
+	# #2: a hero heal emits combatant_healed AND enters the event_log with the actual
+	# amount restored, so a log-only replay reproduces the heal.
+	_setup_basico()
+	_session.start()
+	_session.heroes[1].take_damage(10)
+	watch_signals(_session)
+	_session.heal_hero(1, 4)
+	assert_signal_emitted(_session, "combatant_healed")
+	var heals := _session.event_log.filter(
+		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.COMBATANT_HEALED)
+	assert_eq(heals.size(), 1, "la cura del héroe queda espejada en el log")
+	assert_eq(heals[0].payload["side"], 1, "el payload guarda el lado curado")
+	assert_eq(heals[0].payload["amount"], 4, "y la cantidad realmente curada")
+
+
+func test_heal_hero_no_emite_si_esta_a_tope() -> void:
+	# #2: healing a full-health hero restores nothing, so no event/signal is fired.
+	_setup_basico()
+	_session.start()
+	watch_signals(_session)
+	_session.heal_hero(1, 5)
+	assert_signal_not_emitted(_session, "combatant_healed")
+	var heals := _session.event_log.filter(
+		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.COMBATANT_HEALED)
+	assert_eq(heals.size(), 0, "curar a tope no deja evento")
+
+
 func test_hechizo_player_hero_cura_al_lanzador() -> void:
 	_setup_basico()
 	_session.start()

@@ -22,6 +22,7 @@ signal phase_changed(old_phase: int, new_phase: int)
 signal combat_ended(winner_side: int)
 signal creature_died(card: CardInstance, owner: int)
 signal combatant_damaged(side: int, amount: int)
+signal combatant_healed(side: int, amount: int)
 signal spell_fizzled(card: CardData)
 
 # Safety guards (engine internals, not game balance): cap auto_resolve loop
@@ -1057,6 +1058,13 @@ func _emit_combatant_damaged(side: int, amount: int) -> void:
 	}))
 
 
+func _emit_combatant_healed(side: int, amount: int) -> void:
+	combatant_healed.emit(side, amount)
+	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBATANT_HEALED, {
+		"side": side, "amount": amount,
+	}))
+
+
 func _emit_creature_died(card: CardInstance, owner: int) -> void:
 	creature_died.emit(card, owner)
 	var card_id: String = card.card_data.card_id if card.card_data != null else ""
@@ -1368,11 +1376,16 @@ func deal_damage_to_hero(side: int, amount: int) -> void:
 
 
 func heal_hero(side: int, amount: int) -> void:
-	## Public hero-heal entry, counterpart of deal_damage_to_hero. Combatant.heal
-	## already emits health_changed; no session signal mirrors hero healing today.
+	## Public hero-heal entry, counterpart of deal_damage_to_hero. Emits
+	## combatant_healed with the ACTUAL amount restored (clamped at max health), so a
+	## hero heal enters the event_log and a log-only replay reproduces it.
 	if amount <= 0 or heroes[side] == null:
 		return
+	var before: int = heroes[side].current_health
 	heroes[side].heal(amount)
+	var healed: int = heroes[side].current_health - before
+	if healed > 0:
+		_emit_combatant_healed(side, healed)
 
 
 func _check_board_deaths(deck: CombatDeck) -> void:
