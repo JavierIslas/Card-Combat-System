@@ -987,6 +987,62 @@ func _put_creature(side: int, attack: int, health: int) -> CardInstance:
 	return inst
 
 
+func test_enemy_hero_default_golpea_al_primer_enemigo_vivo_en_ffa() -> void:
+	# #1: an ENEMY_HERO spell with no target_side (-1) hits the first living enemy
+	# side, not `1 - side` (which in FFA could be an ally or a wrong side).
+	_session.setup_sides([
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+	], [], 1)
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 6, SpellEffect.TargetType.ENEMY_HERO)
+	_session._apply_spell_effects(spell, 0)
+	assert_eq(_session.heroes[1].current_health, 14, "el default pega al primer enemigo vivo (lado 1)")
+	assert_eq(_session.heroes[2].current_health, 20, "no toca a los demás")
+
+
+func test_enemy_hero_target_side_explicito_elige_al_rival_en_ffa() -> void:
+	# #1: an explicit target_side directs the ENEMY_HERO spell to that enemy hero.
+	_session.setup_sides([
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+	], [], 1)
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 6, SpellEffect.TargetType.ENEMY_HERO)
+	_session._apply_spell_effects(spell, 0, null, 2)
+	assert_eq(_session.heroes[2].current_health, 14, "target_side=2 dirige el golpe al lado 2")
+	assert_eq(_session.heroes[1].current_health, 20, "el lado 1 queda intacto")
+
+
+func test_enemy_hero_target_side_aliado_cae_al_default() -> void:
+	# #1: a target_side pointing at an ALLY is invalid, so it falls back to the first
+	# living enemy — a spell can never hit a teammate's hero via ENEMY_HERO.
+	_session.setup_sides([
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+	], [0, 0, 1, 1], 1)
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 6, SpellEffect.TargetType.ENEMY_HERO)
+	_session._apply_spell_effects(spell, 0, null, 1)  # lado 1 es aliado de 0
+	assert_eq(_session.heroes[1].current_health, 20, "el aliado nunca recibe el golpe enemigo")
+	assert_eq(_session.heroes[2].current_health, 14, "cae al primer enemigo vivo (lado 2)")
+
+
+func test_play_card_enemy_hero_pasa_target_side() -> void:
+	# #1 (public path): play_card forwards target_side to the ENEMY_HERO resolution.
+	_session.setup_sides([
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+		{"hero": _hero(20), "cards": _empty()},
+	], [], 5)
+	_session.start()
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 5, SpellEffect.TargetType.ENEMY_HERO)
+	_session.decks[0]._hand.append(spell)
+	assert_true(_session.play_card(spell, false, 0, 0, null, 2), "play_card aplica el hechizo")
+	assert_eq(_session.heroes[2].current_health, 15, "play_card dirigió el golpe al lado 2")
+
+
 func test_aoe_enemigo_golpea_a_todos_los_rivales_en_ffa() -> void:
 	_session.setup_sides([
 		{"hero": _hero(), "cards": _empty()},

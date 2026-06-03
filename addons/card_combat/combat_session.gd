@@ -228,12 +228,13 @@ func start() -> void:
 	_transition_to(CombatState.Phase.PREPARATION)
 
 
-func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0, target: Variant = null) -> bool:
+func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0, declared_health: int = 0, target: Variant = null, target_side: int = -1) -> bool:
 	## Plays a card from the ACTIVE side's hand. `target` only applies to
-	## single-target spells (e.g. PLAYER_CREATURE). A single-target spell cast with
-	## no valid target fizzles: it is NOT consumed (mana and card stay),
-	## `spell_fizzled` is emitted and play_card returns false. The caller is
-	## responsible for picking a target and retrying.
+	## single-target spells (e.g. PLAYER_CREATURE). `target_side` names which enemy
+	## hero an ENEMY_HERO spell hits (-1 = first living enemy); ignored by other
+	## effects. A single-target spell cast with no valid target fizzles: it is NOT
+	## consumed (mana and card stay), `spell_fizzled` is emitted and play_card returns
+	## false. The caller is responsible for picking a target and retrying.
 	if not _can_play_from_hand(card):
 		return false
 	if card.card_type == CardData.CardType.HECHIZO:
@@ -242,7 +243,7 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 			return false
 		if not _consume_spell(card):
 			return false
-		_apply_spell_effects(card, active_side, target)
+		_apply_spell_effects(card, active_side, target, target_side)
 		return true
 	var inst: CardInstance = decks[active_side].play_creature(card, as_hidden, declared_attack, declared_health)
 	return inst != null
@@ -458,6 +459,8 @@ func _cmd_play_card(cmd: CombatCommand) -> bool:
 		int(cmd.payload.get("declared_attack", 0)),
 		int(cmd.payload.get("declared_health", 0)),
 		_resolve_command_target(cmd.payload),
+		# ENEMY_HERO spells: which enemy hero to hit (-1 = first living enemy).
+		int(cmd.payload.get("hero_target_side", -1)),
 	)
 
 
@@ -1307,12 +1310,22 @@ func _is_stalemate() -> bool:
 	return false
 
 
-func _apply_spell_effects(card: CardData, side: int, target: Variant = null) -> void:
+func _apply_spell_effects(card: CardData, side: int, target: Variant = null, target_side: int = -1) -> void:
 	for effect in card.spell_effects:
-		_apply_single_spell_effect(effect, side, target)
+		_apply_single_spell_effect(effect, side, target, target_side)
 
 
-func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null) -> void:
+func _resolve_enemy_hero_side(side: int, target_side: int) -> int:
+	## Which enemy hero an ENEMY_HERO spell hits: an explicit, valid enemy
+	## target_side when given, otherwise the first living enemy side. -1 if there is
+	## no enemy at all. In 1v1 a default (-1) resolves to the lone opponent, so the
+	## old `1 - side` behavior is preserved.
+	if target_side >= 0 and target_side < side_count() and teams[target_side] != teams[side]:
+		return target_side
+	return _default_enemy_side(side)
+
+
+func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null, target_side: int = -1) -> void:
 	## Agnostic resolution from the caster's perspective (`side`). TargetType is
 	## interpreted relative to the caster, so the same spell serves both sides with
 	## no duplicated logic.
@@ -1323,15 +1336,18 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 	var context: Dictionary = {"session": self, "owner_id": side}
 	match effect.target_type:
 		SpellEffect.TargetType.ENEMY_HERO:
+			# Resolve which enemy hero is hit by team (explicit target_side or first
+			# living enemy), not by `1 - side`, so FFA / team games target correctly.
 			# A custom effect_fn overrides hero damage entirely; the default keeps the
 			# engine's signaled hero-damage so the event_log stays consistent.
-			# (Multi-enemy hero targeting lands with the directed-target chunk; here
-			# the default still hits the lone enemy in a two-team game.)
+			var enemy_side: int = _resolve_enemy_hero_side(side, target_side)
+			if enemy_side < 0:
+				return
 			if effect.effect_fn.is_valid():
-				effect.apply(heroes[1 - side], context)
+				effect.apply(heroes[enemy_side], context)
 				_sweep_all_boards()
 			else:
-				deal_damage_to_hero(1 - side, effect.value)
+				deal_damage_to_hero(enemy_side, effect.value)
 		SpellEffect.TargetType.PLAYER_HERO:
 			if effect.effect_fn.is_valid():
 				effect.apply(heroes[side], context)

@@ -187,6 +187,12 @@ card stay in hand), `play_card` returns `false`, and the session emits
 through the return value plus the signal — the caller (UI or AI) reacts by
 prompting for a target and retrying, instead of wasting the card.
 
+For an `ENEMY_HERO` spell in FFA / team games, pass `target_side` (the last
+argument of `play_card`) to pick which enemy hero is hit; `-1` (default) resolves
+to the first living enemy side. A `target_side` pointing at an ally is rejected and
+falls back to that default, so a hero spell can never hit a teammate. In 1v1 the
+default keeps hitting the lone opponent, unchanged.
+
 ### Targeting limits (non-goals)
 
 Spell targeting is intentionally minimal and caster-relative. `TargetType`
@@ -321,6 +327,8 @@ var cmd := CombatCommand.new(CombatCommand.CommandType.PLAY_CARD, side, {
     "hand_index": 0,
     # single-target spells: encode the target creature by side + board index
     "target_side": 1, "target_index": 2,
+    # ENEMY_HERO spells: which enemy hero to hit (-1 = first living enemy)
+    "hero_target_side": 1,
 })
 if session.apply_command(cmd):
     ...  # accepted; mirrored into command_log
