@@ -12,6 +12,21 @@ func _make_instance(attack: int, health: int) -> CardInstance:
 	return inst
 
 
+# --- from_dict robustez ---
+
+func test_from_dict_effect_type_invalido_default_damage() -> void:
+	# Un effect_type desconocido (save corrupto / versión futura) cae a DAMAGE en
+	# vez de romper el parseo.
+	var e := SpellEffect.from_dict({"effect_type": "NO_EXISTE", "value": 2})
+	assert_eq(e.effect_type, SpellEffect.EffectType.DAMAGE)
+	assert_eq(e.value, 2, "el resto del payload se sigue parseando")
+
+
+func test_from_dict_target_type_invalido_default_enemy_hero() -> void:
+	var e := SpellEffect.from_dict({"target_type": "??"})
+	assert_eq(e.target_type, SpellEffect.TargetType.ENEMY_HERO)
+
+
 # --- DAMAGE ---
 
 func test_damage_sobre_criatura_retorna_dano() -> void:

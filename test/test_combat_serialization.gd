@@ -247,3 +247,31 @@ func test_session_deserialize_tolera_save_sin_schema_version() -> void:
 	data.erase("schema_version")
 	var restored := CombatSession.deserialize(data)
 	assert_eq(restored.side_count(), 2, "un save sin schema_version deserializa igual")
+
+
+func test_session_deserialize_corrige_teams_de_tamano_invalido() -> void:
+	# A corrupt teams array that does not cover every side must not index out of
+	# bounds: it falls back to one team per side.
+	var session := CombatSession.new()
+	session.setup(_hero(20), _starter(), _hero(20), _starter(), 1)
+	session.start()
+	var data := session.serialize()
+	data["teams"] = [0]  # size 1, but there are 2 sides
+	var restored := CombatSession.deserialize(data)
+	assert_eq(restored.teams, [0, 1] as Array[int], "teams inválido cae al default un-equipo-por-lado")
+
+
+func test_session_deserialize_tolera_defender_side_fuera_de_rango() -> void:
+	# A pair whose defender_side points outside the topology resolves to a hero
+	# swing (null defender) instead of crashing on decks[def_side].
+	var session := CombatSession.new()
+	session.setup(_hero(20), [_creature("atk", 1, 3, 3)], _hero(20), [_creature("def", 1, 1, 5)], 1)
+	session.start()
+	var atacante := session.decks[0].get_board()[0] if not session.decks[0].get_board().is_empty() else session.decks[0].play_creature(session.decks[0].get_hand()[0])
+	atacante.can_attack_this_turn = true
+	session.declare_attacker(atacante)
+	var data := session.serialize()
+	data["attack_pairs"][0][0]["defender_side"] = 99
+	var restored := CombatSession.deserialize(data)
+	assert_eq(restored._attack_pairs[0].size(), 1, "el par se restaura sin romper")
+	assert_null(restored._attack_pairs[0][0].defender, "un defender_side inválido degrada a ataque al héroe")

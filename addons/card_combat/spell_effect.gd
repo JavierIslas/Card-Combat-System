@@ -66,9 +66,15 @@ func serialize() -> Dictionary:
 static func from_dict(data: Dictionary) -> SpellEffect:
 	var e := SpellEffect.new()
 	var et: int = EffectType.keys().find(data.get("effect_type", "DAMAGE"))
-	e.effect_type = (et if et != -1 else EffectType.DAMAGE) as EffectType
+	if et == -1:
+		push_warning("SpellEffect.from_dict: unknown effect_type %s — using DAMAGE" % data.get("effect_type", ""))
+		et = EffectType.DAMAGE
+	e.effect_type = et as EffectType
 	var tt: int = TargetType.keys().find(data.get("target_type", "ENEMY_HERO"))
-	e.target_type = (tt if tt != -1 else TargetType.ENEMY_HERO) as TargetType
+	if tt == -1:
+		push_warning("SpellEffect.from_dict: unknown target_type %s — using ENEMY_HERO" % data.get("target_type", ""))
+		tt = TargetType.ENEMY_HERO
+	e.target_type = tt as TargetType
 	e.value = int(data.get("value", 0))
 	e.buff_health = int(data.get("buff_health", 0))
 	e.summon_name = data.get("summon_name", "")

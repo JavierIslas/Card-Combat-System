@@ -806,6 +806,11 @@ func _restore_topology(data: Dictionary) -> void:
 	var t: Array[int] = []
 	for v in data.get("teams", []):
 		t.append(int(v))
+	# A teams array that does not cover every side would index out of bounds in
+	# are_allies; fall back to one team per side rather than trust a corrupt save.
+	if not t.is_empty() and t.size() != n:
+		push_warning("CombatSession: teams size %d != side count %d — using default teams" % [t.size(), n])
+		t = []
 	teams = t if not t.is_empty() else _default_teams(n)
 	_init_side_arrays(n)
 
@@ -874,6 +879,7 @@ func _restore_pairs_and_blocks(data: Dictionary) -> void:
 		for p in raw_pairs[side]:
 			var attacker: CardInstance = _board_at(side, int(p.get("attacker", -1)))
 			if attacker == null:
+				push_warning("CombatSession: dropping attack pair with missing attacker on side %d" % side)
 				continue
 			# Older saves lack defender_side; fall back to the lone opponent (1 - side).
 			var def_side: int = int(p.get("defender_side", 1 - side))
@@ -891,7 +897,9 @@ func _restore_pairs_and_blocks(data: Dictionary) -> void:
 
 
 func _board_at(side: int, idx: int) -> CardInstance:
-	if idx < 0:
+	# Guard the side too: deserialized indices (e.g. a legacy 1 - side fallback under
+	# an N-side topology) can point outside decks. Out of range resolves to null.
+	if idx < 0 or side < 0 or side >= side_count():
 		return null
 	var board: Array[CardInstance] = decks[side].get_board()
 	return board[idx] if idx < board.size() else null
