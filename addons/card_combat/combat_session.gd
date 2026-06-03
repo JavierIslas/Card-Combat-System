@@ -334,7 +334,7 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	if not (target is CardInstance):
 		# Hero attack: resolve and validate the target side (must be a living enemy).
 		ts = target_side if target_side >= 0 else _default_enemy_side(active_side)
-		if ts < 0 or teams[ts] == teams[active_side]:
+		if ts < 0 or are_allies(ts, active_side):
 			return false
 	var pair = CombatPair.new(attacker, target)
 	pair.target_side = ts
@@ -360,7 +360,7 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 	# The blocker must belong to an enemy side of the active attacker (any enemy
 	# team, not just a single passive side), and be one of that side's defenders.
 	var blocker_side: int = blocker.owner_id
-	if teams[blocker_side] == teams[active_side]:
+	if are_allies(blocker_side, active_side):
 		return false
 	if not decks[blocker_side].get_defenders().has(blocker):
 		return false
@@ -490,7 +490,7 @@ func _cmd_declare_blocker(cmd: CombatCommand) -> bool:
 	# Command-layer authorization: the declaring side must be an enemy of the active
 	# attacker (any enemy team). Phase, defender membership and double-block are the
 	# action method's job, so we route and report its bool directly.
-	if teams[cmd.side] == teams[active_side]:
+	if are_allies(cmd.side, active_side):
 		return false
 	var attacker: CardInstance = _board_at(active_side, int(cmd.payload.get("attacker_index", -1)))
 	var blocker: CardInstance = _board_at(cmd.side, int(cmd.payload.get("blocker_index", -1)))
@@ -559,12 +559,18 @@ func side_count() -> int:
 	return decks.size()
 
 
+func are_allies(side_a: int, side_b: int) -> bool:
+	## Whether two sides share a team. Single source of truth for team membership so
+	## a future alliance model only has to change here.
+	return teams[side_a] == teams[side_b]
+
+
 func allies_of(side: int) -> Array[int]:
 	## Sides on the same team as `side`, INCLUDING `side` itself (per design D1: a
 	## PLAYER_CREATURES spell covers the caster's board and its teammates' boards).
 	var out: Array[int] = []
 	for s in side_count():
-		if teams[s] == teams[side]:
+		if are_allies(s, side):
 			out.append(s)
 	return out
 
@@ -573,7 +579,7 @@ func enemies_of(side: int) -> Array[int]:
 	## Sides on a different team from `side`. In 1v1 this is just the other side.
 	var out: Array[int] = []
 	for s in side_count():
-		if teams[s] != teams[side]:
+		if not are_allies(s, side):
 			out.append(s)
 	return out
 
@@ -1307,7 +1313,7 @@ func _resolve_enemy_hero_side(side: int, target_side: int) -> int:
 	## target_side when given, otherwise the first living enemy side. -1 if there is
 	## no enemy at all. In 1v1 a default (-1) resolves to the lone opponent, so the
 	## old `1 - side` behavior is preserved.
-	if target_side >= 0 and target_side < side_count() and teams[target_side] != teams[side]:
+	if target_side >= 0 and target_side < side_count() and not are_allies(target_side, side):
 		return target_side
 	return _default_enemy_side(side)
 
