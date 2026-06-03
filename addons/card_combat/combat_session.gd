@@ -56,6 +56,9 @@ var decks: Array[CombatDeck] = [null, null]
 ## inject a custom controller; otherwise setup() seeds a reference DummyAI.
 var ais: Array[CombatAI] = [null, null]
 var turn_number: int = 0
+# Turn order over sides, interleaved by team so teammates don't act back-to-back
+# (round-robin between teams). Rebuilt from `teams` in setup_sides / deserialize.
+var _turn_order: Array[int] = [0, 1]
 # CombatPair declared by each side, indexed by side.
 var _attack_pairs: Array = [[], []]
 # attacker CardInstance -> blocker CardInstance, for the current turn.
@@ -114,6 +117,7 @@ func setup_sides(sides: Array, side_teams: Array[int] = [], ai_seed: int = -1) -
 	## arrays to sides.size(), so the rest of the engine indexes by side uniformly.
 	var n: int = sides.size()
 	teams = side_teams.duplicate() if not side_teams.is_empty() else _default_teams(n)
+	_rebuild_turn_order()
 
 	# Seed the optional damage hook so the resolver uses it for this combat.
 	_resolver.damage_fn = damage_fn
@@ -300,10 +304,11 @@ func _consume_spell(card: CardData) -> bool:
 	return decks[active_side].play_spell(card) != null
 
 
-func declare_attacker(attacker: CardInstance, target: Variant = null) -> void:
-	## Active-side action: declare an attacker, optionally directed at a passive
-	## creature (`target`); null targets the passive hero. A blocker declared in
-	## DEFENSE can later redirect this pair's damage.
+func declare_attacker(attacker: CardInstance, target: Variant = null, target_side: int = -1) -> void:
+	## Active-side action: declare an attacker. `target` is an enemy creature for a
+	## directed attack, or null to swing at an enemy hero. With more than one enemy,
+	## `target_side` names which enemy hero is hit; -1 picks the first living enemy.
+	## A blocker declared in DEFENSE can later redirect this pair's damage.
 	if phase != CombatState.Phase.MAIN and phase != CombatState.Phase.ATTACK:
 		return
 	if _combat_over:
@@ -315,7 +320,14 @@ func declare_attacker(attacker: CardInstance, target: Variant = null) -> void:
 	# Reject summoning-sick creatures and double declarations.
 	if not attacker.can_attack_this_turn or attacker.has_attacked_this_turn:
 		return
+	var ts: int = -1
+	if not (target is CardInstance):
+		# Hero attack: resolve and validate the target side (must be a living enemy).
+		ts = target_side if target_side >= 0 else _default_enemy_side(active_side)
+		if ts < 0 or teams[ts] == teams[active_side]:
+			return
 	var pair = CombatPair.new(attacker, target)
+	pair.target_side = ts
 	_attack_pairs[active_side].append(pair)
 	attacker.has_attacked_this_turn = true
 	# target is a CardInstance for a directed attack, or null when swinging at the hero.
@@ -333,8 +345,12 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> void:
 		return
 	if attacker == null or blocker == null:
 		return
-	var passive: int = 1 - active_side
-	if not decks[passive].get_defenders().has(blocker):
+	# The blocker must belong to an enemy side of the active attacker (any enemy
+	# team, not just a single passive side), and be one of that side's defenders.
+	var blocker_side: int = blocker.owner_id
+	if teams[blocker_side] == teams[active_side]:
+		return
+	if not decks[blocker_side].get_defenders().has(blocker):
 		return
 	if blocker.is_dead:
 		return
@@ -567,6 +583,80 @@ func ally_boards(side: int) -> Array[CardInstance]:
 	return out
 
 
+func _rebuild_turn_order() -> void:
+	## Build the per-side turn order interleaving teams, so no team acts twice in a
+	## row when another team still has a side to play (round-robin between teams).
+	## Teams and sides keep their first-appearance order. 1v1 -> [0, 1]; FFA -> by
+	## index; 2v2 teams=[0,0,1,1] -> [0, 2, 1, 3] (A1, B1, A2, B2).
+	# Driven by teams.size(), not side_count(): setup_sides rebuilds the order right
+	# after assigning teams, before the decks array is resized.
+	var n: int = teams.size()
+	_turn_order = []
+	var team_order: Array[int] = []
+	var groups: Dictionary = {}
+	for s in n:
+		var t: int = teams[s]
+		if not groups.has(t):
+			groups[t] = [] as Array[int]
+			team_order.append(t)
+		groups[t].append(s)
+	var round_idx: int = 0
+	while _turn_order.size() < n:
+		for t in team_order:
+			var g: Array = groups[t]
+			if round_idx < g.size():
+				_turn_order.append(g[round_idx])
+		round_idx += 1
+
+
+func _is_side_out(side: int) -> bool:
+	## A side is out when its hero exists and is dead. A null hero (board-only
+	## scenario) is never "out", matching the original victory guards.
+	return heroes[side] != null and heroes[side].current_health <= 0
+
+
+func _next_living_side() -> int:
+	## Next side in turn order whose hero is still alive, cycling from the active one.
+	## Falls back to the current active side if no other side is alive.
+	if _turn_order.is_empty():
+		return active_side
+	var pos: int = _turn_order.find(active_side)
+	if pos < 0:
+		pos = 0
+	for step in range(1, _turn_order.size() + 1):
+		var cand: int = _turn_order[(pos + step) % _turn_order.size()]
+		if not _is_side_out(cand):
+			return cand
+	return active_side
+
+
+func _default_enemy_side(side: int) -> int:
+	## First living enemy side (used when an attacker swings at "the hero" without
+	## naming a side). -1 if there is no enemy at all.
+	for s in enemies_of(side):
+		if not _is_side_out(s):
+			return s
+	var en: Array[int] = enemies_of(side)
+	return en[0] if not en.is_empty() else -1
+
+
+func _living_teams() -> Array[int]:
+	## Team ids with at least one side still in (hero alive or null). The combat ends
+	## when this drops to one (or zero).
+	var out: Array[int] = []
+	for s in side_count():
+		if not _is_side_out(s) and not out.has(teams[s]):
+			out.append(teams[s])
+	return out
+
+
+func _first_living_side_of_team(team: int) -> int:
+	for s in side_count():
+		if teams[s] == team and not _is_side_out(s):
+			return s
+	return -1
+
+
 # --- Serialization (save/resume + authoritative networking) ---------------
 # The non-serializable hooks (config, ability_fn, damage_fn, exhaust_fn,
 # discard_fn) and AIs are re-injected via the deserialize `hooks` dictionary;
@@ -608,6 +698,7 @@ func _serialize_pairs(side: int) -> Array:
 		out.append({
 			"attacker": decks[side].get_board().find(pair.attacker),
 			"defender": def_idx,
+			"target_side": pair.target_side,
 		})
 	return out
 
@@ -642,6 +733,9 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session._restore_dead(data)
 	session._restore_pairs_and_blocks(data)
 	session._restore_ais(hooks.get("ais", null))
+	# teams isn't persisted yet (two-side serialization); rebuild the turn order from
+	# the current teams so a resumed 1v1 keeps a valid rotation.
+	session._rebuild_turn_order()
 	return session
 
 
@@ -706,7 +800,9 @@ func _restore_pairs_and_blocks(data: Dictionary) -> void:
 			if attacker == null:
 				continue
 			var defender: Variant = _board_at(1 - side, int(p.get("defender", -1)))
-			_attack_pairs[side].append(CombatPair.new(attacker, defender))
+			var pair := CombatPair.new(attacker, defender)
+			pair.target_side = int(p.get("target_side", -1))
+			_attack_pairs[side].append(pair)
 	_block_assignments.clear()
 	var passive: int = 1 - active_side
 	for b in data.get("block_assignments", []):
@@ -979,9 +1075,8 @@ func _enter_defensa() -> void:
 
 
 func _enter_resolve() -> void:
-	# Resolve the active side's declared attacks against the passive side.
-	var passive: int = 1 - active_side
-	_resolve_side_attacks(_attack_pairs[active_side], heroes[passive], passive)
+	# Resolve the active side's declared attacks against its enemies.
+	_resolve_active_attacks()
 	_attack_pairs[active_side].clear()
 	_block_assignments.clear()
 
@@ -992,20 +1087,27 @@ func _enter_resolve() -> void:
 	# End-of-turn triggers for the active side's surviving creatures, before the swap.
 	_fire_turn_trigger(active_side, CardInstance.Trigger.ON_TURN_END)
 
-	# Hand the turn to the other side.
-	active_side = passive
+	# Hand the turn to the next living side (interleaved by team).
+	active_side = _next_living_side()
 	_transition_to(CombatState.Phase.PREPARATION)
 
 
-func _resolve_side_attacks(pairs: Array, target_hero: Combatant, target_side: int) -> void:
-	## Resolves one side's declared attacks: deals unblocked damage to the target
-	## hero (emitting combatant_damaged for target_side) and processes the
-	## resulting creature deaths.
+func _resolve_active_attacks() -> void:
+	## Resolves the active side's declared attacks. Creature trades are handled by the
+	## resolver; unblocked hero attacks deal their damage to the hero of each pair's
+	## target_side, aggregated per side so each hit emits one combatant_damaged.
+	var pairs: Array = _attack_pairs[active_side]
 	if pairs.is_empty():
 		return
 	var result: Dictionary = _resolver.resolve_combat(pairs)
-	deal_damage_to_hero(target_side, result["hero_damage"])
 	var pairs_result: Array = result["pairs_result"]
+	var hero_damage_by_side: Dictionary = {}
+	for i in pairs.size():
+		if pairs[i].defender == null:
+			var s: int = pairs[i].target_side
+			hero_damage_by_side[s] = hero_damage_by_side.get(s, 0) + pairs_result[i]["attacker_damage_dealt"]
+	for s in hero_damage_by_side:
+		deal_damage_to_hero(s, hero_damage_by_side[s])
 	if not pairs_result.is_empty():
 		_fire_damage_dealt(pairs_result)
 		_process_death_results(pairs_result)
@@ -1040,20 +1142,17 @@ func _enter_final() -> void:
 
 
 func _resolve_winner() -> void:
-	## A side wins when the opposing hero is dead and its own is not. Both dead or
-	## a stalemate leaves no winner (-1).
-	var dead0: bool = heroes[0] != null and heroes[0].current_health <= 0
-	var dead1: bool = heroes[1] != null and heroes[1].current_health <= 0
-	if dead1 and not dead0:
-		winner_side = 0
-	elif dead0 and not dead1:
-		winner_side = 1
+	## Last team standing wins: if exactly one team still has a living side, that team
+	## wins. Anything else (all teams out, or a stalemate with several alive) is no
+	## winner (-1). winner_side reports a representative living side of the winning
+	## team, so 1v1 keeps returning 0 / 1 as before.
+	var living: Array[int] = _living_teams()
+	if living.size() == 1:
+		winner_team = living[0]
+		winner_side = _first_living_side_of_team(winner_team)
 	else:
+		winner_team = -1
 		winner_side = -1
-	# Team-aware mirror: in 1v1 each side is its own team, so this just tags the
-	# winning side's team. The N-side victory rule (last team standing) lands in a
-	# later chunk; here we keep the field consistent for the two-side path.
-	winner_team = teams[winner_side] if winner_side >= 0 else -1
 
 
 func _process_death_results(pairs_result: Array) -> void:
@@ -1080,19 +1179,23 @@ func _record_death(inst: CardInstance) -> void:
 
 
 func _check_victory() -> void:
-	# Guard null heroes the same way _resolve_winner does: a side may run headless
-	# without a hero (e.g. board-only scenarios) and must not crash here.
-	var dead0: bool = heroes[0] != null and heroes[0].current_health <= 0
-	var dead1: bool = heroes[1] != null and heroes[1].current_health <= 0
-	if dead0 or dead1 or _is_stalemate():
+	# Combat ends once at most one team has a living side. A null hero (board-only
+	# scenario) counts as alive, matching the original guards, so those resolve via
+	# stalemate instead of a hero death.
+	if _living_teams().size() <= 1 or _is_stalemate():
 		_combat_over = true
 		_transition_to(CombatState.Phase.END)
 
 
 func _is_stalemate() -> bool:
-	var s0_nothing: bool = decks[0].hand_size == 0 and decks[0].board_size == 0 and decks[0].draw_pile_size == 0
-	var s1_nothing: bool = decks[1].hand_size == 0 and decks[1].board_size == 0 and decks[1].draw_pile_size == 0
-	if s0_nothing and s1_nothing:
+	# Stalemate when every side has no cards left anywhere, or the turn cap is hit.
+	var all_empty: bool = true
+	for s in side_count():
+		var deck: CombatDeck = decks[s]
+		if deck.hand_size != 0 or deck.board_size != 0 or deck.draw_pile_size != 0:
+			all_empty = false
+			break
+	if all_empty:
 		return true
 	if turn_number >= config.stalemate_turn_limit:
 		return true

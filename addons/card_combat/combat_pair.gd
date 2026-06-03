@@ -16,6 +16,10 @@ extends RefCounted
 
 var attacker: CardInstance
 var defender: Variant  # CardInstance or null (direct attack to hero)
+## Target side whose hero takes the damage when this is an unblocked hero attack
+## (defender == null). -1 when the pair targets a creature (defender set) or is
+## unresolved. Lets a single side direct attacks at several enemy heroes (N sides).
+var target_side: int = -1
 
 
 func _init(p_attacker: CardInstance, p_defender: Variant = null) -> void:

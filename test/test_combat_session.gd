@@ -987,3 +987,86 @@ func test_buff_aliado_alcanza_al_companiero_en_2v2() -> void:
 	assert_eq(own.current_attack, 3, "el buff alcanza a la propia criatura")
 	assert_eq(teammate.current_attack, 3, "el buff alcanza al compañero de equipo (D1)")
 	assert_eq(enemy.current_attack, 2, "el buff no toca al enemigo")
+
+
+# --- Chunk 2: N-side FSM (rotation, team victory, directed/blocked combat) -----
+
+func _four_sides_2v2() -> void:
+	_session.setup_sides([
+		{"hero": _hero(30), "cards": _starter()},
+		{"hero": _hero(30), "cards": _starter()},
+		{"hero": _hero(30), "cards": _starter()},
+		{"hero": _hero(30), "cards": _starter()},
+	], [0, 0, 1, 1], 1)
+
+
+func test_turn_order_intercala_equipos_en_2v2() -> void:
+	_four_sides_2v2()
+	assert_eq(_session._turn_order, [0, 2, 1, 3] as Array[int], "round-robin entre equipos: A1,B1,A2,B2")
+
+
+func test_next_living_side_alterna_de_equipo() -> void:
+	_four_sides_2v2()
+	_session.active_side = 0
+	assert_eq(_session._next_living_side(), 2, "tras el lado 0 (eq.0) juega el 2 (eq.1)")
+	_session.active_side = 2
+	assert_eq(_session._next_living_side(), 1, "tras el lado 2 (eq.1) juega el 1 (eq.0)")
+
+
+func test_next_living_side_saltea_lado_muerto() -> void:
+	_session.setup_sides([
+		{"hero": _hero(30), "cards": _starter()},
+		{"hero": _hero(30), "cards": _starter()},
+		{"hero": _hero(30), "cards": _starter()},
+	], [], 1)
+	_session.heroes[1].take_damage(30)
+	_session.active_side = 0
+	assert_eq(_session._next_living_side(), 2, "el lado con héroe muerto se saltea")
+
+
+func test_gana_el_ultimo_equipo_en_pie_en_2v2() -> void:
+	_four_sides_2v2()
+	_session.heroes[2].take_damage(30)
+	_session.heroes[3].take_damage(30)
+	_session._check_victory()
+	assert_eq(_session.phase, CombatState.Phase.END, "muerto todo un equipo, el combate termina")
+	assert_eq(_session.winner_team, 0, "gana el equipo 0")
+	assert_eq(_session.winner_side, 0, "winner_side reporta un lado vivo del equipo ganador")
+
+
+func test_combate_sigue_si_queda_un_lado_del_equipo_enemigo() -> void:
+	_four_sides_2v2()
+	_session.heroes[2].take_damage(30)  # cae solo un lado del equipo 1
+	assert_eq(_session._living_teams().size(), 2, "siguen vivos los dos equipos")
+	_session._check_victory()
+	assert_ne(_session.phase, CombatState.Phase.END, "el combate continúa mientras el rival tenga un lado")
+
+
+func test_ataque_a_heroe_dirigido_a_un_enemigo_concreto() -> void:
+	_session.setup_sides([
+		{"hero": _hero(30), "cards": _starter()},
+		{"hero": _hero(30), "cards": _starter()},
+		{"hero": _hero(30), "cards": _starter()},
+	], [], 1)
+	var atk := _put_creature(0, 5, 5)
+	_session.start()  # MAIN, lado 0 (refresh habilita la criatura)
+	_session.declare_attacker(atk, null, 2)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()  # RESOLVE
+	assert_eq(_session.heroes[2].current_health, 25, "el héroe del lado objetivo recibe el daño")
+	assert_eq(_session.heroes[1].current_health, 30, "el otro enemigo no recibe daño")
+
+
+func test_bloqueador_de_cualquier_lado_enemigo_redirige_el_dano() -> void:
+	_four_sides_2v2()
+	var atk := _put_creature(0, 4, 4)
+	var blk := _put_creature(3, 1, 10)  # compañero (eq.1) del lado atacado (lado 2)
+	_session.start()  # MAIN, lado 0
+	_session.declare_attacker(atk, null, 2)
+	_session.end_main_phase()
+	_session.end_attack_phase()  # DEFENSE
+	_session.declare_blocker(atk, blk)
+	_session.end_defense_phase()  # RESOLVE
+	assert_eq(_session.heroes[2].current_health, 30, "el ataque fue bloqueado, el héroe no recibe daño")
+	assert_eq(blk.current_health, 6, "el bloqueador del lado aliado del objetivo recibe el daño")
