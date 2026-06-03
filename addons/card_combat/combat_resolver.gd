@@ -24,8 +24,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 	var pairs_result: Array = []
 	var hero_damage: int = 0
 
-	# Phase 1: Calculate all damage
-	var pending_damage: Array = []  # Array of [CardInstance, int]
+	# Phase 1: Calculate all damage. Each entry is [target: CardInstance, amount: int].
+	var pending_damage: Array[Array] = []
 
 	for pair in pairs:
 		var a: CardInstance = pair.attacker

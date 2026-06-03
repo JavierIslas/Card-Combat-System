@@ -42,8 +42,8 @@ var id_fn: Callable = Callable()
 ## (plus {"ability_fn", "max_permanent_buffs"} for SUMMON_BOARD). It is honored for
 ## EVERY target_type, heroes included: to damage/heal a hero with full observability
 ## (signals + event_log) call context["session"].deal_damage_to_hero / heal_hero
-## instead of touching the Combatant directly. Si no se inyecta, se usa el match
-## interno por EffectType.
+## instead of touching the Combatant directly. When not injected, the built-in
+## per-EffectType match is used.
 var effect_fn: Callable = Callable()
 
 

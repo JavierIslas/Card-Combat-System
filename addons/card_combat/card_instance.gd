@@ -71,7 +71,7 @@ var immunity_hits_remaining: int = 0
 ## engine does not know "+1/+1": the delta and the cap are decided by the game
 ## layer. The cap is seeded from CombatConfig via the deck.
 var permanent_buff_count: int = 0
-var max_permanent_buffs: int = -1  # -1 = ilimitado
+var max_permanent_buffs: int = -1  # -1 = unlimited
 ## Accumulated permanent-buff deltas. Kept so reveal() can rebuild real stats
 ## without discarding buffs applied while the card was hidden.
 var _buff_attack_total: int = 0

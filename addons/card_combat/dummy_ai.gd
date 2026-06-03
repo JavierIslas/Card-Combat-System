@@ -18,6 +18,10 @@ extends CombatAI
 ## choose_attackers / choose_attack_target / choose_blockers). Game-agnostic: it
 ## operates only on `CardData` and `CardInstance`.
 
+## Coin-flip probability for the reference AI's optional choices (swing at the hero
+## instead of a creature; block an incoming attacker). Tuning knob, not balance.
+const HERO_ACTION_CHANCE := 0.5
+
 var _seed: int = 0
 var _rng: RandomNumberGenerator
 
@@ -65,7 +69,7 @@ func choose_attackers(board: Array[CardInstance], _enemy_heroes: Array[Combatant
 func choose_attack_target(_attacker: CardInstance, enemy_board: Array[CardInstance], _enemy_heroes: Array[Combatant] = []) -> Variant:
 	if enemy_board.is_empty():
 		return null
-	if _rng.randf() < 0.5:
+	if _rng.randf() < HERO_ACTION_CHANCE:
 		return null  # attack hero
 	return enemy_board[_rng.randi() % enemy_board.size()]
 
@@ -98,7 +102,7 @@ func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstan
 	for atk in attackers:
 		if available.is_empty():
 			break
-		if _rng.randf() < 0.5:
+		if _rng.randf() < HERO_ACTION_CHANCE:
 			var idx: int = _rng.randi() % available.size()
 			blocks[atk] = available[idx]
 			# A blocker can only be assigned once.
