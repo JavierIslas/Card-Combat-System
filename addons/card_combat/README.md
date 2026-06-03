@@ -20,7 +20,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CombatCommand` | Serializable driver intention (input); fed to `CombatSession.apply_command` and accumulated in `command_log` |
 | `HiddenCardStats` | Declared vs. hidden stats for bluffing |
 | `CombatDeck` | Hand, deck, board, graveyard and mana for one side, plus game-defined extra zones |
-| `CombatSession` | Combat FSM: orchestrates turns, decks, AI and resolution |
+| `CombatSession` | Combat FSM over N sides grouped by `teams`: orchestrates turns, decks, AI and resolution |
 | `CombatState` | Phase enum |
 | `CombatPair` | Declared attacker/defender pair |
 | `CombatDamageResolver` | Resolves damage for the combat pairs |
@@ -118,28 +118,48 @@ Extra zones are part of `serialize()`/`deserialize()`, so they survive
 save/resume. Moving a card across zones is the game's job (the engine has no
 rules about what exile or an extra deck *mean*).
 
-## Turn model (alternating, symmetric, PvP-ready)
+## Turn model (N sides + teams, symmetric, PvP-ready)
 
-The combat is **symmetric per side** (`0`/`1`): there is no built-in "player vs
-enemy". Each turn one side is **active** (takes its turn and attacks) and the
-other is **passive** (declares blockers). The engine is agnostic to who drives
-each side — human UI, AI, or a network peer — which is what makes it PvP-ready.
-`turn_number` counts half-turns (one per side turn).
+The combat is **symmetric per side** and supports any number of sides: there is
+no built-in "player vs enemy". Each turn one side is **active** (takes its turn
+and attacks) and every other side is **passive** (can declare blockers). The
+engine is agnostic to who drives each side — human UI, AI, or a network peer —
+which is what makes it PvP-ready. `turn_number` counts side turns.
+
+Sides are grouped by `teams: Array[int]` indexed by side (same id = allies):
+
+- 1v1 (default) → `[0, 1]`, behaves exactly like the classic two-side model.
+- FFA → `[0, 1, 2, 3]` (each side its own team).
+- 2v2 → `[0, 0, 1, 1]`.
+
+"Enemy" / "ally" are resolved by team (`enemies_of(side)` / `allies_of(side)` —
+allies **include** the side itself), so an `ENEMY_CREATURES` AoE hits every enemy
+team's board and `PLAYER_CREATURES` covers the caster and its teammates. Turn
+order is **interleaved by team** (round-robin), so teammates don't act back to
+back; dead sides are skipped. The combat ends when one team is left standing:
+`winner_team` names it, and `winner_side` reports a representative living side of
+that team (so 1v1 keeps returning `0`/`1`). Both are `-1` for no winner.
 
 FSM per side turn:
-`PREPARATION → MAIN → ATTACK → DEFENSE → RESOLVE → (swap side) → …`
+`PREPARATION → MAIN → ATTACK → DEFENSE → RESOLVE → (next living side) → …`
 
 | Phase | Driven by | What |
 |-------|-----------|------|
 | `PREPARATION` | active | only the active side ramps mana, draws and refreshes |
 | `MAIN` | active | `play_card` |
-| `ATTACK` | active | `declare_attacker(attacker, target?)` (target = a passive creature, or null for the hero) |
-| `DEFENSE` | **passive** | `declare_blocker(attacker, blocker)` — redirects that attack to the blocker |
-| `RESOLVE` | engine | resolves the active side's attacks, then hands the turn over |
+| `ATTACK` | active | `declare_attacker(attacker, target?, target_side?)` (target = an enemy creature; null swings at a hero, `target_side` picks which enemy hero) |
+| `DEFENSE` | **passive** | `declare_blocker(attacker, blocker)` — any enemy side's defender redirects that attack to itself |
+| `RESOLVE` | engine | resolves the active side's attacks, then hands the turn to the next living side |
 
-State is indexed by side: `heroes[0/1]`, `decks[0/1]`, `ais[0/1]`, `active_side`,
-`winner_side` (`-1` = no winner). Assign `ais[side]` before `setup()` to inject a
-controller for a side; otherwise `setup()` seeds a reference `DummyAI`.
+State is indexed by side: `heroes[]`, `decks[]`, `ais[]`, `teams[]`,
+`active_side`, `winner_side` / `winner_team` (`-1` = no winner). Assign
+`ais[side]` before setup to inject a controller for a side; otherwise setup seeds
+a reference `DummyAI`.
+
+`setup(side0_hero, side0_cards, side1_hero, side1_cards, seed)` is the 1v1
+convenience wrapper. For N sides use
+`setup_sides(sides, teams, seed)` where each entry of `sides` is
+`{"hero": Combatant, "cards": Array[CardData]}` (empty `teams` = free-for-all).
 
 ## Minimal wiring
 
@@ -171,10 +191,11 @@ prompting for a target and retrying, instead of wasting the card.
 
 Spell targeting is intentionally minimal and caster-relative. `TargetType`
 resolves everything from the caster's point of view (`ENEMY_HERO`, `PLAYER_HERO`,
-`PLAYER_CREATURE`, `ENEMY_CREATURES`, `PLAYER_CREATURES`, `SUMMON_BOARD`), and a
+`PLAYER_CREATURE`, `ENEMY_CREATURES`, `PLAYER_CREATURES`, `SUMMON_BOARD`) — now
+team-aware, so the "enemy"/"ally" sets span every enemy/allied side — and a
 spell has a **single** explicit single-target slot (`PLAYER_CREATURE`). The engine
-does **not** provide multi-target "choose N", split targets, or picking among
-several heroes — those are game rules, not engine primitives. A game that needs
+does **not** provide multi-target "choose N" or split targets — those are game
+rules, not engine primitives. A game that needs
 richer targeting expresses it through an injected `effect_fn` (full control over
 resolution) rather than by extending the built-in `TargetType` catalog.
 
@@ -190,13 +211,16 @@ is the default AI and the reference example. For a stronger AI, subclass
 and defending (`choose_blockers`) sides go through this same contract — an AI is
 just a driver for whichever side(s) you assign it to via `ais[side]`.
 
-The attack-step methods receive the enemy hero so an AI can reason about lethal:
-`choose_attackers(board, enemy_hero)` and `choose_attack_target(attacker,
-enemy_board, enemy_hero)`. `enemy_hero` may be null in board-only scenarios.
-`HeuristicAI` uses it to go face with every attacker when the chosen attackers can
-together kill the hero (optimistic lethal, ignoring blocks the defender may still
-declare). A custom AI subclassing `CombatAI` must include the `enemy_hero`
-parameter in these two overrides.
+The attack-step methods receive the **enemy heroes as an array** (one per living
+enemy side) so an AI can reason about lethal across sides:
+`choose_attackers(board, enemy_heroes)` and `choose_attack_target(attacker,
+enemy_board, enemy_heroes)`, where `enemy_board` is the combined enemy creatures
+(each carries its `owner_id`). `enemy_heroes` may be empty in board-only
+scenarios. `choose_attack_target` returns an enemy creature, or `null` to swing at
+a hero — the engine routes a null hit to the first living enemy side.
+`HeuristicAI` measures lethal against the first living enemy hero. A custom AI
+subclassing `CombatAI` must use the `enemy_heroes: Array[Combatant]` parameter in
+these two overrides (breaking change from the old single `enemy_hero`).
 
 `choose_spell_target(spell, own_board, enemy_board)` is consulted by `auto_resolve`
 when the AI plays a single-target spell (`PLAYER_CREATURE`): both boards are
