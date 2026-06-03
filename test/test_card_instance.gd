@@ -21,13 +21,49 @@ func test_with_hooks_siembra_hooks_sin_disparar_setup() -> void:
 	# with_hooks deja la instancia con los hooks puestos pero SIN llamar setup(): no
 	# dispara ON_SETUP todavía (el caller hace setup tras asignar hidden_stats).
 	var fired: Array = []
-	var handler := func(_inst: CardInstance, trigger: int) -> void: fired.append(trigger)
+	var handler := func(_inst: CardInstance, trigger: int, _ctx: Dictionary) -> void: fired.append(trigger)
 	var inst := CardInstance.with_hooks(handler, 3)
 	assert_eq(inst.max_permanent_buffs, 3, "siembra el tope de mejoras")
 	assert_true(inst.ability_fn.is_valid(), "siembra el ability_fn")
 	assert_eq(fired.size(), 0, "no dispara ningún trigger antes de setup")
 	inst.setup(_make_card(2, 2), 0)
 	assert_true(fired.has(CardInstance.Trigger.ON_SETUP), "el ability_fn ya está puesto cuando setup dispara ON_SETUP")
+
+
+func test_take_damage_dispara_on_damage_taken_con_monto() -> void:
+	var events: Array = []
+	var inst := CardInstance.new()
+	inst.ability_fn = func(_i: CardInstance, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			events.append(ctx.get("amount", -1))
+	inst.setup(_make_card(0, 5), 0)
+	inst.take_damage(3)
+	assert_eq(events, [3], "ON_DAMAGE_TAKEN lleva el daño real recibido")
+
+
+func test_inmunidad_no_dispara_on_damage_taken() -> void:
+	var events: Array = []
+	var inst := CardInstance.new()
+	inst.ability_fn = func(_i: CardInstance, trigger: int, _ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			events.append(true)
+	inst.setup(_make_card(0, 5), 0)
+	inst.immunity_hits_remaining = 1
+	inst.take_damage(3)
+	assert_eq(events.size(), 0, "un golpe absorbido no dispara ON_DAMAGE_TAKEN")
+
+
+func test_heal_dispara_on_heal_solo_con_delta_real() -> void:
+	var events: Array = []
+	var inst := CardInstance.new()
+	inst.ability_fn = func(_i: CardInstance, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_HEAL:
+			events.append(ctx.get("amount", -1))
+	inst.setup(_make_card(0, 5), 0)
+	inst.take_damage(3)  # 2/5
+	inst.heal(10)        # cura 3 (topa al max), no 10
+	inst.heal(5)         # ya full -> sin delta -> sin trigger
+	assert_eq(events, [3], "ON_HEAL lleva el delta real curado y no dispara sin cura")
 
 
 func test_setup_inicializa_stats_y_max_health() -> void:

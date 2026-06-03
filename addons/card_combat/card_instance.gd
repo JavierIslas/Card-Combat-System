@@ -20,8 +20,27 @@ signal card_revealed(card: CardInstance)
 
 ## Lifecycle triggers. The ability handler (injected by the game via ability_fn)
 ## reacts to these points; the engine does not know the concrete semantics of each
-## ability.
-enum Trigger { ON_SETUP, ON_TURN_REFRESH, ON_DEATH, ON_REVEAL }
+## ability. Each trigger fire carries a context Dictionary (see ability_fn).
+##
+## Instance-bound triggers fire on a concrete CardInstance: ON_SETUP,
+## ON_TURN_REFRESH, ON_DEATH, ON_REVEAL, ON_ATTACK, ON_BLOCK, ON_DAMAGE_TAKEN,
+## ON_DAMAGE_DEALT, ON_HEAL, ON_TURN_START, ON_TURN_END. The side-level ON_DRAW
+## fires with a null instance (the drawn card is still CardData in hand), so a
+## handler must tolerate inst == null and read context["card"] instead.
+enum Trigger {
+	ON_SETUP,
+	ON_TURN_REFRESH,
+	ON_DEATH,
+	ON_REVEAL,
+	ON_ATTACK,
+	ON_BLOCK,
+	ON_DAMAGE_TAKEN,
+	ON_DAMAGE_DEALT,
+	ON_HEAL,
+	ON_TURN_START,
+	ON_TURN_END,
+	ON_DRAW,
+}
 
 var card_data: CardData = null
 var owner_id: int = 0
@@ -63,8 +82,12 @@ var _buff_health_total: int = 0
 var _temp_attack_total: int = 0
 var _temp_health_total: int = 0
 
-## Injectable ability handler. Signature: (inst: CardInstance, trigger: int).
-## If not injected, the engine applies no ability semantics (agnostic).
+## Injectable ability handler. Signature:
+## (inst: CardInstance, trigger: int, context: Dictionary).
+## `context` carries trigger-specific data (e.g. {"amount": n} for ON_DAMAGE_TAKEN,
+## {"target": inst} for ON_ATTACK); it is {} when a trigger has none. `inst` is null
+## for side-level triggers (ON_DRAW). If not injected, the engine applies no ability
+## semantics (agnostic).
 var ability_fn: Callable = Callable()
 
 
@@ -137,6 +160,10 @@ func take_damage(amount: int) -> int:
 	current_health -= actual
 	damage_taken_this_turn += actual
 	card_damaged.emit(self, actual)
+	# ON_DAMAGE_TAKEN fires before any death so an ability can react to the hit
+	# (e.g. retaliate) before ON_DEATH. The source is not tracked here; combat
+	# damage exposes the dealer via ON_DAMAGE_DEALT on the session side.
+	_fire(Trigger.ON_DAMAGE_TAKEN, {"amount": actual})
 
 	if current_health <= 0:
 		_die()
@@ -147,7 +174,11 @@ func take_damage(amount: int) -> int:
 func heal(amount: int) -> void:
 	if amount <= 0:
 		return
+	var before: int = current_health
 	current_health = mini(current_health + amount, current_max_health)
+	var healed: int = current_health - before
+	if healed > 0:
+		_fire(Trigger.ON_HEAL, {"amount": healed})
 
 
 func apply_permanent_buff(attack_delta: int, health_delta: int, max_buffs: int = -1) -> bool:
@@ -204,9 +235,9 @@ func _die() -> void:
 	card_died.emit(self)
 
 
-func _fire(trigger: Trigger) -> void:
+func _fire(trigger: Trigger, context: Dictionary = {}) -> void:
 	if ability_fn.is_valid():
-		ability_fn.call(self, trigger)
+		ability_fn.call(self, trigger, context)
 
 
 func serialize() -> Dictionary:
