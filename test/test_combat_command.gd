@@ -22,7 +22,7 @@ func _creature(cost: int, attack: int, health: int) -> CardData:
 	d.cost = cost
 	d.attack = attack
 	d.health = health
-	d.card_type = CardData.CardType.CRIATURA
+	d.card_type = CardData.CardType.CREATURE
 	return d
 
 

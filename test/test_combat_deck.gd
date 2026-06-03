@@ -10,7 +10,7 @@ func before_each() -> void:
 	_deck = CombatDeck.new()
 
 
-func _make_card(cost: int, attack: int, health: int, type := CardData.CardType.CRIATURA) -> CardData:
+func _make_card(cost: int, attack: int, health: int, type := CardData.CardType.CREATURE) -> CardData:
 	var data := CardData.new()
 	data.cost = cost
 	data.attack = attack
@@ -245,7 +245,7 @@ func _inst() -> CardInstance:
 
 func test_play_spell_va_al_cementerio() -> void:
 	_deck.setup(_cards(0), 0, 5)
-	var spell := _make_card(2, 0, 0, CardData.CardType.HECHIZO)
+	var spell := _make_card(2, 0, 0, CardData.CardType.SPELL)
 	_deck._hand.append(spell)
 	_deck.gain_mana(5)
 	var played := _deck.play_spell(spell)

@@ -19,7 +19,7 @@ func _creature(id: String, cost: int, attack: int, health: int) -> CardData:
 	d.cost = cost
 	d.attack = attack
 	d.health = health
-	d.card_type = CardData.CardType.CRIATURA
+	d.card_type = CardData.CardType.CREATURE
 	return d
 
 
@@ -35,7 +35,7 @@ func test_card_data_round_trip_incluye_spell_effects() -> void:
 	var card := CardData.new()
 	card.card_id = "rayo"
 	card.cost = 2
-	card.card_type = CardData.CardType.HECHIZO
+	card.card_type = CardData.CardType.SPELL
 	var e := SpellEffect.new()
 	e.effect_type = SpellEffect.EffectType.DAMAGE
 	e.value = 3

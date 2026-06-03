@@ -17,14 +17,14 @@ extends Resource
 ## interpret — same as `HexCell.metadata` in the map addon. The game layer (card
 ## loading, abilities, UI) reads/writes metadata.
 
-enum CardType { CRIATURA, HECHIZO }
+enum CardType { CREATURE, SPELL }
 
 @export var card_id: String = ""
 @export var name: String = ""
 @export var cost: int = 0
 @export var attack: int = 0
 @export var health: int = 0
-@export var card_type: CardType = CardType.CRIATURA
+@export var card_type: CardType = CardType.CREATURE
 @export var metadata: Dictionary = {}
 ## Spell effects, authored on the card. Exportable now that SpellEffect is a
 ## Resource, so a card defined as a .tres persists its effects natively.
@@ -46,7 +46,7 @@ static func from_dict(data: Dictionary) -> CardData:
 	card.cost = int(data.get("cost", 0))
 	card.attack = int(data.get("attack", 0))
 	card.health = int(data.get("health", 0))
-	var type_idx := CardType.keys().find(data.get("card_type", "CRIATURA"))
+	var type_idx := CardType.keys().find(data.get("card_type", "CREATURE"))
 	if type_idx == -1:
 		push_warning("CardData.from_dict: invalid card_type — %s" % data.get("card_type", ""))
 		return null

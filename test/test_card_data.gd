@@ -22,7 +22,7 @@ func test_from_dict_serialize_round_trip() -> void:
 		"cost": 2,
 		"attack": 3,
 		"health": 1,
-		"card_type": "CRIATURA",
+		"card_type": "CREATURE",
 		"metadata": {"rareza": "comun"},
 		"spell_effects": [],
 	}
@@ -39,7 +39,7 @@ func test_from_dict_card_type_invalido_retorna_null() -> void:
 func test_metadata_es_opaca_y_se_duplica() -> void:
 	# El motor no interpreta metadata; from_dict la copia sin tocarla.
 	var meta := {"flavor": "texto", "abilities": ["x"]}
-	var card := CardData.from_dict({"card_id": "c", "card_type": "HECHIZO", "metadata": meta})
+	var card := CardData.from_dict({"card_id": "c", "card_type": "SPELL", "metadata": meta})
 	assert_eq(card.metadata, meta, "metadata se preserva tal cual")
 	meta["flavor"] = "mutado"
 	assert_eq(card.metadata["flavor"], "texto", "metadata se duplicó, no es la misma ref")

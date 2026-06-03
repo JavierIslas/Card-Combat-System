@@ -7,7 +7,7 @@ func _card(id: String, cost: int) -> CardData:
 	var c := CardData.new()
 	c.card_id = id
 	c.cost = cost
-	c.card_type = CardData.CardType.CRIATURA
+	c.card_type = CardData.CardType.CREATURE
 	return c
 
 
@@ -69,7 +69,7 @@ func test_choose_attack_target_null_si_board_vacio() -> void:
 func _spell_card(type: SpellEffect.EffectType) -> CardData:
 	var c := CardData.new()
 	c.card_id = "hechizo"
-	c.card_type = CardData.CardType.HECHIZO
+	c.card_type = CardData.CardType.SPELL
 	var e := SpellEffect.new()
 	e.effect_type = type
 	var effects: Array[SpellEffect] = [e]
