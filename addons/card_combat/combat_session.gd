@@ -699,6 +699,9 @@ func serialize() -> Dictionary:
 		"dead_creatures": _map_sides(_serialize_dead),
 		"attack_pairs": _map_sides(_serialize_pairs),
 		"block_assignments": _serialize_blocks(),
+		# Per-side AI internal state (empty for a stateless AI). Lets a resumed combat
+		# stay deterministic without re-injecting the AIs via deserialize hooks.
+		"ai_states": _map_sides(func(s: int) -> Dictionary: return ais[s].serialize_state() if ais[s] != null else {}),
 	}
 
 
@@ -772,6 +775,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session._restore_dead(data)
 	session._restore_pairs_and_blocks(data)
 	session._restore_ais(hooks.get("ais", null))
+	session._restore_ai_states(data)
 	session._rebuild_turn_order()
 	return session
 
@@ -884,10 +888,20 @@ func _board_at(side: int, idx: int) -> CardInstance:
 func _restore_ais(override: Variant) -> void:
 	if override is Array and override.size() == side_count():
 		ais = override
-	# Seed a reference AI for any side left without one (resume loses the original
-	# AI seed, so determinism requires re-injecting the AIs via hooks).
+	# Seed a reference AI for any side left without one. The saved ai_states are
+	# applied afterwards (see _restore_ai_states) so a stateful AI (e.g. DummyAI's
+	# RNG) resumes deterministically without re-injecting it via hooks.
 	for side in side_count():
 		_seed_ai(side, -1)
+
+
+func _restore_ai_states(data: Dictionary) -> void:
+	## Feed each side's saved AI state back through restore_state(). Stateless AIs
+	## (empty dict / default no-op) are unaffected; a DummyAI rebuilds its RNG.
+	var raw: Array = data.get("ai_states", [])
+	for side in side_count():
+		if side < raw.size() and raw[side] is Dictionary and not (raw[side] as Dictionary).is_empty():
+			ais[side].restore_state(raw[side])
 
 
 func auto_resolve() -> void:

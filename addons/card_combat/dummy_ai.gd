@@ -31,6 +31,19 @@ func setup(p_seed: int = -1) -> void:
 		_rng.randomize()
 
 
+func serialize_state() -> Dictionary:
+	## Capture the seed and the live RNG state so a resumed combat reproduces the
+	## exact same picks without re-injecting the AI. state is 0 if setup() never ran.
+	return {"seed": _seed, "rng_state": _rng.state if _rng != null else 0}
+
+
+func restore_state(data: Dictionary) -> void:
+	## Rebuild the RNG from a serialized state. Re-seed first (so a never-set-up AI
+	## gets a valid generator), then overwrite with the saved position.
+	setup(int(data.get("seed", -1)))
+	_rng.state = int(data.get("rng_state", _rng.state))
+
+
 func choose_card_to_play(hand: Array[CardData], mana: int) -> CardData:
 	var affordable: Array[CardData] = []
 	for card in hand:

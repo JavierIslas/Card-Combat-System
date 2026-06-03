@@ -136,3 +136,27 @@ func test_choose_blockers_vacio_sin_defensores() -> void:
 	var attackers: Array[CardInstance] = [_inst(1, 1)]
 	var own: Array[CardInstance] = []
 	assert_eq(ai.choose_blockers(attackers, own).size(), 0, "sin board no hay bloqueos")
+
+
+func test_serialize_state_round_trip_reanuda_secuencia_rng() -> void:
+	# #5: a restored AI reproduces the exact same picks as the original from the
+	# point of capture, so a resumed combat stays deterministic.
+	var ai := DummyAI.new()
+	ai.setup(7)
+	var hand: Array[CardData] = [_card("a", 1), _card("b", 1), _card("c", 1)]
+	ai.choose_card_to_play(hand, 5)  # advance the RNG past its initial state
+	var restored := DummyAI.new()
+	restored.restore_state(ai.serialize_state())
+	assert_eq(
+		restored.choose_card_to_play(hand, 5).card_id,
+		ai.choose_card_to_play(hand, 5).card_id,
+		"el AI restaurado continúa la misma secuencia que el original")
+
+
+func test_serialize_state_captura_seed_y_estado() -> void:
+	# #5: the serialized state exposes both the seed and the live RNG position.
+	var ai := DummyAI.new()
+	ai.setup(3)
+	var state := ai.serialize_state()
+	assert_eq(int(state.get("seed", -99)), 3, "guarda el seed")
+	assert_true(state.has("rng_state"), "guarda el estado vivo del RNG")

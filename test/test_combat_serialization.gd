@@ -216,6 +216,21 @@ func _empty() -> Array[CardData]:
 	return a
 
 
+func test_resume_es_determinista_sin_reinyectar_ais() -> void:
+	# #5: resuming mid-combat and auto-resolving reproduces the same outcome as
+	# letting the original run, WITHOUT re-injecting the AIs via hooks (the AI RNG
+	# state round-trips through serialize/deserialize).
+	var original := CombatSession.new()
+	original.setup(_hero(20), _starter(), _hero(20), _starter(), 9)
+	original.start()
+	# Snapshot one turn in, then drive both copies headless from the same point.
+	var snapshot := original.serialize()
+	original.auto_resolve()
+	var resumed := CombatSession.deserialize(snapshot)
+	resumed.auto_resolve()
+	assert_eq(resumed.get_result(), original.get_result(), "el resume sin re-inyectar ais es determinista")
+
+
 func test_session_serialize_incluye_schema_version() -> void:
 	# #4: the snapshot carries a schema version so future format changes are explicit.
 	var session := CombatSession.new()

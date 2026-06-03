@@ -58,3 +58,18 @@ func choose_blockers(_attackers: Array[CardInstance], _own_board: Array[CardInst
 	## Map attacker CardInstance -> blocker CardInstance for incoming attacks.
 	push_error("CombatAI.choose_blockers not implemented")
 	return {}
+
+
+func serialize_state() -> Dictionary:
+	## Optional, agnostic state hook for save/resume. The default is empty: a
+	## stateless AI needs nothing. An AI with internal state (e.g. a seeded RNG)
+	## overrides this so a resumed combat stays deterministic without the caller
+	## re-injecting the AI via deserialize hooks. CombatSession serializes whatever
+	## this returns and feeds it back through restore_state().
+	return {}
+
+
+func restore_state(_data: Dictionary) -> void:
+	## Counterpart of serialize_state(): rebuild the AI's internal state from the
+	## serialized dictionary. Default is a no-op (stateless AI).
+	pass
