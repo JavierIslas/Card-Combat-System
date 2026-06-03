@@ -62,13 +62,13 @@ var turn_number: int = 0
 # (round-robin between teams). Rebuilt from `teams` in setup_sides / deserialize.
 var _turn_order: Array[int] = [0, 1]
 # CombatPair declared by each side, indexed by side.
-var _attack_pairs: Array = [[], []]
+var _attack_pairs: Array[Array] = [[], []]
 # attacker CardInstance -> blocker CardInstance, for the current turn.
 var _block_assignments: Dictionary = {}
 var _combat_over: bool = false
 var _resolver: CombatDamageResolver = CombatDamageResolver.new()
 # Creatures that died during combat, tracked per side for external retrieval.
-var _dead_creatures: Array = [[], []]
+var _dead_creatures: Array[Array] = [[], []]
 
 ## Structured, replay-friendly stream of what the combat did. Mirrors the signals
 ## below; the game layer can consume it instead of wiring each signal. Cleared on
