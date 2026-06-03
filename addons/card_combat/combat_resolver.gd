@@ -40,6 +40,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 				"defender": null,
 				"attacker_died": false,
 				"defender_died": false,
+				"attacker_damage_dealt": a_dmg,
+				"defender_damage_dealt": 0,
 			})
 		else:
 			var d_dmg := calculate_damage(d, a)
@@ -50,6 +52,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 				"defender": d,
 				"attacker_died": false,
 				"defender_died": false,
+				"attacker_damage_dealt": a_dmg,
+				"defender_damage_dealt": d_dmg,
 			})
 
 	# Phase 2: Apply all damage simultaneously

@@ -38,7 +38,12 @@ var id_fn: Callable = Callable()
 ## Full effect resolution, injectable by the game layer for effect types outside
 ## the engine catalog (EffectType). Signature:
 ## (effect: SpellEffect, target: Variant, context: Dictionary) -> Dictionary.
-## Si no se inyecta, se usa el match interno por EffectType.
+## When cast through CombatSession, `context` always carries {"session", "owner_id"}
+## (plus {"ability_fn", "max_permanent_buffs"} for SUMMON_BOARD). It is honored for
+## EVERY target_type, heroes included: to damage/heal a hero with full observability
+## (signals + event_log) call context["session"].deal_damage_to_hero / heal_hero
+## instead of touching the Combatant directly. Si no se inyecta, se usa el match
+## interno por EffectType.
 var effect_fn: Callable = Callable()
 
 

@@ -61,6 +61,12 @@ var _dead_creatures: Array = [[], []]
 ## setup(). Card-level events (draw/play) live on CombatDeck, not here.
 var event_log: Array[CombatEvent] = []
 
+## Structured stream of driver intentions (input), the counterpart of event_log
+## (output). apply_command() appends each accepted command here, so a match can be
+## replayed from input and an authoritative server can audit what was requested.
+## Cleared on setup(); serialized with the session.
+var command_log: Array[CombatCommand] = []
+
 ## Balance parameters. Reassign before setup() to customize.
 var config: CombatConfig = CombatConfig.new()
 
@@ -100,6 +106,7 @@ func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Comb
 	_block_assignments.clear()
 	_dead_creatures = [[], []]
 	event_log.clear()
+	command_log.clear()
 	_combat_over = false
 
 	# Derive a distinct shuffle seed per side from the combat seed so a fixed
@@ -132,7 +139,12 @@ func _wire_deck_events(deck: CombatDeck) -> void:
 	## alone is a full replay/spectator stream. The deck signals stay intact for
 	## live listeners; the session is the single owner of event_log appends. Shared
 	## by _make_deck and deserialize so a resumed combat keeps logging.
-	deck.card_drawn.connect(func(card: CardData) -> void: _emit_card_drawn(card, deck.owner_id))
+	deck.card_drawn.connect(func(card: CardData) -> void:
+		_emit_card_drawn(card, deck.owner_id)
+		# Side-level ON_DRAW: the drawn card is still CardData in hand, so inst is null
+		# and the card travels in context. Handlers must tolerate a null instance.
+		if ability_fn.is_valid():
+			ability_fn.call(null, CardInstance.Trigger.ON_DRAW, {"card": card, "owner": deck.owner_id}))
 	deck.card_played.connect(func(inst: CardInstance) -> void: _emit_card_played(inst, deck.owner_id))
 	deck.mana_changed.connect(func(new_mana: int) -> void: _emit_mana_changed(deck.owner_id, new_mana))
 	deck.max_mana_changed.connect(func(new_max: int) -> void: _emit_max_mana_changed(deck.owner_id, new_max))
@@ -262,6 +274,8 @@ func declare_attacker(attacker: CardInstance, target: Variant = null) -> void:
 	var pair = CombatPair.new(attacker, target)
 	_attack_pairs[active_side].append(pair)
 	attacker.has_attacked_this_turn = true
+	# target is a CardInstance for a directed attack, or null when swinging at the hero.
+	attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
 
 
 func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> void:
@@ -287,6 +301,7 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> void:
 		return
 	pair.defender = blocker
 	_block_assignments[attacker] = blocker
+	blocker._fire(CardInstance.Trigger.ON_BLOCK, {"attacker": attacker})
 
 
 func _find_attack_pair(attacker: CardInstance) -> CombatPair:
@@ -330,6 +345,112 @@ func advance() -> void:
 			_transition_to(CombatState.Phase.MAIN)
 
 
+# --- Command layer (authoritative input / replay-from-input) ----------------
+# apply_command validates a driver intention and routes it to the existing action
+# methods, so a network peer or replay can drive the session by serializable
+# commands. Cards/creatures are referenced by index (hand index, board index per
+# side), matching how attack pairs serialize.
+
+func apply_command(cmd: CombatCommand) -> bool:
+	## Validate and route a command. Returns true only if the action took effect; on
+	## success the command is appended to command_log. Rejects without mutating when a
+	## precondition fails, so a bad/illegal command from a client is a no-op.
+	if cmd == null or _combat_over:
+		return false
+	if not _route_command(cmd):
+		return false
+	command_log.append(cmd)
+	return true
+
+
+func _route_command(cmd: CombatCommand) -> bool:
+	match cmd.type:
+		CombatCommand.CommandType.PLAY_CARD:
+			return _cmd_play_card(cmd)
+		CombatCommand.CommandType.DECLARE_ATTACKER:
+			return _cmd_declare_attacker(cmd)
+		CombatCommand.CommandType.DECLARE_BLOCKER:
+			return _cmd_declare_blocker(cmd)
+		CombatCommand.CommandType.END_MAIN:
+			return _cmd_end_phase(cmd.side, active_side, CombatState.Phase.MAIN, end_main_phase)
+		CombatCommand.CommandType.END_ATTACK:
+			return _cmd_end_phase(cmd.side, active_side, CombatState.Phase.ATTACK, end_attack_phase)
+		CombatCommand.CommandType.END_DEFENSE:
+			# Ending defense is the passive side's call (it finished declaring blockers).
+			return _cmd_end_phase(cmd.side, 1 - active_side, CombatState.Phase.DEFENSE, end_defense_phase)
+		CombatCommand.CommandType.ADVANCE:
+			return _cmd_advance()
+	return false
+
+
+func _cmd_play_card(cmd: CombatCommand) -> bool:
+	if cmd.side != active_side or phase != CombatState.Phase.MAIN:
+		return false
+	var hand: Array[CardData] = decks[cmd.side].get_hand()
+	var hi: int = int(cmd.payload.get("hand_index", -1))
+	if hi < 0 or hi >= hand.size():
+		return false
+	return play_card(
+		hand[hi],
+		cmd.payload.get("as_hidden", false),
+		int(cmd.payload.get("declared_attack", 0)),
+		int(cmd.payload.get("declared_health", 0)),
+		_resolve_command_target(cmd.payload),
+	)
+
+
+func _cmd_declare_attacker(cmd: CombatCommand) -> bool:
+	if cmd.side != active_side:
+		return false
+	if phase != CombatState.Phase.MAIN and phase != CombatState.Phase.ATTACK:
+		return false
+	var attacker: CardInstance = _board_at(cmd.side, int(cmd.payload.get("attacker_index", -1)))
+	if attacker == null:
+		return false
+	var before: int = _attack_pairs[active_side].size()
+	declare_attacker(attacker, _resolve_command_target(cmd.payload))
+	return _attack_pairs[active_side].size() > before
+
+
+func _cmd_declare_blocker(cmd: CombatCommand) -> bool:
+	var passive: int = 1 - active_side
+	if cmd.side != passive or phase != CombatState.Phase.DEFENSE:
+		return false
+	var attacker: CardInstance = _board_at(active_side, int(cmd.payload.get("attacker_index", -1)))
+	var blocker: CardInstance = _board_at(passive, int(cmd.payload.get("blocker_index", -1)))
+	if attacker == null or blocker == null:
+		return false
+	var before: int = _block_assignments.size()
+	declare_blocker(attacker, blocker)
+	return _block_assignments.size() > before
+
+
+func _cmd_end_phase(cmd_side: int, expected_side: int, required_phase: CombatState.Phase, ender: Callable) -> bool:
+	## Phase-end commands report success by whether the phase actually changed (the
+	## end_* methods are void and may also settle victory / auto-chain).
+	if cmd_side != expected_side or phase != required_phase:
+		return false
+	var before: CombatState.Phase = phase
+	ender.call()
+	return phase != before
+
+
+func _cmd_advance() -> bool:
+	var before: CombatState.Phase = phase
+	advance()
+	return phase != before
+
+
+func _resolve_command_target(payload: Dictionary) -> Variant:
+	## Decode a creature target encoded as {target_side, target_index}. Returns null
+	## (the hero, or "no target") when either field is absent/negative.
+	var ts: int = int(payload.get("target_side", -1))
+	var ti: int = int(payload.get("target_index", -1))
+	if ts < 0 or ti < 0:
+		return null
+	return _board_at(ts, ti)
+
+
 func get_result() -> Dictionary:
 	return {
 		"winner_side": winner_side,
@@ -364,6 +485,7 @@ func serialize() -> Dictionary:
 		"heroes": [_serialize_hero(0), _serialize_hero(1)],
 		"decks": [decks[0].serialize(), decks[1].serialize()],
 		"event_log": event_log.map(func(ev: CombatEvent) -> Dictionary: return ev.serialize()),
+		"command_log": command_log.map(func(c: CombatCommand) -> Dictionary: return c.serialize()),
 		"dead_creatures": [_serialize_dead(0), _serialize_dead(1)],
 		"attack_pairs": [_serialize_pairs(0), _serialize_pairs(1)],
 		"block_assignments": _serialize_blocks(),
@@ -417,6 +539,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session._restore_heroes(data, hooks.get("heroes", null))
 	session._restore_decks(data)
 	session._restore_log(data)
+	session._restore_command_log(data)
 	session._restore_dead(data)
 	session._restore_pairs_and_blocks(data)
 	session._restore_ais(hooks.get("ais", null))
@@ -458,6 +581,13 @@ func _restore_log(data: Dictionary) -> void:
 	for ed in data.get("event_log", []):
 		log.append(CombatEvent.deserialize(ed))
 	event_log = log
+
+
+func _restore_command_log(data: Dictionary) -> void:
+	var log: Array[CombatCommand] = []
+	for cd in data.get("command_log", []):
+		log.append(CombatCommand.deserialize(cd))
+	command_log = log
 
 
 func _restore_dead(data: Dictionary) -> void:
@@ -713,6 +843,7 @@ func _enter_preparacion() -> void:
 	_ramp_mana_for(deck)
 	deck.draw_card()
 	deck.refresh_creatures_for_turn()
+	_fire_turn_trigger(active_side, CardInstance.Trigger.ON_TURN_START)
 
 	# Clear the active side's attack state from its previous turn.
 	_attack_pairs[active_side].clear()
@@ -759,6 +890,9 @@ func _enter_resolve() -> void:
 	if _combat_over:
 		return
 
+	# End-of-turn triggers for the active side's surviving creatures, before the swap.
+	_fire_turn_trigger(active_side, CardInstance.Trigger.ON_TURN_END)
+
 	# Hand the turn to the other side.
 	active_side = passive
 	_transition_to(CombatState.Phase.PREPARATION)
@@ -771,10 +905,32 @@ func _resolve_side_attacks(pairs: Array, target_hero: Combatant, target_side: in
 	if pairs.is_empty():
 		return
 	var result: Dictionary = _resolver.resolve_combat(pairs)
-	_damage_hero(target_side, result["hero_damage"])
+	deal_damage_to_hero(target_side, result["hero_damage"])
 	var pairs_result: Array = result["pairs_result"]
 	if not pairs_result.is_empty():
+		_fire_damage_dealt(pairs_result)
 		_process_death_results(pairs_result)
+
+
+func _fire_turn_trigger(side: int, trigger: CardInstance.Trigger) -> void:
+	## Fire a per-side turn trigger (ON_TURN_START / ON_TURN_END) on every living
+	## creature of `side`. Reuses CardInstance.living so dead creatures are skipped.
+	for inst in CardInstance.living(decks[side].get_board()):
+		inst._fire(trigger, {"side": side})
+
+
+func _fire_damage_dealt(pairs_result: Array) -> void:
+	## Surface ON_DAMAGE_DEALT for each attacker/defender that dealt combat damage.
+	## Fires after the damage was applied (so ON_DAMAGE_TAKEN/ON_DEATH already ran on
+	## the victims); a dealer that died in the trade still reports the hit it landed.
+	## Spells have no creature dealer, so they never fire ON_DAMAGE_DEALT.
+	for pr in pairs_result:
+		var attacker: CardInstance = pr["attacker"]
+		var defender: Variant = pr["defender"]
+		if pr["attacker_damage_dealt"] > 0:
+			attacker._fire(CardInstance.Trigger.ON_DAMAGE_DEALT, {"target": defender, "amount": pr["attacker_damage_dealt"]})
+		if defender != null and pr["defender_damage_dealt"] > 0:
+			defender._fire(CardInstance.Trigger.ON_DAMAGE_DEALT, {"target": attacker, "amount": pr["defender_damage_dealt"]})
 
 
 func _enter_final() -> void:
@@ -849,48 +1005,65 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 	## Agnostic resolution from the caster's perspective (`side`). TargetType is
 	## interpreted relative to the caster, so the same spell serves both sides with
 	## no duplicated logic.
-	var caster_hero: Combatant = heroes[side]
 	var caster_deck: CombatDeck = decks[side]
 	var opponent_deck: CombatDeck = decks[1 - side]
+	# Unified context for every effect.apply path, so a custom effect_fn always
+	# receives the session and the casting side (it reaches heroes with full
+	# observability via context["session"].deal_damage_to_hero / heal_hero).
+	var context: Dictionary = {"session": self, "owner_id": side}
 	match effect.target_type:
 		SpellEffect.TargetType.ENEMY_HERO:
-			_damage_hero(1 - side, effect.value)
+			# A custom effect_fn overrides hero damage entirely; the default keeps the
+			# engine's signaled hero-damage so the event_log stays consistent.
+			if effect.effect_fn.is_valid():
+				effect.apply(heroes[1 - side], context)
+				_check_board_deaths(decks[0])
+				_check_board_deaths(decks[1])
+			else:
+				deal_damage_to_hero(1 - side, effect.value)
 		SpellEffect.TargetType.PLAYER_HERO:
-			caster_hero.heal(effect.value)
+			if effect.effect_fn.is_valid():
+				effect.apply(heroes[side], context)
+				_check_board_deaths(decks[0])
+				_check_board_deaths(decks[1])
+			else:
+				heal_hero(side, effect.value)
 		SpellEffect.TargetType.PLAYER_CREATURE:
 			# Public casting via play_card() already rejects a missing target before
 			# consuming (see _spell_needs_missing_target). This is a low-level guard
 			# for internal callers (e.g. auto-play) that bypass that check.
 			if target is CardInstance and not target.is_dead:
-				effect.apply(target, {})
+				effect.apply(target, context)
 				# A single-target damage can kill: surface that death like any other.
 				_check_board_deaths(decks[target.owner_id])
 			else:
 				push_warning("PLAYER_CREATURE spell with no valid target — not applied")
 		SpellEffect.TargetType.ENEMY_CREATURES:
 			var enemies: Array[CardInstance] = opponent_deck.get_board()
-			effect.apply(enemies, {})
+			effect.apply(enemies, context)
 			_check_board_deaths(opponent_deck)
 		SpellEffect.TargetType.PLAYER_CREATURES:
 			var allies: Array[CardInstance] = caster_deck.get_board()
-			effect.apply(allies, {})
+			effect.apply(allies, context)
 			# Built-in buffs can't kill, but a custom effect_fn could damage allies;
 			# sweep so any death surfaces like ENEMY_CREATURES (creature_died/log).
 			_check_board_deaths(caster_deck)
 		SpellEffect.TargetType.SUMMON_BOARD:
 			# Seed the deck-owned hooks via context so _apply_summon builds the
 			# instances already configured (fires ON_SETUP with the handler).
-			var result: Dictionary = effect.apply(null, {
-				"owner_id": side,
-				"ability_fn": caster_deck.ability_fn,
-				"max_permanent_buffs": caster_deck.max_permanent_buffs,
-			})
+			context["ability_fn"] = caster_deck.ability_fn
+			context["max_permanent_buffs"] = caster_deck.max_permanent_buffs
+			var result: Dictionary = effect.apply(null, context)
 			var summoned: Array = result.get("summoned", [])
 			for inst in summoned:
 				caster_deck.add_to_board(inst)
 
 
-func _damage_hero(side: int, amount: int) -> void:
+func deal_damage_to_hero(side: int, amount: int) -> void:
+	## Public hero-damage entry: applies damage AND emits combatant_damaged (so it
+	## enters the event_log / replay). Shared by combat resolution, the built-in
+	## ENEMY_HERO spell, and any effect_fn that wants to hit a hero with full
+	## observability (call it via context["session"]).
 	if amount <= 0:
 		return
 	# A side may run headless without a hero (board-only scenarios), same guard as
@@ -899,6 +1072,14 @@ func _damage_hero(side: int, amount: int) -> void:
 		return
 	heroes[side].take_damage(amount)
 	_emit_combatant_damaged(side, amount)
+
+
+func heal_hero(side: int, amount: int) -> void:
+	## Public hero-heal entry, counterpart of deal_damage_to_hero. Combatant.heal
+	## already emits health_changed; no session signal mirrors hero healing today.
+	if amount <= 0 or heroes[side] == null:
+		return
+	heroes[side].heal(amount)
 
 
 func _check_board_deaths(deck: CombatDeck) -> void:

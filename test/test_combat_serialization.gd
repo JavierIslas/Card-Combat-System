@@ -66,7 +66,7 @@ func test_card_instance_round_trip_preserva_buffs_y_hidden() -> void:
 func test_card_instance_deserialize_no_redispara_on_setup() -> void:
 	# Resuming must not re-fire ON_SETUP (it would re-apply on-play effects).
 	var fired: Array = []
-	var handler := func(_inst: CardInstance, trigger: int) -> void:
+	var handler := func(_inst: CardInstance, trigger: int, _ctx: Dictionary) -> void:
 		if trigger == CardInstance.Trigger.ON_SETUP:
 			fired.append(true)
 	var inst := CardInstance.new()
@@ -160,3 +160,20 @@ func test_session_deserializada_puede_continuar() -> void:
 	var restored := CombatSession.deserialize(session.serialize())
 	restored.auto_resolve()
 	assert_eq(restored.phase, CombatState.Phase.END, "la sesión deserializada llega a END")
+
+
+func test_session_round_trip_preserva_command_log() -> void:
+	# E: the input stream (command_log) round-trips with the session like event_log.
+	var session := CombatSession.new()
+	session.setup(_hero(30), [_creature("c1", 1, 2, 1)], _hero(30), _empty(), 1)
+	session.start()
+	assert_true(session.apply_command(CombatCommand.new(CombatCommand.CommandType.PLAY_CARD, 0, {"hand_index": 0})), "comando aplicado")
+	var restored := CombatSession.deserialize(session.serialize())
+	assert_eq(restored.command_log.size(), session.command_log.size(), "preserva el tamaño del command_log")
+	assert_eq(restored.command_log[0].type, CombatCommand.CommandType.PLAY_CARD, "preserva el tipo del comando")
+	assert_eq(int(restored.command_log[0].payload["hand_index"]), 0, "preserva el payload del comando")
+
+
+func _empty() -> Array[CardData]:
+	var a: Array[CardData] = []
+	return a

@@ -328,7 +328,7 @@ func test_combatant_damaged_espejado_en_event_log() -> void:
 	_setup_basico()
 	_session.start()
 	watch_signals(_session)
-	_session._damage_hero(1, 5)
+	_session.deal_damage_to_hero(1, 5)
 	assert_signal_emitted(_session, "combatant_damaged")
 	var dmg := _session.event_log.filter(
 		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.COMBATANT_DAMAGED)
@@ -365,7 +365,7 @@ func test_invocacion_siembra_ability_fn_antes_del_setup() -> void:
 	# Regresion: la criatura invocada hereda el ability_fn del lado y dispara
 	# ON_SETUP con el handler ya sembrado (antes se re-sembraba tras setup()).
 	var triggers: Array = []
-	_session.ability_fn = func(_inst: CardInstance, trigger: int) -> void:
+	_session.ability_fn = func(_inst: CardInstance, trigger: int, _ctx: Dictionary) -> void:
 		triggers.append(trigger)
 	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
 	_session.start()
@@ -726,5 +726,150 @@ func test_damage_hero_tolera_heroe_nulo() -> void:
 	# board-only scenario (no hero) survives a direct attack / ENEMY_HERO spell.
 	_setup_basico()
 	_session.heroes[0] = null
-	_session._damage_hero(0, 5)
+	_session.deal_damage_to_hero(0, 5)
 	assert_eq(_session.heroes[0], null, "no crashea ni materializa un héroe al dañar un lado sin héroe")
+
+
+# --- Trigger contract (A2): session-level triggers ----------------------------
+
+func _collect_triggers(target_trigger: int) -> Array:
+	## Helper: attach a handler that records {inst, ctx} for one trigger type.
+	var hits: Array = []
+	_session.ability_fn = func(inst: CardInstance, trigger: int, ctx: Dictionary) -> void:
+		if trigger == target_trigger:
+			hits.append({"inst": inst, "ctx": ctx})
+	return hits
+
+
+func test_declare_attacker_dispara_on_attack_con_target() -> void:
+	var hits := _collect_triggers(CardInstance.Trigger.ON_ATTACK)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.with_hooks(_session.ability_fn, -1)
+	atk.setup(_creature(0, 3, 3), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	_session.declare_attacker(atk, null)
+	assert_eq(hits.size(), 1, "ON_ATTACK se dispara al declarar")
+	assert_eq(hits[0]["ctx"].get("target"), null, "ataque a la cara: target null en el context")
+
+
+func test_declare_blocker_dispara_on_block_con_atacante() -> void:
+	var hits := _collect_triggers(CardInstance.Trigger.ON_BLOCK)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.new()
+	atk.setup(_creature(0, 3, 3), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var blk := CardInstance.with_hooks(_session.ability_fn, -1)
+	blk.setup(_creature(0, 1, 4), 1)
+	_session.decks[1].add_to_board(blk)
+	_session.declare_attacker(atk, null)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.declare_blocker(atk, blk)
+	assert_eq(hits.size(), 1, "ON_BLOCK se dispara al asignar el bloqueador")
+	assert_eq(hits[0]["ctx"].get("attacker"), atk, "el context lleva el atacante interceptado")
+
+
+func test_resolucion_dispara_on_damage_dealt_a_ambos() -> void:
+	var hits := _collect_triggers(CardInstance.Trigger.ON_DAMAGE_DEALT)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.with_hooks(_session.ability_fn, -1)
+	atk.setup(_creature(0, 3, 5), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var blk := CardInstance.with_hooks(_session.ability_fn, -1)
+	blk.setup(_creature(0, 2, 5), 1)
+	_session.decks[1].add_to_board(blk)
+	_session.declare_attacker(atk, blk)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()  # -> RESOLVE
+	assert_eq(hits.size(), 2, "ambos infligen daño en el trade")
+	var amounts: Array = [hits[0]["ctx"]["amount"], hits[1]["ctx"]["amount"]]
+	assert_true(amounts.has(3) and amounts.has(2), "el daño infligido por cada uno entra al context")
+
+
+func test_on_turn_start_y_end_disparan_en_criaturas_del_lado_activo() -> void:
+	var starts: Array = []
+	var ends: Array = []
+	_session.ability_fn = func(_i: CardInstance, trigger: int, _c: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_TURN_START:
+			starts.append(true)
+		elif trigger == CardInstance.Trigger.ON_TURN_END:
+			ends.append(true)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var c := CardInstance.with_hooks(_session.ability_fn, -1)
+	c.setup(_creature(0, 1, 5), 0)
+	_session.decks[0].add_to_board(c)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()  # RESOLVE -> ON_TURN_END del lado 0, swap a lado 1
+	assert_eq(ends.size(), 1, "ON_TURN_END se dispara para la criatura del lado activo antes del swap")
+
+
+func test_on_draw_dispara_con_inst_nulo_y_carta_en_context() -> void:
+	var drawn: Array = []
+	_session.ability_fn = func(inst: CardInstance, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DRAW:
+			drawn.append({"inst_null": inst == null, "card": ctx.get("card"), "owner": ctx.get("owner")})
+	# A non-empty deck so PREPARATION draws a card.
+	_session.setup(_hero(30), [_creature(1, 1, 1), _creature(1, 1, 1)], _hero(30), _empty(), 1)
+	_session.start()  # PREPARATION draws for side 0
+	assert_gt(drawn.size(), 0, "ON_DRAW se dispara al robar")
+	assert_true(drawn[0]["inst_null"], "inst es null en ON_DRAW (la carta aún es CardData)")
+	assert_true(drawn[0]["card"] is CardData, "la carta robada viaja en el context")
+	assert_eq(drawn[0]["owner"], 0, "el owner del robo entra al context")
+
+
+# --- effect_fn uniforme + API público de héroe (B) ----------------------------
+
+func test_effect_fn_se_respeta_para_enemy_hero() -> void:
+	# Regression B: ENEMY_HERO used to bypass effect.apply, so a custom effect_fn was
+	# ignored for heroes. Now it runs and can hit the hero via context.session.
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var seen_ctx: Dictionary = {}
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 7, SpellEffect.TargetType.ENEMY_HERO)
+	spell.spell_effects[0].effect_fn = func(_e: SpellEffect, _t: Variant, ctx: Dictionary) -> Dictionary:
+		seen_ctx.merge(ctx, true)  # mutate (by-ref); reassigning a captured var doesn't propagate
+		ctx["session"].deal_damage_to_hero(1 - int(ctx["owner_id"]), 9)
+		return {"success": true}
+	_session._apply_spell_effects(spell, 0)
+	assert_eq(_session.heroes[1].current_health, 21, "el effect_fn dañó al héroe enemigo (30 - 9)")
+	assert_true(seen_ctx.has("session") and seen_ctx.has("owner_id"), "el context lleva session y owner_id")
+
+
+func test_effect_fn_a_heroe_entra_al_event_log() -> void:
+	# Hero damage routed through the public API must still mirror into the event_log.
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 0, SpellEffect.TargetType.ENEMY_HERO)
+	spell.spell_effects[0].effect_fn = func(_e: SpellEffect, _t: Variant, ctx: Dictionary) -> Dictionary:
+		ctx["session"].deal_damage_to_hero(1, 4)
+		return {"success": true}
+	_session._apply_spell_effects(spell, 0)
+	var dmg := _session.event_log.filter(
+		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.COMBATANT_DAMAGED)
+	assert_eq(dmg.size(), 1, "el daño a héroe vía effect_fn entra al event_log")
+
+
+func test_context_unificado_llega_a_efectos_de_criatura() -> void:
+	# The creature-target paths used to pass {}; now they carry session/owner_id too.
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var ally := CardInstance.new()
+	ally.setup(_creature(0, 2, 5), 0)
+	_session.decks[0].add_to_board(ally)
+	var seen: Dictionary = {}
+	var spell := _spell(0, SpellEffect.EffectType.BUFF_ATTACK, 1, SpellEffect.TargetType.PLAYER_CREATURES)
+	spell.spell_effects[0].effect_fn = func(_e: SpellEffect, _t: Variant, ctx: Dictionary) -> Dictionary:
+		seen.merge(ctx, true)  # mutate (by-ref); reassigning a captured var doesn't propagate
+		return {"success": true}
+	_session._apply_spell_effects(spell, 0)
+	assert_eq(seen.get("owner_id"), 0, "owner_id del lanzador en el context")
+	assert_true(seen.get("session") == _session, "la sesión viaja en el context")

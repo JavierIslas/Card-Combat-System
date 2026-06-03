@@ -17,6 +17,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `Combatant` | Generic participant: `current_health/max_health`, `take_damage`, `heal`, signals. Each side's hero is one of these (`heroes[side]`) |
 | `CardData` | Card core (id/cost/stats/type) + opaque `metadata: Dictionary` for game-specific fields |
 | `CardInstance` | Card in play (turn state, health, flags). Fires ability triggers via `ability_fn` |
+| `CombatCommand` | Serializable driver intention (input); fed to `CombatSession.apply_command` and accumulated in `command_log` |
 | `HiddenCardStats` | Declared vs. hidden stats for bluffing |
 | `CombatDeck` | Hand, deck, board, graveyard and mana for one side, plus game-defined extra zones |
 | `CombatSession` | Combat FSM: orchestrates turns, decks, AI and resolution |
@@ -33,7 +34,17 @@ packaging / future export) and can be mirrored to a standalone repo.
 
 1. **`CombatSession.ability_fn: Callable`** — ability semantics. Empty = pure
    engine. The game injects its `AbilityHandler`. It is propagated to the
-   `CardInstance`s via `CombatDeck.setup(..., ability_fn)`.
+   `CardInstance`s via `CombatDeck.setup(..., ability_fn)`. **Signature (v2):**
+   `(inst: CardInstance, trigger: int, context: Dictionary)`. The handler reacts to
+   the lifecycle triggers in `CardInstance.Trigger`:
+   `ON_SETUP, ON_TURN_REFRESH, ON_DEATH, ON_REVEAL, ON_ATTACK, ON_BLOCK,
+   ON_DAMAGE_TAKEN, ON_DAMAGE_DEALT, ON_HEAL, ON_TURN_START, ON_TURN_END, ON_DRAW`.
+   `context` carries trigger-specific primitives (e.g. `{"amount": n}` for
+   `ON_DAMAGE_TAKEN`, `{"target": inst}` for `ON_ATTACK`), `{}` when there is none.
+   `inst` is `null` for the side-level `ON_DRAW` (the drawn card travels in
+   `context["card"]`), so a handler must tolerate `inst == null`.
+   > **Breaking change since 1.x:** the handler took `(inst, trigger)`; it now takes
+   > a third `context` argument. Update existing handlers accordingly.
 2. **`SpellEffect.id_fn: Callable`** — resolves the id of a summoned creature
    (`id_fn.call(summon_name, index, summon_count)`). Empty = no summoning that
    depends on the game catalog.
@@ -267,6 +278,32 @@ byte-identical serialized `event_log`. Two ways to use this: persist just the se
 (and the starting cards) and re-run the combat to rebuild the history, or capture
 `event_log` (via `serialize()`) as the recorded run directly. Either way the
 engine stores no extra state of its own.
+
+## Command layer (authoritative input / replay-from-input)
+
+Where `event_log` records what the combat **did** (output), `command_log` records
+what a driver **asked for** (input). `CombatSession.apply_command(cmd)` validates a
+`CombatCommand` and routes it to the matching action method (`play_card`,
+`declare_attacker`, `declare_blocker`, `end_*_phase`, `advance`); it returns `false`
+without mutating when a precondition fails, and on success appends the command to
+`command_log`. This gives an authoritative server a single validated entry point for
+client input, and lets a match be replayed from input alone. `command_log`
+round-trips with the session via `serialize()`/`deserialize()`.
+
+```gdscript
+var cmd := CombatCommand.new(CombatCommand.CommandType.PLAY_CARD, side, {
+    "hand_index": 0,
+    # single-target spells: encode the target creature by side + board index
+    "target_side": 1, "target_index": 2,
+})
+if session.apply_command(cmd):
+    ...  # accepted; mirrored into command_log
+```
+
+Cards and creatures are referenced by index (hand index, board index per side), the
+same primitive encoding the session uses for attack pairs, so commands stay
+serializable. `CommandType`: `PLAY_CARD, DECLARE_ATTACKER, DECLARE_BLOCKER,
+END_MAIN, END_ATTACK, END_DEFENSE, ADVANCE`.
 
 ## What does NOT live here (game layer)
 
