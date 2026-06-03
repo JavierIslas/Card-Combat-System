@@ -17,14 +17,18 @@ extends Resource
 ## interpret — same as `HexCell.metadata` in the map addon. The game layer (card
 ## loading, abilities, UI) reads/writes metadata.
 
-enum CardType { CREATURE, SPELL }
+## How playing the card resolves — the engine's only behavioral dispatch, NOT a
+## game taxonomy. UNIT goes to the board and persists (attacks/blocks); EFFECT
+## resolves its spell_effects and goes to the graveyard. Game-domain types
+## (Weapon, Land, Trap, rarity, …) belong in `metadata`, never here.
+enum PlayKind { UNIT, EFFECT }
 
 @export var card_id: String = ""
 @export var name: String = ""
 @export var cost: int = 0
 @export var attack: int = 0
 @export var health: int = 0
-@export var card_type: CardType = CardType.CREATURE
+@export var play_kind: PlayKind = PlayKind.UNIT
 @export var metadata: Dictionary = {}
 ## Spell effects, authored on the card. Exportable now that SpellEffect is a
 ## Resource, so a card defined as a .tres persists its effects natively.
@@ -46,11 +50,11 @@ static func from_dict(data: Dictionary) -> CardData:
 	card.cost = int(data.get("cost", 0))
 	card.attack = int(data.get("attack", 0))
 	card.health = int(data.get("health", 0))
-	var type_idx := CardType.keys().find(data.get("card_type", "CREATURE"))
-	if type_idx == -1:
-		push_warning("CardData.from_dict: invalid card_type — %s" % data.get("card_type", ""))
+	var kind_idx := PlayKind.keys().find(data.get("play_kind", "UNIT"))
+	if kind_idx == -1:
+		push_warning("CardData.from_dict: invalid play_kind — %s" % data.get("play_kind", ""))
 		return null
-	card.card_type = type_idx as CardType
+	card.play_kind = kind_idx as PlayKind
 	var meta: Variant = data.get("metadata", {})
 	if meta is Dictionary:
 		card.metadata = (meta as Dictionary).duplicate()
@@ -74,7 +78,7 @@ func serialize() -> Dictionary:
 		"cost": cost,
 		"attack": attack,
 		"health": health,
-		"card_type": CardType.keys()[card_type],
+		"play_kind": PlayKind.keys()[play_kind],
 		"metadata": metadata.duplicate(),
 		"spell_effects": effects,
 	}

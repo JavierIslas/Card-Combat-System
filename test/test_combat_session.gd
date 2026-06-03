@@ -22,14 +22,14 @@ func _creature(cost: int, attack: int, health: int) -> CardData:
 	d.cost = cost
 	d.attack = attack
 	d.health = health
-	d.card_type = CardData.CardType.CREATURE
+	d.play_kind = CardData.PlayKind.UNIT
 	return d
 
 
 func _spell(cost: int, type: SpellEffect.EffectType, value: int, target: SpellEffect.TargetType) -> CardData:
 	var d := CardData.new()
 	d.cost = cost
-	d.card_type = CardData.CardType.SPELL
+	d.play_kind = CardData.PlayKind.EFFECT
 	var e := SpellEffect.new()
 	e.effect_type = type
 	e.value = value

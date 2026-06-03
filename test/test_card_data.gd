@@ -22,7 +22,7 @@ func test_from_dict_serialize_round_trip() -> void:
 		"cost": 2,
 		"attack": 3,
 		"health": 1,
-		"card_type": "CREATURE",
+		"play_kind": "UNIT",
 		"metadata": {"rareza": "comun"},
 		"spell_effects": [],
 	}
@@ -31,15 +31,15 @@ func test_from_dict_serialize_round_trip() -> void:
 	assert_eq(card.serialize(), data, "serialize reconstruye el dict original")
 
 
-func test_from_dict_card_type_invalido_retorna_null() -> void:
-	var card := CardData.from_dict({"card_id": "x", "card_type": "DRAGON_MITICO"})
-	assert_null(card, "card_type fuera del enum → null")
+func test_from_dict_play_kind_invalido_retorna_null() -> void:
+	var card := CardData.from_dict({"card_id": "x", "play_kind": "DRAGON_MITICO"})
+	assert_null(card, "play_kind fuera del enum → null")
 
 
 func test_metadata_es_opaca_y_se_duplica() -> void:
 	# El motor no interpreta metadata; from_dict la copia sin tocarla.
 	var meta := {"flavor": "texto", "abilities": ["x"]}
-	var card := CardData.from_dict({"card_id": "c", "card_type": "SPELL", "metadata": meta})
+	var card := CardData.from_dict({"card_id": "c", "play_kind": "EFFECT", "metadata": meta})
 	assert_eq(card.metadata, meta, "metadata se preserva tal cual")
 	meta["flavor"] = "mutado"
 	assert_eq(card.metadata["flavor"], "texto", "metadata se duplicó, no es la misma ref")

@@ -182,7 +182,7 @@ func _apply_summon(context: Dictionary) -> Dictionary:
 		data.name = summon_name
 		data.attack = summon_attack
 		data.health = summon_health
-		data.card_type = CardData.CardType.CREATURE
+		data.play_kind = CardData.PlayKind.UNIT
 		var inst := CardInstance.with_hooks(ability, buff_cap)
 		inst.setup(data, owner_id)
 		summoned.append(inst)

@@ -97,7 +97,7 @@ func _make_creature(id: String, display_name: String, cost: int, attack: int, he
 	card.cost = cost
 	card.attack = attack
 	card.health = health
-	card.card_type = CardData.CardType.CREATURE
+	card.play_kind = CardData.PlayKind.UNIT
 	return card
 
 

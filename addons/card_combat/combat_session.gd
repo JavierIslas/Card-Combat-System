@@ -244,7 +244,7 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 	## false. The caller is responsible for picking a target and retrying.
 	if not _can_play_from_hand(card):
 		return false
-	if card.card_type == CardData.CardType.SPELL:
+	if card.play_kind == CardData.PlayKind.EFFECT:
 		if _spell_needs_missing_target(card, target):
 			_emit_spell_fizzled(card)
 			return false
@@ -1013,7 +1013,7 @@ func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 	var card_to_play: CardData = side_ai.choose_card_to_play(_playable_hand(deck, skipped), deck.mana)
 	var plays: int = 0
 	while card_to_play != null and plays < MAX_PLAYS_PER_TURN:
-		if card_to_play.card_type == CardData.CardType.SPELL:
+		if card_to_play.play_kind == CardData.PlayKind.EFFECT:
 			var target: Variant = _ai_spell_target(card_to_play, side, side_ai)
 			if _spell_needs_missing_target(card_to_play, target):
 				skipped.append(card_to_play)
