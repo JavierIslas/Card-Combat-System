@@ -873,3 +873,58 @@ func test_context_unificado_llega_a_efectos_de_criatura() -> void:
 	_session._apply_spell_effects(spell, 0)
 	assert_eq(seen.get("owner_id"), 0, "owner_id del lanzador en el context")
 	assert_true(seen.get("session") == _session, "la sesión viaja en el context")
+
+
+# --- Chunk 0: N-side topology (setup_sides + teams + helpers) -----------------
+
+func test_setup_legacy_es_equivalente_a_dos_lados_team_propio() -> void:
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	assert_eq(_session.side_count(), 2, "el setup 1v1 deja dos lados")
+	assert_eq(_session.teams, [0, 1] as Array[int], "cada lado es su propio equipo")
+	assert_eq(_session.enemies_of(0), [1] as Array[int], "el enemigo del lado 0 es el 1")
+
+
+func test_setup_sides_dimensiona_los_arrays_para_n_lados() -> void:
+	_session.setup_sides([
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+	], [], 1)
+	assert_eq(_session.side_count(), 3, "tres lados configurados")
+	assert_eq(_session.heroes.size(), 3, "heroes dimensionado a 3")
+	assert_eq(_session.decks.size(), 3, "decks dimensionado a 3")
+	assert_eq(_session.ais.size(), 3, "ais dimensionado a 3")
+	assert_eq(_session._attack_pairs.size(), 3, "_attack_pairs dimensionado a 3")
+	assert_eq(_session.teams, [0, 1, 2] as Array[int], "FFA por defecto: cada lado su equipo")
+
+
+func test_allies_of_incluye_al_propio_lado_y_al_companero_en_2v2() -> void:
+	_session.setup_sides([
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+	], [0, 0, 1, 1], 1)
+	assert_eq(_session.allies_of(0), [0, 1] as Array[int], "aliados incluyen al propio lado y al compañero")
+	assert_eq(_session.enemies_of(0), [2, 3] as Array[int], "enemigos: los dos lados del otro equipo")
+	assert_eq(_session.passive_sides(), [1, 2, 3] as Array[int], "pasivos: todos menos el activo")
+
+
+func test_enemy_y_ally_boards_concatenan_por_equipo() -> void:
+	_session.setup_sides([
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+		{"hero": _hero(), "cards": _empty()},
+	], [0, 0, 1, 1], 1)
+	var ally_creature := CardInstance.new()
+	ally_creature.setup(_creature(0, 1, 1), 1)
+	_session.decks[1].add_to_board(ally_creature)
+	var enemy_a := CardInstance.new()
+	enemy_a.setup(_creature(0, 1, 1), 2)
+	_session.decks[2].add_to_board(enemy_a)
+	var enemy_b := CardInstance.new()
+	enemy_b.setup(_creature(0, 1, 1), 3)
+	_session.decks[3].add_to_board(enemy_b)
+	assert_eq(_session.ally_boards(0), [ally_creature] as Array[CardInstance], "ally_boards toma el tablero del compañero")
+	assert_eq(_session.enemy_boards(0).size(), 2, "enemy_boards concatena los dos tableros rivales")

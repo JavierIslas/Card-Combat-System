@@ -37,8 +37,17 @@ var _auto_resolve_max_iterations: int = AUTO_RESOLVE_MAX_ITERATIONS
 var phase: CombatState.Phase = CombatState.Phase.BEGIN
 ## Side taking its turn (0 or 1). The other side (1 - active_side) is passive.
 var active_side: int = 0
-## Winner once the combat ends: 0 or 1, or -1 for no winner (stalemate / both dead).
+## Winning side once the combat ends, or -1 for no winner (stalemate / both dead).
+## Meaningful when the winning team has a single side (1v1, FFA); in team games
+## prefer winner_team and read the surviving side(s) from it.
 var winner_side: int = -1
+## Winning team id once the combat ends, or -1 for no winner. The team-aware
+## counterpart of winner_side: in 1v1 it equals teams[winner_side].
+var winner_team: int = -1
+## Team id per side, indexed by side: same id = allies. Sized in setup() alongside
+## the per-side arrays. 1v1 default is [0, 1] (each side its own team), so the
+## engine behaves exactly as before; 2v2 = [0, 0, 1, 1], FFA = [0, 1, 2, 3].
+var teams: Array[int] = [0, 1]
 ## Heroes and decks indexed by side. Drivers (UI/AI/network) interact through the
 ## same per-side surface; the engine never assumes which side is "the player".
 var heroes: Array[Combatant] = [null, null]
@@ -89,9 +98,22 @@ var discard_fn: Callable = Callable()
 
 
 func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Combatant, side1_cards: Array[CardData], ai_seed: int = -1) -> void:
-	## Positional setup: side 0 = first hero/cards, side 1 = second hero/cards.
-	heroes[0] = side0_hero
-	heroes[1] = side1_hero
+	## Positional 1v1 setup: side 0 = first hero/cards, side 1 = second hero/cards.
+	## Thin wrapper over setup_sides with the default two-team layout [0, 1], kept so
+	## existing 1v1 callers (and the demo) need no changes.
+	setup_sides([
+		{"hero": side0_hero, "cards": side0_cards},
+		{"hero": side1_hero, "cards": side1_cards},
+	], [0, 1], ai_seed)
+
+
+func setup_sides(sides: Array, side_teams: Array[int] = [], ai_seed: int = -1) -> void:
+	## Generic N-side setup. Each entry of `sides` is {"hero": Combatant, "cards":
+	## Array[CardData]}. `side_teams` assigns a team id per side (same id = allies);
+	## empty means every side is its own team (free-for-all). Sizes all per-side
+	## arrays to sides.size(), so the rest of the engine indexes by side uniformly.
+	var n: int = sides.size()
+	teams = side_teams.duplicate() if not side_teams.is_empty() else _default_teams(n)
 
 	# Seed the optional damage hook so the resolver uses it for this combat.
 	_resolver.damage_fn = damage_fn
@@ -101,25 +123,48 @@ func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Comb
 	phase = CombatState.Phase.BEGIN
 	active_side = 0
 	winner_side = -1
+	winner_team = -1
 	turn_number = 0
-	_attack_pairs = [[], []]
+	_attack_pairs = []
+	_dead_creatures = []
+	for _i in n:
+		_attack_pairs.append([])
+		_dead_creatures.append([])
 	_block_assignments.clear()
-	_dead_creatures = [[], []]
 	event_log.clear()
 	command_log.clear()
 	_combat_over = false
 
-	# Derive a distinct shuffle seed per side from the combat seed so a fixed
-	# ai_seed reproduces both deck orders. A negative seed leaves both decks
-	# randomized (engine default).
-	var seed0: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 1
-	var seed1: int = ai_seed if ai_seed < 0 else ai_seed * 2 + 2
-	decks[0] = _make_deck(side0_cards, 0, seed0)
-	decks[1] = _make_deck(side1_cards, 1, seed1)
+	heroes.resize(n)
+	decks.resize(n)
+	ais.resize(n)
+	for side in n:
+		heroes[side] = sides[side].get("hero", null)
+		# Derive a distinct shuffle seed per side from the combat seed so a fixed
+		# ai_seed reproduces every deck order. A negative seed leaves decks
+		# randomized (engine default). The +side+1 keeps side 0/1 identical to the
+		# previous two-side formula.
+		var side_seed: int = ai_seed if ai_seed < 0 else ai_seed * 2 + side + 1
+		decks[side] = _make_deck(_cards_of(sides[side]), side, side_seed)
+		# Seed a reference AI per side unless a driver already assigned one.
+		_seed_ai(side, ai_seed)
 
-	# Seed a reference AI per side unless a driver already assigned one.
-	_seed_ai(0, ai_seed)
-	_seed_ai(1, ai_seed)
+
+func _cards_of(side_entry: Dictionary) -> Array[CardData]:
+	## Extract a typed card list from a side entry, tolerating an untyped input array
+	## (a direct setup_sides caller may pass a plain Array).
+	var cards: Array[CardData] = []
+	for c in side_entry.get("cards", []):
+		cards.append(c)
+	return cards
+
+
+func _default_teams(n: int) -> Array[int]:
+	## Free-for-all default: each side is its own team (id == side index).
+	var out: Array[int] = []
+	for side in n:
+		out.append(side)
+	return out
 
 
 func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatDeck:
@@ -466,6 +511,61 @@ func get_dead_creatures(side: int) -> Array:
 	if decks[side] == null:
 		return []
 	return _dead_creatures[side]
+
+
+# --- Side / team topology (single source for "who is enemy / ally") ----------
+# These resolve relationships by `teams`, not by liveness, so they stay valid
+# before combat and during board-only scenarios. Turn rotation / victory layer
+# on liveness separately.
+
+func side_count() -> int:
+	return decks.size()
+
+
+func allies_of(side: int) -> Array[int]:
+	## Sides on the same team as `side`, INCLUDING `side` itself (per design D1: a
+	## PLAYER_CREATURES spell covers the caster's board and its teammates' boards).
+	var out: Array[int] = []
+	for s in side_count():
+		if teams[s] == teams[side]:
+			out.append(s)
+	return out
+
+
+func enemies_of(side: int) -> Array[int]:
+	## Sides on a different team from `side`. In 1v1 this is just the other side.
+	var out: Array[int] = []
+	for s in side_count():
+		if teams[s] != teams[side]:
+			out.append(s)
+	return out
+
+
+func passive_sides() -> Array[int]:
+	## Every side other than the active one. Generalizes the old `1 - active_side`
+	## single-passive assumption for N sides.
+	var out: Array[int] = []
+	for s in side_count():
+		if s != active_side:
+			out.append(s)
+	return out
+
+
+func enemy_boards(side: int) -> Array[CardInstance]:
+	## Flattened living-or-not board of every enemy side, for AoE / multi-target
+	## effects. Order follows side index.
+	var out: Array[CardInstance] = []
+	for s in enemies_of(side):
+		out.append_array(decks[s].get_board())
+	return out
+
+
+func ally_boards(side: int) -> Array[CardInstance]:
+	## Flattened board of every allied side (includes the caster's own, per D1).
+	var out: Array[CardInstance] = []
+	for s in allies_of(side):
+		out.append_array(decks[s].get_board())
+	return out
 
 
 # --- Serialization (save/resume + authoritative networking) ---------------
@@ -951,6 +1051,10 @@ func _resolve_winner() -> void:
 		winner_side = 1
 	else:
 		winner_side = -1
+	# Team-aware mirror: in 1v1 each side is its own team, so this just tags the
+	# winning side's team. The N-side victory rule (last team standing) lands in a
+	# later chunk; here we keep the field consistent for the two-side path.
+	winner_team = teams[winner_side] if winner_side >= 0 else -1
 
 
 func _process_death_results(pairs_result: Array) -> void:
