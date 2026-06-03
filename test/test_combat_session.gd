@@ -389,6 +389,26 @@ func test_invocacion_lado_uno_owner_uno() -> void:
 	assert_eq(board[0].owner_id, 1, "owner del lado 1, no 0")
 
 
+func test_invocacion_emite_creature_summoned_y_lo_espeja_en_log() -> void:
+	# #6: a spell summon emits creature_summoned AND enters the event_log, so a
+	# log-only replay sees the creature appear (play_creature would emit CARD_PLAYED,
+	# but spell summons bypass it).
+	_setup_basico()
+	_session.start()
+	watch_signals(_session)
+	var summon := _spell(0, SpellEffect.EffectType.SUMMON, 0, SpellEffect.TargetType.SUMMON_BOARD)
+	summon.spell_effects[0].summon_name = "Eco"
+	summon.spell_effects[0].summon_attack = 1
+	summon.spell_effects[0].summon_health = 1
+	summon.spell_effects[0].summon_count = 2
+	_session._apply_spell_effects(summon, 1)
+	assert_signal_emit_count(_session, "creature_summoned", 2, "una señal por criatura invocada")
+	var summons := _session.event_log.filter(
+		func(e: CombatEvent) -> bool: return e.type == CombatEvent.EventType.CREATURE_SUMMONED)
+	assert_eq(summons.size(), 2, "ambas invocaciones quedan en el log")
+	assert_eq(summons[0].payload["owner"], 1, "el payload guarda el lado invocador")
+
+
 func test_invocacion_siembra_ability_fn_antes_del_setup() -> void:
 	# Regresion: la criatura invocada hereda el ability_fn del lado y dispara
 	# ON_SETUP con el handler ya sembrado (antes se re-sembraba tras setup()).

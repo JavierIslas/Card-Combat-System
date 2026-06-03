@@ -233,9 +233,9 @@ returns no living target, the spell is skipped (not consumed) for that turn.
 The engine exposes its state two ways: live **signals** (below), and a structured
 **`CombatSession.event_log: Array[CombatEvent]`** that mirrors the signals as a
 replay-friendly stream. Each `CombatEvent` has a `type` (`PHASE_CHANGED`,
-`COMBATANT_DAMAGED`, `COMBATANT_HEALED`, `CREATURE_DIED`, `COMBAT_ENDED`,
-`SPELL_FIZZLED`, plus the card-level `CARD_DRAWN`, `CARD_PLAYED`, `MANA_CHANGED`,
-`MAX_MANA_CHANGED`, `DECK_EXHAUSTED`) and a
+`COMBATANT_DAMAGED`, `COMBATANT_HEALED`, `CREATURE_DIED`, `CREATURE_SUMMONED`,
+`COMBAT_ENDED`, `SPELL_FIZZLED`, plus the card-level `CARD_DRAWN`, `CARD_PLAYED`,
+`MANA_CHANGED`, `MAX_MANA_CHANGED`, `DECK_EXHAUSTED`) and a
 serializable `payload`; `event.serialize()` round-trips it (e.g. `creature_died`
 logs `{owner, card_id}`, not the live instance). The log is cleared on `setup()`
 (initial-hand draws are logged). The session mirrors the per-side deck signals
@@ -250,6 +250,7 @@ Signal catalog per class:
 | `CombatSession` | `phase_changed(old, new)` | every FSM transition |
 | `CombatSession` | `combat_ended(winner_side)` | on entering `END` (`-1` = no winner) |
 | `CombatSession` | `creature_died(card, owner)` | a creature dies, whether in combat or by a spell (AOE/single-target) |
+| `CombatSession` | `creature_summoned(card, owner)` | a creature enters the board via a SUMMON spell (not a hand play) |
 | `CombatSession` | `combatant_damaged(side, amount)` | the hero of `side` takes damage |
 | `CombatSession` | `combatant_healed(side, amount)` | the hero of `side` is healed (actual amount restored) |
 | `CombatSession` | `spell_fizzled(card)` | a single-target spell was cast with no valid target (not consumed) |

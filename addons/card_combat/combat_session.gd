@@ -21,6 +21,7 @@ extends RefCounted
 signal phase_changed(old_phase: int, new_phase: int)
 signal combat_ended(winner_side: int)
 signal creature_died(card: CardInstance, owner: int)
+signal creature_summoned(card: CardInstance, owner: int)
 signal combatant_damaged(side: int, amount: int)
 signal combatant_healed(side: int, amount: int)
 signal spell_fizzled(card: CardData)
@@ -1073,6 +1074,14 @@ func _emit_creature_died(card: CardInstance, owner: int) -> void:
 	}))
 
 
+func _emit_creature_summoned(card: CardInstance, owner: int) -> void:
+	creature_summoned.emit(card, owner)
+	var card_id: String = card.card_data.card_id if card != null and card.card_data != null else ""
+	event_log.append(CombatEvent.new(CombatEvent.EventType.CREATURE_SUMMONED, {
+		"owner": owner, "card_id": card_id,
+	}))
+
+
 func _emit_combat_ended(winner: int) -> void:
 	combat_ended.emit(winner)
 	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBAT_ENDED, {"winner_side": winner}))
@@ -1358,6 +1367,10 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			var summoned: Array = result.get("summoned", [])
 			for inst in summoned:
 				caster_deck.add_to_board(inst)
+				# Spell summons bypass play_creature (no CARD_PLAYED), so emit a
+				# dedicated event/signal; otherwise a log-only replay never sees the
+				# creature appear on the board.
+				_emit_creature_summoned(inst, side)
 
 
 func deal_damage_to_hero(side: int, amount: int) -> void:
