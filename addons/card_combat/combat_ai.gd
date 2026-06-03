@@ -13,9 +13,10 @@
 class_name CombatAI
 extends RefCounted
 ## Base contract for any AI driving a CombatSession. Subclass and override the
-## four methods below. The engine stays agnostic: an AI only operates on CardData
-## and CardInstance, never on game-specific types. DummyAI is the reference
-## implementation (random, optionally seeded).
+## five methods below (choose_card_to_play, choose_attackers, choose_attack_target,
+## choose_spell_target, choose_blockers). The engine stays agnostic: an AI only
+## operates on CardData and CardInstance, never on game-specific types. DummyAI is
+## the reference implementation (random, optionally seeded).
 ##
 ## The default implementations are safe no-ops (empty pick / no action) and emit
 ## an error, so a partial subclass fails loudly instead of silently misbehaving.
