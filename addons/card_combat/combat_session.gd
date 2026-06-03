@@ -1137,14 +1137,14 @@ func _enter_phase(p: CombatState.Phase) -> void:
 	# which would assume the passive side is an AI.
 	match p:
 		CombatState.Phase.PREPARATION:
-			_enter_preparacion()
+			_enter_preparation()
 		CombatState.Phase.RESOLVE:
 			_enter_resolve()
 		CombatState.Phase.END:
-			_enter_final()
+			_enter_end()
 
 
-func _enter_preparacion() -> void:
+func _enter_preparation() -> void:
 	turn_number += 1
 
 	# Only the active side ramps mana, draws and refreshes on its own turn.
@@ -1231,7 +1231,7 @@ func _fire_damage_dealt(pairs_result: Array) -> void:
 			defender._fire(CardInstance.Trigger.ON_DAMAGE_DEALT, {"target": attacker, "amount": pr["defender_damage_dealt"]})
 
 
-func _enter_final() -> void:
+func _enter_end() -> void:
 	if not _combat_over:
 		_combat_over = true
 	_resolve_winner()
