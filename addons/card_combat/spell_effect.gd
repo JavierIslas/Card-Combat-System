@@ -116,19 +116,19 @@ func _apply_damage(target: Variant) -> Dictionary:
 func _apply_heal(target: Variant) -> Dictionary:
 	if value <= 0:
 		return _empty_result()
-	if target is CardInstance:
-		if target.is_dead:
-			return _empty_result()
-		var health_before: int = target.current_health
-		target.heal(value)
-		var healed: int = target.current_health - health_before
-		return {"success": true, "damage_dealt": 0, "healed": healed, "buff_amount": 0}
-	if target is Combatant:
-		var health_before: int = target.current_health
-		target.heal(value)
-		var healed: int = target.current_health - health_before
-		return {"success": true, "damage_dealt": 0, "healed": healed, "buff_amount": 0}
+	if target is CardInstance and target.is_dead:
+		return _empty_result()
+	# CardInstance and Combatant both expose current_health + heal(), so the
+	# before/after measurement is identical for either.
+	if target is CardInstance or target is Combatant:
+		return {"success": true, "damage_dealt": 0, "healed": _heal_and_measure(target), "buff_amount": 0}
 	return _empty_result()
+
+
+func _heal_and_measure(target: Variant) -> int:
+	var health_before: int = target.current_health
+	target.heal(value)
+	return target.current_health - health_before
 
 
 func _apply_buff(target: Variant) -> Dictionary:
