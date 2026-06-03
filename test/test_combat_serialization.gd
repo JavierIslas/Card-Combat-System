@@ -174,6 +174,43 @@ func test_session_round_trip_preserva_command_log() -> void:
 	assert_eq(int(restored.command_log[0].payload["hand_index"]), 0, "preserva el payload del comando")
 
 
+func test_session_round_trip_preserva_teams_y_n_lados() -> void:
+	# Chunk 4: a 2v2 session round-trips its side count, teams and turn order.
+	var session := CombatSession.new()
+	session.setup_sides([
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+	], [0, 0, 1, 1], 5)
+	session.start()
+	session.heroes[2].take_damage(7)
+	var restored := CombatSession.deserialize(session.serialize())
+	assert_eq(restored.side_count(), 4, "preserva la cantidad de lados")
+	assert_eq(restored.teams, [0, 0, 1, 1] as Array[int], "preserva los equipos")
+	assert_eq(restored._turn_order, [0, 2, 1, 3] as Array[int], "reconstruye el orden de turno por equipos")
+	assert_eq(restored.heroes[2].current_health, 13, "preserva la vida de cada héroe")
+
+
+func test_session_round_trip_preserva_target_side_de_ataque_dirigido() -> void:
+	# Chunk 4: a hero-directed attack keeps its target_side across serialization.
+	var session := CombatSession.new()
+	session.setup_sides([
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+		{"hero": _hero(20), "cards": _starter()},
+	], [], 5)
+	session.start()
+	var atacante := CardInstance.new()
+	atacante.setup(_creature("atk", 1, 3, 3), 0)
+	atacante.can_attack_this_turn = true
+	session.decks[0].add_to_board(atacante)
+	session.declare_attacker(atacante, null, 2)  # dirigido al héroe del lado 2
+	var restored := CombatSession.deserialize(session.serialize())
+	assert_eq(restored._attack_pairs[0].size(), 1, "restaura el par de ataque")
+	assert_eq(restored._attack_pairs[0][0].target_side, 2, "preserva el lado objetivo del ataque al héroe")
+
+
 func _empty() -> Array[CardData]:
 	var a: Array[CardData] = []
 	return a

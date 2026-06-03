@@ -89,6 +89,32 @@ func test_declare_attacker_y_blocker_via_command() -> void:
 	assert_eq(_session.command_log.size(), 5, "los 5 comandos aceptados quedan logueados")
 
 
+func test_declare_blocker_via_command_desde_lado_aliado_del_objetivo_2v2() -> void:
+	_session.setup_sides([
+		{"hero": _hero(30), "cards": _empty()},
+		{"hero": _hero(30), "cards": _empty()},
+		{"hero": _hero(30), "cards": _empty()},
+		{"hero": _hero(30), "cards": _empty()},
+	], [0, 0, 1, 1], 1)
+	_session.start()  # MAIN, lado 0
+	var atk := CardInstance.new()
+	atk.setup(_creature(0, 3, 3), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var blk := CardInstance.new()
+	blk.setup(_creature(0, 1, 5), 3)  # lado 3, compañero del lado atacado (lado 2)
+	_session.decks[3].add_to_board(blk)
+	# Lado 0 ataca al héroe del lado 2 (hero_side), avanza a DEFENSE.
+	assert_true(_session.apply_command(CombatCommand.new(CombatCommand.CommandType.DECLARE_ATTACKER, 0, {"attacker_index": 0, "hero_side": 2})), "declara ataque dirigido al lado 2")
+	assert_true(_session.apply_command(CombatCommand.new(CombatCommand.CommandType.END_MAIN, 0, {})), "END_MAIN")
+	assert_true(_session.apply_command(CombatCommand.new(CombatCommand.CommandType.END_ATTACK, 0, {})), "END_ATTACK")
+	# El lado 3 (enemigo del activo) bloquea aunque no sea el lado atacado.
+	assert_true(_session.apply_command(CombatCommand.new(CombatCommand.CommandType.DECLARE_BLOCKER, 3, {"attacker_index": 0, "blocker_index": 0})), "el lado 3 bloquea")
+	assert_true(_session.apply_command(CombatCommand.new(CombatCommand.CommandType.END_DEFENSE, 3, {})), "el lado 3 cierra la defensa")
+	assert_eq(_session.heroes[2].current_health, 30, "el ataque fue bloqueado, el héroe del lado 2 no recibe daño")
+	assert_eq(blk.current_health, 2, "el bloqueador del lado 3 recibe el daño (5-3)")
+
+
 func test_advance_via_command_desde_begin() -> void:
 	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
 	assert_eq(_session.phase, CombatState.Phase.BEGIN, "arranca en BEGIN")

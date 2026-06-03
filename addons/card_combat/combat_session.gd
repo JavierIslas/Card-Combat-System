@@ -436,8 +436,8 @@ func _route_command(cmd: CombatCommand) -> bool:
 		CombatCommand.CommandType.END_ATTACK:
 			return _cmd_end_phase(cmd.side, active_side, CombatState.Phase.ATTACK, end_attack_phase)
 		CombatCommand.CommandType.END_DEFENSE:
-			# Ending defense is the passive side's call (it finished declaring blockers).
-			return _cmd_end_phase(cmd.side, 1 - active_side, CombatState.Phase.DEFENSE, end_defense_phase)
+			# Ending defense is any passive side's call (defense is a global phase).
+			return _cmd_end_defense(cmd)
 		CombatCommand.CommandType.ADVANCE:
 			return _cmd_advance()
 	return false
@@ -468,21 +468,33 @@ func _cmd_declare_attacker(cmd: CombatCommand) -> bool:
 	if attacker == null:
 		return false
 	var before: int = _attack_pairs[active_side].size()
-	declare_attacker(attacker, _resolve_command_target(cmd.payload))
+	# A creature target ({target_side,target_index}) takes precedence; otherwise
+	# `hero_side` names which enemy hero to swing at (-1 = first living enemy).
+	declare_attacker(attacker, _resolve_command_target(cmd.payload), int(cmd.payload.get("hero_side", -1)))
 	return _attack_pairs[active_side].size() > before
 
 
 func _cmd_declare_blocker(cmd: CombatCommand) -> bool:
-	var passive: int = 1 - active_side
-	if cmd.side != passive or phase != CombatState.Phase.DEFENSE:
+	# The declaring side must be an enemy of the active attacker (any enemy team),
+	# and the blocker comes from that side's own board.
+	if phase != CombatState.Phase.DEFENSE or teams[cmd.side] == teams[active_side]:
 		return false
 	var attacker: CardInstance = _board_at(active_side, int(cmd.payload.get("attacker_index", -1)))
-	var blocker: CardInstance = _board_at(passive, int(cmd.payload.get("blocker_index", -1)))
+	var blocker: CardInstance = _board_at(cmd.side, int(cmd.payload.get("blocker_index", -1)))
 	if attacker == null or blocker == null:
 		return false
 	var before: int = _block_assignments.size()
 	declare_blocker(attacker, blocker)
 	return _block_assignments.size() > before
+
+
+func _cmd_end_defense(cmd: CombatCommand) -> bool:
+	## Any passive side can end the (global) defense phase.
+	if cmd.side == active_side or phase != CombatState.Phase.DEFENSE:
+		return false
+	var before: CombatState.Phase = phase
+	end_defense_phase()
+	return phase != before
 
 
 func _cmd_end_phase(cmd_side: int, expected_side: int, required_phase: CombatState.Phase, ender: Callable) -> bool:
@@ -512,13 +524,14 @@ func _resolve_command_target(payload: Dictionary) -> Variant:
 
 
 func get_result() -> Dictionary:
+	var hp: Array[int] = []
+	for s in side_count():
+		hp.append(heroes[s].current_health if heroes[s] != null else 0)
 	return {
 		"winner_side": winner_side,
+		"winner_team": winner_team,
 		"turn_number": turn_number,
-		"hp": [
-			heroes[0].current_health if heroes[0] != null else 0,
-			heroes[1].current_health if heroes[1] != null else 0,
-		],
+		"hp": hp,
 	}
 
 
@@ -669,16 +682,27 @@ func serialize() -> Dictionary:
 		"phase": CombatState.Phase.keys()[phase],
 		"active_side": active_side,
 		"winner_side": winner_side,
+		"winner_team": winner_team,
 		"turn_number": turn_number,
 		"combat_over": _combat_over,
-		"heroes": [_serialize_hero(0), _serialize_hero(1)],
-		"decks": [decks[0].serialize(), decks[1].serialize()],
+		"teams": teams.duplicate(),
+		"heroes": _map_sides(_serialize_hero),
+		"decks": _map_sides(func(s: int) -> Dictionary: return decks[s].serialize()),
 		"event_log": event_log.map(func(ev: CombatEvent) -> Dictionary: return ev.serialize()),
 		"command_log": command_log.map(func(c: CombatCommand) -> Dictionary: return c.serialize()),
-		"dead_creatures": [_serialize_dead(0), _serialize_dead(1)],
-		"attack_pairs": [_serialize_pairs(0), _serialize_pairs(1)],
+		"dead_creatures": _map_sides(_serialize_dead),
+		"attack_pairs": _map_sides(_serialize_pairs),
 		"block_assignments": _serialize_blocks(),
 	}
+
+
+func _map_sides(fn: Callable) -> Array:
+	## Apply `fn(side)` over every side, in side order. Single source for the
+	## per-side arrays in serialize(), so they all scale with side_count().
+	var out: Array = []
+	for s in side_count():
+		out.append(fn.call(s))
+	return out
 
 
 func _serialize_hero(side: int) -> Variant:
@@ -692,12 +716,16 @@ func _serialize_dead(side: int) -> Array:
 func _serialize_pairs(side: int) -> Array:
 	var out: Array = []
 	for pair in _attack_pairs[side]:
+		# Defenders can belong to any enemy side, so record the defender's side too.
 		var def_idx: int = -1
+		var def_side: int = -1
 		if pair.defender != null:
-			def_idx = decks[1 - side].get_board().find(pair.defender)
+			def_side = pair.defender.owner_id
+			def_idx = decks[def_side].get_board().find(pair.defender)
 		out.append({
 			"attacker": decks[side].get_board().find(pair.attacker),
 			"defender": def_idx,
+			"defender_side": def_side,
 			"target_side": pair.target_side,
 		})
 	return out
@@ -705,11 +733,12 @@ func _serialize_pairs(side: int) -> Array:
 
 func _serialize_blocks() -> Array:
 	var out: Array = []
-	var passive: int = 1 - active_side
 	for attacker in _block_assignments:
+		var blocker: CardInstance = _block_assignments[attacker]
 		out.append({
 			"attacker": decks[active_side].get_board().find(attacker),
-			"blocker": decks[passive].get_board().find(_block_assignments[attacker]),
+			"blocker": decks[blocker.owner_id].get_board().find(blocker),
+			"blocker_side": blocker.owner_id,
 		})
 	return out
 
@@ -725,6 +754,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session.exhaust_fn = hooks.get("exhaust_fn", Callable())
 	session.discard_fn = hooks.get("discard_fn", Callable())
 	session._resolver.damage_fn = session.damage_fn
+	session._restore_topology(data)
 	session._restore_scalars(data)
 	session._restore_heroes(data, hooks.get("heroes", null))
 	session._restore_decks(data)
@@ -733,10 +763,26 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session._restore_dead(data)
 	session._restore_pairs_and_blocks(data)
 	session._restore_ais(hooks.get("ais", null))
-	# teams isn't persisted yet (two-side serialization); rebuild the turn order from
-	# the current teams so a resumed 1v1 keeps a valid rotation.
 	session._rebuild_turn_order()
 	return session
+
+
+func _restore_topology(data: Dictionary) -> void:
+	## Size every per-side array to the saved side count and restore `teams`. Older
+	## two-side saves carry no "teams"; default them to one team per side.
+	var n: int = (data.get("decks", []) as Array).size()
+	var t: Array[int] = []
+	for v in data.get("teams", []):
+		t.append(int(v))
+	teams = t if not t.is_empty() else _default_teams(n)
+	heroes.resize(n)
+	decks.resize(n)
+	ais.resize(n)
+	_attack_pairs = []
+	_dead_creatures = []
+	for _i in n:
+		_attack_pairs.append([])
+		_dead_creatures.append([])
 
 
 func _restore_scalars(data: Dictionary) -> void:
@@ -744,19 +790,22 @@ func _restore_scalars(data: Dictionary) -> void:
 	phase = (idx if idx != -1 else CombatState.Phase.BEGIN) as CombatState.Phase
 	active_side = int(data.get("active_side", 0))
 	winner_side = int(data.get("winner_side", -1))
+	winner_team = int(data.get("winner_team", -1))
 	turn_number = int(data.get("turn_number", 0))
 	_combat_over = data.get("combat_over", false)
 
 
 func _restore_heroes(data: Dictionary, override: Variant) -> void:
-	var raw: Array = data.get("heroes", [null, null])
-	for side in 2:
-		if override is Array and override.size() == 2 and override[side] != null:
+	var raw: Array = data.get("heroes", [])
+	var has_override: bool = override is Array and override.size() == side_count()
+	for side in side_count():
+		var raw_hero: Variant = raw[side] if side < raw.size() else null
+		if has_override and override[side] != null:
 			heroes[side] = override[side]
-			if raw[side] is Dictionary:
-				heroes[side].current_health = int(raw[side].get("current_health", heroes[side].current_health))
-		elif raw[side] is Dictionary:
-			heroes[side] = Combatant.deserialize(raw[side])
+			if raw_hero is Dictionary:
+				heroes[side].current_health = int(raw_hero.get("current_health", heroes[side].current_health))
+		elif raw_hero is Dictionary:
+			heroes[side] = Combatant.deserialize(raw_hero)
 		else:
 			heroes[side] = null
 
@@ -764,7 +813,7 @@ func _restore_heroes(data: Dictionary, override: Variant) -> void:
 func _restore_decks(data: Dictionary) -> void:
 	var deck_hooks: Dictionary = _deck_hooks()
 	var raw: Array = data.get("decks", [])
-	for side in 2:
+	for side in side_count():
 		decks[side] = CombatDeck.deserialize(raw[side], deck_hooks)
 		_wire_deck_events(decks[side])
 
@@ -784,30 +833,34 @@ func _restore_command_log(data: Dictionary) -> void:
 
 
 func _restore_dead(data: Dictionary) -> void:
-	var raw: Array = data.get("dead_creatures", [[], []])
-	_dead_creatures = [[], []]
-	for side in 2:
+	var raw: Array = data.get("dead_creatures", [])
+	for side in side_count():
+		if side >= raw.size():
+			continue
 		for d in raw[side]:
 			_dead_creatures[side].append(CardInstance.deserialize(d, ability_fn))
 
 
 func _restore_pairs_and_blocks(data: Dictionary) -> void:
-	var raw_pairs: Array = data.get("attack_pairs", [[], []])
-	_attack_pairs = [[], []]
-	for side in 2:
+	var raw_pairs: Array = data.get("attack_pairs", [])
+	for side in side_count():
+		if side >= raw_pairs.size():
+			continue
 		for p in raw_pairs[side]:
 			var attacker: CardInstance = _board_at(side, int(p.get("attacker", -1)))
 			if attacker == null:
 				continue
-			var defender: Variant = _board_at(1 - side, int(p.get("defender", -1)))
+			# Older saves lack defender_side; fall back to the lone opponent (1 - side).
+			var def_side: int = int(p.get("defender_side", 1 - side))
+			var defender: Variant = _board_at(def_side, int(p.get("defender", -1)))
 			var pair := CombatPair.new(attacker, defender)
 			pair.target_side = int(p.get("target_side", -1))
 			_attack_pairs[side].append(pair)
 	_block_assignments.clear()
-	var passive: int = 1 - active_side
 	for b in data.get("block_assignments", []):
 		var atk: CardInstance = _board_at(active_side, int(b.get("attacker", -1)))
-		var blk: CardInstance = _board_at(passive, int(b.get("blocker", -1)))
+		var blk_side: int = int(b.get("blocker_side", 1 - active_side))
+		var blk: CardInstance = _board_at(blk_side, int(b.get("blocker", -1)))
 		if atk != null and blk != null:
 			_block_assignments[atk] = blk
 
@@ -820,12 +873,12 @@ func _board_at(side: int, idx: int) -> CardInstance:
 
 
 func _restore_ais(override: Variant) -> void:
-	if override is Array and override.size() == 2:
+	if override is Array and override.size() == side_count():
 		ais = override
 	# Seed a reference AI for any side left without one (resume loses the original
 	# AI seed, so determinism requires re-injecting the AIs via hooks).
-	_seed_ai(0, -1)
-	_seed_ai(1, -1)
+	for side in side_count():
+		_seed_ai(side, -1)
 
 
 func auto_resolve() -> void:
