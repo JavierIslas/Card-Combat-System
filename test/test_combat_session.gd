@@ -497,6 +497,64 @@ func test_declare_attacker_rechaza_mareo_de_invocacion() -> void:
 	assert_eq(_session._attack_pairs[0].size(), 0, "sin can_attack no se declara")
 
 
+func test_declare_attacker_devuelve_true_en_exito() -> void:
+	# Contrato de retorno: una declaracion valida reporta true (la capa de comandos
+	# lo usa en vez de inferir exito por el tamaño de _attack_pairs).
+	_setup_basico()
+	_session.start()
+	var inst := CardInstance.new()
+	inst.setup(_creature(0, 2, 2), 0)
+	inst.can_attack_this_turn = true
+	_session.decks[0].add_to_board(inst)
+	assert_true(_session.declare_attacker(inst, null), "una declaracion valida devuelve true")
+
+
+func test_declare_attacker_devuelve_false_por_rechazo() -> void:
+	# Contrato de retorno: doble declaracion y mareo devuelven false.
+	_setup_basico()
+	_session.start()
+	var inst := CardInstance.new()
+	inst.setup(_creature(0, 2, 2), 0)
+	inst.can_attack_this_turn = true
+	_session.decks[0].add_to_board(inst)
+	assert_true(_session.declare_attacker(inst, null), "primera declaracion: true")
+	assert_false(_session.declare_attacker(inst, null), "doble declaracion: false")
+	var sick := CardInstance.new()
+	sick.setup(_creature(1, 2, 2), 0)
+	sick.can_attack_this_turn = false
+	_session.decks[0].add_to_board(sick)
+	assert_false(_session.declare_attacker(sick, null), "mareo de invocacion: false")
+
+
+func test_declare_attacker_devuelve_false_en_fase_incorrecta() -> void:
+	# Contrato de retorno: fuera de MAIN/ATTACK (aqui BEGIN, sin start) devuelve false.
+	_setup_basico()
+	var inst := CardInstance.new()
+	inst.setup(_creature(0, 2, 2), 0)
+	inst.can_attack_this_turn = true
+	_session.decks[0].add_to_board(inst)
+	assert_false(_session.declare_attacker(inst, null), "fase BEGIN no permite declarar")
+
+
+func test_declare_blocker_devuelve_true_y_false_segun_caso() -> void:
+	# Contrato de retorno: primer bloqueo valido true; reusar el mismo bloqueador false.
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.new()
+	atk.setup(_creature(0, 3, 3), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var blk := CardInstance.new()
+	blk.setup(_creature(0, 1, 4), 1)
+	_session.decks[1].add_to_board(blk)
+	_session.declare_attacker(atk, null)
+	assert_false(_session.declare_blocker(atk, blk), "en MAIN no se puede bloquear: false")
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	assert_true(_session.declare_blocker(atk, blk), "bloqueo valido en DEFENSE: true")
+	assert_false(_session.declare_blocker(atk, blk), "reusar el mismo bloqueador: false")
+
+
 func test_declare_blocker_redirige_dano_al_bloqueador() -> void:
 	# Bloqueo bilateral: el lado pasivo (1) interpone un bloqueador a un ataque del
 	# lado activo (0) dirigido al héroe; el daño se redirige al bloqueador.

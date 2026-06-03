@@ -313,64 +313,68 @@ func _consume_spell(card: CardData) -> bool:
 	return decks[active_side].play_spell(card) != null
 
 
-func declare_attacker(attacker: CardInstance, target: Variant = null, target_side: int = -1) -> void:
+func declare_attacker(attacker: CardInstance, target: Variant = null, target_side: int = -1) -> bool:
 	## Active-side action: declare an attacker. `target` is an enemy creature for a
 	## directed attack, or null to swing at an enemy hero. With more than one enemy,
 	## `target_side` names which enemy hero is hit; -1 picks the first living enemy.
-	## A blocker declared in DEFENSE can later redirect this pair's damage.
-	if phase != CombatState.Phase.MAIN and phase != CombatState.Phase.ATTACK:
-		return
+	## A blocker declared in DEFENSE can later redirect this pair's damage. Returns
+	## true if the attacker was declared; false if any precondition rejected it.
+	if not CombatState.is_active_action_phase(phase):
+		return false
 	if _combat_over:
-		return
+		return false
 	if attacker == null:
-		return
+		return false
 	if not decks[active_side].get_board().has(attacker):
-		return
+		return false
 	# Reject summoning-sick creatures and double declarations.
 	if not attacker.can_attack_this_turn or attacker.has_attacked_this_turn:
-		return
+		return false
 	var ts: int = -1
 	if not (target is CardInstance):
 		# Hero attack: resolve and validate the target side (must be a living enemy).
 		ts = target_side if target_side >= 0 else _default_enemy_side(active_side)
 		if ts < 0 or teams[ts] == teams[active_side]:
-			return
+			return false
 	var pair = CombatPair.new(attacker, target)
 	pair.target_side = ts
 	_attack_pairs[active_side].append(pair)
 	attacker.has_attacked_this_turn = true
 	# target is a CardInstance for a directed attack, or null when swinging at the hero.
 	attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
+	return true
 
 
-func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> void:
+func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 	## Passive-side action during DEFENSE: assign one of the passive side's
 	## defenders to intercept an attacker declared by the active side. This
 	## redirects that attack's damage to the blocker, overriding any directed
-	## target. A blocker can only be assigned once per turn.
-	if phase != CombatState.Phase.DEFENSE:
-		return
+	## target. A blocker can only be assigned once per turn. Returns true if the
+	## block was assigned; false if any precondition rejected it.
+	if not CombatState.is_passive_action_phase(phase):
+		return false
 	if _combat_over:
-		return
+		return false
 	if attacker == null or blocker == null:
-		return
+		return false
 	# The blocker must belong to an enemy side of the active attacker (any enemy
 	# team, not just a single passive side), and be one of that side's defenders.
 	var blocker_side: int = blocker.owner_id
 	if teams[blocker_side] == teams[active_side]:
-		return
+		return false
 	if not decks[blocker_side].get_defenders().has(blocker):
-		return
+		return false
 	if blocker.is_dead:
-		return
+		return false
 	if _block_assignments.values().has(blocker):
-		return
+		return false
 	var pair: CombatPair = _find_attack_pair(attacker)
 	if pair == null:
-		return
+		return false
 	pair.defender = blocker
 	_block_assignments[attacker] = blocker
 	blocker._fire(CardInstance.Trigger.ON_BLOCK, {"attacker": attacker})
+	return true
 
 
 func _find_attack_pair(attacker: CardInstance) -> CombatPair:
@@ -471,32 +475,26 @@ func _cmd_play_card(cmd: CombatCommand) -> bool:
 
 
 func _cmd_declare_attacker(cmd: CombatCommand) -> bool:
+	# Command-layer authorization: only the active side declares attackers. The rest
+	# of the preconditions (phase, board membership, summoning sickness) are the
+	# action method's job, so we route and report its bool directly.
 	if cmd.side != active_side:
 		return false
-	if phase != CombatState.Phase.MAIN and phase != CombatState.Phase.ATTACK:
-		return false
 	var attacker: CardInstance = _board_at(cmd.side, int(cmd.payload.get("attacker_index", -1)))
-	if attacker == null:
-		return false
-	var before: int = _attack_pairs[active_side].size()
 	# A creature target ({target_side,target_index}) takes precedence; otherwise
 	# `hero_side` names which enemy hero to swing at (-1 = first living enemy).
-	declare_attacker(attacker, _resolve_command_target(cmd.payload), int(cmd.payload.get("hero_side", -1)))
-	return _attack_pairs[active_side].size() > before
+	return declare_attacker(attacker, _resolve_command_target(cmd.payload), int(cmd.payload.get("hero_side", -1)))
 
 
 func _cmd_declare_blocker(cmd: CombatCommand) -> bool:
-	# The declaring side must be an enemy of the active attacker (any enemy team),
-	# and the blocker comes from that side's own board.
-	if phase != CombatState.Phase.DEFENSE or teams[cmd.side] == teams[active_side]:
+	# Command-layer authorization: the declaring side must be an enemy of the active
+	# attacker (any enemy team). Phase, defender membership and double-block are the
+	# action method's job, so we route and report its bool directly.
+	if teams[cmd.side] == teams[active_side]:
 		return false
 	var attacker: CardInstance = _board_at(active_side, int(cmd.payload.get("attacker_index", -1)))
 	var blocker: CardInstance = _board_at(cmd.side, int(cmd.payload.get("blocker_index", -1)))
-	if attacker == null or blocker == null:
-		return false
-	var before: int = _block_assignments.size()
-	declare_blocker(attacker, blocker)
-	return _block_assignments.size() > before
+	return declare_blocker(attacker, blocker)
 
 
 func _cmd_end_defense(cmd: CombatCommand) -> bool:
