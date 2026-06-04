@@ -314,3 +314,28 @@ func test_remove_from_zone_ausente_retorna_false() -> void:
 	_deck.add_to_zone("exile", _make_card(1, 1, 1))
 	assert_false(_deck.remove_from_zone("exile", _make_card(2, 2, 2)), "carta no presente retorna false")
 	assert_false(_deck.remove_from_zone("nope", _make_card(1, 1, 1)), "zona inexistente retorna false")
+
+
+func _instance_on_board(play_kind: CardData.PlayKind) -> CardInstance:
+	var inst := CardInstance.new()
+	inst.setup(_make_card(0, 1, 2, play_kind), 0)
+	_deck.add_to_board(inst)
+	return inst
+
+
+func test_persistent_no_gana_ataque_en_refresh() -> void:
+	_deck.setup(_cards(0), 0)
+	var unit := _instance_on_board(CardData.PlayKind.UNIT)
+	var aura := _instance_on_board(CardData.PlayKind.PERSISTENT)
+	_deck.refresh_creatures_for_turn()
+	assert_true(unit.can_attack_this_turn, "la UNIT queda habilitada para atacar")
+	assert_false(aura.can_attack_this_turn, "la PERSISTENT nunca gana ataque")
+
+
+func test_persistent_no_es_defensor() -> void:
+	_deck.setup(_cards(0), 0)
+	var unit := _instance_on_board(CardData.PlayKind.UNIT)
+	var aura := _instance_on_board(CardData.PlayKind.PERSISTENT)
+	var defenders := _deck.get_defenders()
+	assert_true(defenders.has(unit), "la UNIT es defensora")
+	assert_false(defenders.has(aura), "la PERSISTENT no es defensora")

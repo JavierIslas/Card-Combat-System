@@ -189,12 +189,21 @@ func increment_max_mana(amount: int = 2) -> void:
 func refresh_creatures_for_turn() -> void:
 	for inst in _board:
 		if not inst.is_dead:
+			# A PERSISTENT permanent still refreshes (expires temp buffs, fires
+			# ON_TURN_REFRESH) but never becomes able to attack: it is not a combatant.
 			inst.refresh_for_turn()
-			inst.can_attack_this_turn = true
+			if inst.is_combatant:
+				inst.can_attack_this_turn = true
 
 
 func get_defenders() -> Array[CardInstance]:
-	return CardInstance.living(_board)
+	# Only combatants can block; a PERSISTENT permanent sits on the board but is not
+	# a defender.
+	var out: Array[CardInstance] = []
+	for inst in CardInstance.living(_board):
+		if inst.is_combatant:
+			out.append(inst)
+	return out
 
 
 func remove_dead_creatures() -> Array[CardInstance]:
