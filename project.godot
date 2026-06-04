@@ -23,3 +23,15 @@ config/icon="res://icon.svg"
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+
+[debug]
+
+; GDScript warnings as errors. exclude_addons=false so the engine under
+; addons/card_combat is covered (default true would skip it). NOTE: the Godot
+; headless runtime does NOT surface analyzer warnings, so this is enforced in the
+; EDITOR (Errors panel) only; the active CI half is the compile gate
+; (addons/card_combat/tools/check_scripts.gd). exclude_addons=false also covers
+; addons/gut, so GUT warnings may surface as editor errors (harmless to headless runs).
+gdscript/warnings/enable=true
+gdscript/warnings/exclude_addons=false
+gdscript/warnings/treat_warnings_as_errors=true
