@@ -27,6 +27,21 @@ func test_from_dict_target_type_invalido_default_enemy_hero() -> void:
 	assert_eq(e.target_type, SpellEffect.TargetType.ENEMY_HERO)
 
 
+func test_chosen_creatures_y_target_count_round_trip() -> void:
+	var data := {"effect_type": "DAMAGE", "value": 3, "target_type": "CHOSEN_CREATURES", "target_count": 2}
+	var e := SpellEffect.from_dict(data)
+	assert_eq(e.target_type, SpellEffect.TargetType.CHOSEN_CREATURES, "se parsea CHOSEN_CREATURES")
+	assert_eq(e.target_count, 2, "target_count se parsea")
+	var round := e.serialize()
+	assert_eq(round["target_type"], "CHOSEN_CREATURES", "round-trip del target_type")
+	assert_eq(round["target_count"], 2, "round-trip del target_count")
+
+
+func test_target_count_default_uno() -> void:
+	var e := SpellEffect.from_dict({"effect_type": "DAMAGE", "value": 1})
+	assert_eq(e.target_count, 1, "target_count omitido default 1")
+
+
 # --- DAMAGE ---
 
 func test_damage_sobre_criatura_retorna_dano() -> void:

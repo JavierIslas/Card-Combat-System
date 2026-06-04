@@ -19,7 +19,12 @@ extends Resource
 
 enum EffectType { DAMAGE, HEAL, BUFF_ATTACK, AOE_DAMAGE, SUMMON }
 
-enum TargetType { ENEMY_HERO, PLAYER_HERO, PLAYER_CREATURE, ENEMY_CREATURES, PLAYER_CREATURES, SUMMON_BOARD }
+## CHOSEN_CREATURES is the bounded multi-target slot: the caller picks exactly
+## `target_count` living creatures and the effect applies to each. Unlike
+## ENEMY_CREATURES / PLAYER_CREATURES (which hit a whole side's board), the targets
+## are an explicit caller-chosen list. Added last so the keys()-based serialization
+## of the earlier values is unchanged.
+enum TargetType { ENEMY_HERO, PLAYER_HERO, PLAYER_CREATURE, ENEMY_CREATURES, PLAYER_CREATURES, SUMMON_BOARD, CHOSEN_CREATURES }
 
 @export var effect_type: EffectType = EffectType.DAMAGE
 @export var value: int = 0
@@ -29,6 +34,9 @@ enum TargetType { ENEMY_HERO, PLAYER_HERO, PLAYER_CREATURE, ENEMY_CREATURES, PLA
 @export var summon_attack: int = 0
 @export var summon_health: int = 0
 @export var summon_count: int = 0
+## How many creatures CHOSEN_CREATURES targets (ignored by other target types).
+## The spell fizzles unless that many living creatures are supplied as targets.
+@export var target_count: int = 1
 
 ## Id generator for summoned creatures. Injectable by the game layer.
 ## Signature: (name: String, index: int, count: int) -> String.
@@ -60,6 +68,7 @@ func serialize() -> Dictionary:
 		"summon_attack": summon_attack,
 		"summon_health": summon_health,
 		"summon_count": summon_count,
+		"target_count": target_count,
 	}
 
 
@@ -81,6 +90,7 @@ static func from_dict(data: Dictionary) -> SpellEffect:
 	e.summon_attack = int(data.get("summon_attack", 0))
 	e.summon_health = int(data.get("summon_health", 0))
 	e.summon_count = int(data.get("summon_count", 0))
+	e.target_count = int(data.get("target_count", 1))
 	return e
 
 
