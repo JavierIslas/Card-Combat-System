@@ -43,3 +43,10 @@ func test_metadata_es_opaca_y_se_duplica() -> void:
 	assert_eq(card.metadata, meta, "metadata se preserva tal cual")
 	meta["flavor"] = "mutado"
 	assert_eq(card.metadata["flavor"], "texto", "metadata se duplicó, no es la misma ref")
+
+
+func test_play_kind_persistent_round_trip() -> void:
+	var card := CardData.from_dict({"card_id": "aura", "play_kind": "PERSISTENT"})
+	assert_not_null(card, "PERSISTENT es un play_kind válido")
+	assert_eq(card.play_kind, CardData.PlayKind.PERSISTENT, "se parsea como PERSISTENT")
+	assert_eq(card.serialize()["play_kind"], "PERSISTENT", "round-trips a PERSISTENT")

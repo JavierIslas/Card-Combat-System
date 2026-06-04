@@ -19,9 +19,11 @@ extends Resource
 
 ## How playing the card resolves — the engine's only behavioral dispatch, NOT a
 ## game taxonomy. UNIT goes to the board and persists (attacks/blocks); EFFECT
-## resolves its spell_effects and goes to the graveyard. Game-domain types
-## (Weapon, Land, Trap, rarity, …) belong in `metadata`, never here.
-enum PlayKind { UNIT, EFFECT }
+## resolves its spell_effects and goes to the graveyard; PERSISTENT goes to the
+## board and persists (fires triggers) but never fights — it is not a combatant, so
+## it cannot attack or block (an aura/enchantment-style permanent). Game-domain
+## types (Weapon, Land, Trap, rarity, …) belong in `metadata`, never here.
+enum PlayKind { UNIT, EFFECT, PERSISTENT }
 
 @export var card_id: String = ""
 @export var name: String = ""
