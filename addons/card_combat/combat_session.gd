@@ -101,6 +101,26 @@ var exhaust_fn: Callable = Callable()
 ## because the hand is full (see config.max_hand_size). Empty = burned silently.
 var discard_fn: Callable = Callable()
 
+## How ability triggers are dispatched. INLINE (default) fires ability_fn the
+## moment a trigger happens, exactly as before — a chained trigger resolves
+## depth-first, mid-sweep. QUEUED defers every trigger into a FIFO queue drained at
+## safe points (before each board sweep / at the end of each driver action), so a
+## chain (a trigger that kills a creature that fires another trigger) resolves
+## breadth-first in one flat order. Opt-in: set before setup(). Both are
+## deterministic; they differ only in the order of chained reactions.
+enum TriggerMode { INLINE, QUEUED }
+var trigger_mode: TriggerMode = TriggerMode.INLINE
+
+## Deferred-trigger queue, fed only in QUEUED mode. Owns the pending list; the
+## session passes itself no further than the dispatch Callable (explicit dependency).
+var _trigger_queue: CombatTriggerQueue = CombatTriggerQueue.new()
+
+## The ability_fn actually handed to decks/instances. In INLINE it IS ability_fn,
+## so _fire() calls the game handler directly and the queue is never touched. In
+## QUEUED it is _enqueue_trigger, so every _fire() enqueues instead, and the real
+## ability_fn runs later via _dispatch_trigger. Computed in setup()/deserialize.
+var _effective_ability_fn: Callable = Callable()
+
 
 func setup(side0_hero: Combatant, side0_cards: Array[CardData], side1_hero: Combatant, side1_cards: Array[CardData], ai_seed: int = -1) -> void:
 	## Positional 1v1 setup: side 0 = first hero/cards, side 1 = second hero/cards.
@@ -123,6 +143,9 @@ func setup_sides(sides: Array, side_teams: Array[int] = [], ai_seed: int = -1) -
 
 	# Seed the optional damage hook so the resolver uses it for this combat.
 	_resolver.damage_fn = damage_fn
+	# Resolve the effective trigger sink BEFORE building decks: _make_deck propagates
+	# it to each deck/instance and draws the initial hands (which fire ON_DRAW).
+	_compute_effective_ability_fn()
 
 	# Reset combat state BEFORE building decks so the initial-hand draws (emitted
 	# inside _make_deck) land in a freshly cleared event_log.
@@ -147,6 +170,9 @@ func setup_sides(sides: Array, side_teams: Array[int] = [], ai_seed: int = -1) -
 		decks[side] = _make_deck(_cards_of(sides[side]), side, side_seed)
 		# Seed a reference AI per side unless a driver already assigned one.
 		_seed_ai(side, ai_seed)
+
+	# Fire the deferred initial-hand ON_DRAW triggers (QUEUED); no-op in INLINE.
+	_drain_triggers()
 
 
 func _cards_of(side_entry: Dictionary) -> Array[CardData]:
@@ -182,7 +208,7 @@ func _init_side_arrays(n: int) -> void:
 
 func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatDeck:
 	var deck := CombatDeck.new()
-	deck.setup(cards, side, config.starting_max_mana, ability_fn, config.max_permanent_buffs_per_card, shuffle_seed)
+	deck.setup(cards, side, config.starting_max_mana, _effective_ability_fn, config.max_permanent_buffs_per_card, shuffle_seed)
 	deck.exhaust_fn = exhaust_fn
 	deck.max_board_size = config.max_board_size
 	deck.max_hand_size = config.max_hand_size
@@ -211,9 +237,10 @@ func _wire_deck_events(deck: CombatDeck) -> void:
 			return
 		s._emit_card_drawn(card, owner)
 		# Side-level ON_DRAW: the drawn card is still CardData in hand, so inst is null
-		# and the card travels in context. Handlers must tolerate a null instance.
-		if s.ability_fn.is_valid():
-			s.ability_fn.call(null, CardInstance.Trigger.ON_DRAW, {"card": card, "owner": owner}))
+		# and the card travels in context. Handlers must tolerate a null instance. Goes
+		# through the effective sink so QUEUED defers it like every other trigger.
+		if s._effective_ability_fn.is_valid():
+			s._effective_ability_fn.call(null, CardInstance.Trigger.ON_DRAW, {"card": card, "owner": owner}))
 	deck.card_played.connect(func(inst: CardInstance) -> void:
 		var s: CombatSession = weak.get_ref()
 		if s != null:
@@ -233,9 +260,10 @@ func _wire_deck_events(deck: CombatDeck) -> void:
 
 
 func _deck_hooks() -> Dictionary:
-	## Non-serializable deck config, re-supplied to CombatDeck.deserialize.
+	## Non-serializable deck config, re-supplied to CombatDeck.deserialize. Uses the
+	## effective sink so a QUEUED combat keeps deferring triggers after a resume.
 	return {
-		"ability_fn": ability_fn,
+		"ability_fn": _effective_ability_fn,
 		"max_permanent_buffs": config.max_permanent_buffs_per_card,
 		"exhaust_fn": exhaust_fn,
 		"discard_fn": discard_fn,
@@ -252,6 +280,34 @@ func _seed_ai(side: int, ai_seed: int) -> void:
 	var dummy := DummyAI.new()
 	dummy.setup(ai_seed if ai_seed < 0 else ai_seed * 2 + side + 1)
 	ais[side] = dummy
+
+
+func _compute_effective_ability_fn() -> void:
+	## Resolve which Callable decks/instances fire on a trigger, from trigger_mode +
+	## ability_fn. QUEUED only matters when there is a real handler to defer; with no
+	## ability_fn it stays empty (same as INLINE), so the queue is never fed pointlessly.
+	if trigger_mode == TriggerMode.QUEUED and ability_fn.is_valid():
+		_effective_ability_fn = _enqueue_trigger
+	else:
+		_effective_ability_fn = ability_fn
+
+
+func _enqueue_trigger(inst: Variant, trigger: int, context: Dictionary) -> void:
+	## QUEUED-mode sink: defer a trigger instead of firing it. Matches the ability_fn
+	## signature so it slots in transparently wherever _effective_ability_fn is used.
+	_trigger_queue.enqueue(inst, trigger, context)
+
+
+func _dispatch_trigger(inst: Variant, trigger: int, context: Dictionary) -> void:
+	## Drain-time handler: run the real game ability_fn for one dequeued trigger.
+	if ability_fn.is_valid():
+		ability_fn.call(inst, trigger, context)
+
+
+func _drain_triggers() -> void:
+	## Fire every deferred trigger in FIFO order (QUEUED mode). No-op in INLINE: the
+	## queue is never fed there, so this costs a single is_empty check.
+	_trigger_queue.drain(_dispatch_trigger)
 
 
 func start() -> void:
@@ -274,8 +330,11 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 		if not _consume_spell(card):
 			return false
 		_apply_spell_effects(card, active_side, target, target_side)
+		_drain_triggers()
 		return true
 	var inst: CardInstance = decks[active_side].play_creature(card, as_hidden, declared_attack, declared_health)
+	# Fire the deferred ON_SETUP (QUEUED) before handing control back to the driver.
+	_drain_triggers()
 	return inst != null
 
 
@@ -365,6 +424,7 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	attacker.has_attacked_this_turn = true
 	# target is a CardInstance for a directed attack, or null when swinging at the hero.
 	attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
+	_drain_triggers()
 	return true
 
 
@@ -397,6 +457,7 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 	pair.defender = blocker
 	_block_assignments[attacker] = blocker
 	blocker._fire(CardInstance.Trigger.ON_BLOCK, {"attacker": attacker})
+	_drain_triggers()
 	return true
 
 
@@ -729,6 +790,7 @@ func serialize() -> Dictionary:
 		"winner_team": winner_team,
 		"turn_number": turn_number,
 		"combat_over": _combat_over,
+		"trigger_mode": TriggerMode.keys()[trigger_mode],
 		"teams": teams.duplicate(),
 		"heroes": _map_sides(_serialize_hero),
 		"decks": _map_sides(func(s: int) -> Dictionary: return decks[s].serialize()),
@@ -810,6 +872,9 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session._resolver.damage_fn = session.damage_fn
 	session._restore_topology(data)
 	session._restore_scalars(data)
+	# Recompute the effective sink from the restored trigger_mode + ability_fn before
+	# rebuilding decks, so resumed board instances fire through the right path.
+	session._compute_effective_ability_fn()
 	session._restore_heroes(data, hooks.get("heroes", null))
 	session._restore_decks(data)
 	session._restore_log(data)
@@ -846,6 +911,9 @@ func _restore_scalars(data: Dictionary) -> void:
 	winner_team = int(data.get("winner_team", -1))
 	turn_number = int(data.get("turn_number", 0))
 	_combat_over = data.get("combat_over", false)
+	# Legacy saves (no trigger_mode) default to INLINE, the pre-feature behavior.
+	var tm_idx: int = TriggerMode.keys().find(data.get("trigger_mode", "INLINE"))
+	trigger_mode = (tm_idx if tm_idx != -1 else TriggerMode.INLINE) as TriggerMode
 
 
 func _restore_heroes(data: Dictionary, override: Variant) -> void:
@@ -1188,6 +1256,9 @@ func _enter_preparation() -> void:
 	deck.draw_card()
 	deck.refresh_creatures_for_turn()
 	_fire_turn_trigger(active_side, CardInstance.Trigger.ON_TURN_START)
+	# Fire the deferred prep triggers (ON_DRAW / ON_TURN_REFRESH / ON_TURN_START) in
+	# FIFO order before MAIN (QUEUED); no-op in INLINE.
+	_drain_triggers()
 
 	# Clear the active side's attack state from its previous turn.
 	_attack_pairs[active_side].clear()
@@ -1218,6 +1289,7 @@ func _enter_resolve() -> void:
 
 	# End-of-turn triggers for the active side's surviving creatures, before the swap.
 	_fire_turn_trigger(active_side, CardInstance.Trigger.ON_TURN_END)
+	_drain_triggers()
 
 	# Hand the turn to the next living side (interleaved by team).
 	active_side = _next_living_side()
@@ -1242,6 +1314,9 @@ func _resolve_active_attacks() -> void:
 		deal_damage_to_hero(s, hero_damage_by_side[s])
 	if not pairs_result.is_empty():
 		_fire_damage_dealt(pairs_result)
+		# Drain combat triggers (ON_DAMAGE_TAKEN/ON_DEATH/ON_DAMAGE_DEALT) before
+		# recording deaths, so abilities run before creature_died like in INLINE.
+		_drain_triggers()
 		_process_death_results(pairs_result)
 
 
@@ -1355,6 +1430,10 @@ func _apply_effect_and_sweep(effect: SpellEffect, target: Variant, context: Dict
 	## Single source for the "apply then sweep" pair shared by play_spell and the
 	## multi-target / hero-effect_fn branches of _apply_single_spell_effect.
 	effect.apply(target, context)
+	# Resolve deferred spell triggers (ON_DAMAGE_TAKEN/ON_DEATH and any chained
+	# trigger) before sweeping, so chained kills surface in the same sweep (QUEUED);
+	# no-op in INLINE.
+	_drain_triggers()
 	_sweep_all_boards()
 
 
