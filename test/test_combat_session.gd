@@ -1265,3 +1265,15 @@ func test_auto_resolve_2v2_es_determinista_con_seed() -> void:
 	b.auto_resolve()
 	assert_eq(a.winner_team, b.winner_team, "mismo seed -> mismo equipo ganador")
 	assert_eq(a.turn_number, b.turn_number, "mismo seed -> misma duración")
+
+
+func test_session_no_deja_ciclo_de_referencia() -> void:
+	# The deck mirrors its card-level signals into the session; if those handlers
+	# captured `self`/`deck` the session would never free (RefCounted cycle). After a
+	# full combat the only reference is local, so dropping it must collect it.
+	var local := CombatSession.new()
+	local.setup(_hero(10), _starter(), _hero(10), _starter(), 9)
+	local.auto_resolve()
+	var wr: WeakRef = weakref(local)
+	local = null
+	assert_null(wr.get_ref(), "la sesión debe liberarse sin ciclos de referencia")

@@ -197,16 +197,39 @@ func _wire_deck_events(deck: CombatDeck) -> void:
 	## alone is a full replay/spectator stream. The deck signals stay intact for
 	## live listeners; the session is the single owner of event_log appends. Shared
 	## by _make_deck and deserialize so a resumed combat keeps logging.
+	##
+	## The handlers capture a weakref to the session and the owner id (a primitive),
+	## never `self` or `deck`: a lambda stored on the deck's signal that captured
+	## either would form a RefCounted cycle (deck -> signal -> lambda -> session/deck)
+	## that never frees. Through the weakref the deck holds the session weakly, so a
+	## finished combat is collected normally (see the no-cycle test).
+	var owner: int = deck.owner_id
+	var weak: WeakRef = weakref(self)
 	deck.card_drawn.connect(func(card: CardData) -> void:
-		_emit_card_drawn(card, deck.owner_id)
+		var s: CombatSession = weak.get_ref()
+		if s == null:
+			return
+		s._emit_card_drawn(card, owner)
 		# Side-level ON_DRAW: the drawn card is still CardData in hand, so inst is null
 		# and the card travels in context. Handlers must tolerate a null instance.
-		if ability_fn.is_valid():
-			ability_fn.call(null, CardInstance.Trigger.ON_DRAW, {"card": card, "owner": deck.owner_id}))
-	deck.card_played.connect(func(inst: CardInstance) -> void: _emit_card_played(inst, deck.owner_id))
-	deck.mana_changed.connect(func(new_mana: int) -> void: _emit_mana_changed(deck.owner_id, new_mana))
-	deck.max_mana_changed.connect(func(new_max: int) -> void: _emit_max_mana_changed(deck.owner_id, new_max))
-	deck.deck_exhausted.connect(func() -> void: _emit_deck_exhausted(deck.owner_id))
+		if s.ability_fn.is_valid():
+			s.ability_fn.call(null, CardInstance.Trigger.ON_DRAW, {"card": card, "owner": owner}))
+	deck.card_played.connect(func(inst: CardInstance) -> void:
+		var s: CombatSession = weak.get_ref()
+		if s != null:
+			s._emit_card_played(inst, owner))
+	deck.mana_changed.connect(func(new_mana: int) -> void:
+		var s: CombatSession = weak.get_ref()
+		if s != null:
+			s._emit_mana_changed(owner, new_mana))
+	deck.max_mana_changed.connect(func(new_max: int) -> void:
+		var s: CombatSession = weak.get_ref()
+		if s != null:
+			s._emit_max_mana_changed(owner, new_max))
+	deck.deck_exhausted.connect(func() -> void:
+		var s: CombatSession = weak.get_ref()
+		if s != null:
+			s._emit_deck_exhausted(owner))
 
 
 func _deck_hooks() -> Dictionary:
