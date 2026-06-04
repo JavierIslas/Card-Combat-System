@@ -22,6 +22,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CombatDeck` | Hand, deck, board, graveyard and mana for one side, plus game-defined extra zones |
 | `CombatSession` | Combat FSM over N sides grouped by `teams`: orchestrates turns, decks, AI and resolution |
 | `CombatState` | Phase enum |
+| `CombatTriggerQueue` | FIFO queue of deferred ability triggers, used by `trigger_mode = QUEUED` to resolve chained triggers breadth-first. Owns the pending list; idle in INLINE mode |
 | `CombatPair` | Declared attacker/defender pair |
 | `CombatDamageResolver` | Resolves damage for the combat pairs |
 | `SpellEffect` | Spell effect (damage/heal/summon) |
@@ -90,6 +91,23 @@ packaging / future export) and can be mirrored to a standalone repo.
    on `setup()`. Signature: `(card: CardData, owner_id: int)`. Called when a card is
    drawn with a full hand (`config.max_hand_size`) and burned to the graveyard.
    Empty = the card is burned silently.
+
+### Trigger dispatch order (`trigger_mode`)
+
+`CombatSession.trigger_mode` (set before `setup()`) picks how ability triggers are
+dispatched. It is **opt-in**; the default reproduces the previous behavior exactly:
+
+- **`INLINE`** (default) — `ability_fn` fires the instant a trigger happens. A
+  chained trigger (an ability that kills a creature, firing its `ON_DEATH`, which
+  triggers another) resolves **depth-first**, mid-sweep, as before.
+- **`QUEUED`** — every trigger is deferred into a `CombatTriggerQueue` (FIFO) and
+  drained at safe points (before each board sweep and at the end of each driver
+  action), so a chain resolves **breadth-first** in one flat order.
+
+Both are deterministic; they differ only in the order of *chained* reactions, so a
+combat with no chained triggers (or no `ability_fn`) is byte-identical either way.
+`trigger_mode` round-trips through `serialize()`/`deserialize()` (a legacy save with
+no field resumes as `INLINE`).
 
 ### Permanent buffs (generic)
 
