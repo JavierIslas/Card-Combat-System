@@ -115,9 +115,14 @@ func _push(line: String) -> void:
 
 func _log_result(result: Dictionary) -> void:
 	_push("")
+	# Iterate hp per side instead of assuming two: get_result()["hp"] is sized to the
+	# side count, so the demo also reports FFA / team layouts without indexing past it.
 	var hp: Array = result["hp"]
-	_push("Result: winner_side=%d  turns=%d  hp0=%d  hp1=%d" % [
-		result["winner_side"], result["turn_number"], hp[0], hp[1],
+	var hp_parts: PackedStringArray = []
+	for side in hp.size():
+		hp_parts.append("hp%d=%d" % [side, hp[side]])
+	_push("Result: winner_side=%d  turns=%d  %s" % [
+		result["winner_side"], result["turn_number"], " ".join(hp_parts),
 	])
 
 
