@@ -1390,9 +1390,10 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			# consuming (see _spell_needs_missing_target). This is a low-level guard
 			# for internal callers (e.g. auto-play) that bypass that check.
 			if target is CardInstance and not target.is_dead:
-				effect.apply(target, context)
-				# A single-target damage can kill: surface that death like any other.
-				_check_board_deaths(decks[target.owner_id])
+				# Sweep every board, not just the target's: a built-in single-target
+				# damage only kills the target, but an injected effect_fn can hit other
+				# sides collaterally, and those deaths must surface like any other.
+				_apply_effect_and_sweep(effect, target, context)
 			else:
 				push_warning("PLAYER_CREATURE spell with no valid target — not applied")
 		SpellEffect.TargetType.ENEMY_CREATURES:

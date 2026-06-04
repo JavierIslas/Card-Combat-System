@@ -1277,3 +1277,23 @@ func test_session_no_deja_ciclo_de_referencia() -> void:
 	var wr: WeakRef = weakref(local)
 	local = null
 	assert_null(wr.get_ref(), "la sesión debe liberarse sin ciclos de referencia")
+
+
+func test_player_creature_effect_fn_barre_muertes_colaterales() -> void:
+	# #5: a PLAYER_CREATURE spell whose injected effect_fn kills a creature on ANOTHER
+	# board must surface that collateral death (sweep every board), not just the
+	# target's. With the old per-target sweep the victim stayed a zombie on the board.
+	_setup_basico()
+	var aliado := _put_creature(0, 1, 5)
+	var victima := _put_creature(1, 1, 1)
+	var deaths: Array = []
+	_session.creature_died.connect(func(_card: CardInstance, owner: int) -> void: deaths.append(owner))
+	var spell := _spell(0, SpellEffect.EffectType.HEAL, 0, SpellEffect.TargetType.PLAYER_CREATURE)
+	spell.spell_effects[0].effect_fn = func(_e: SpellEffect, _t: Variant, _ctx: Dictionary) -> Dictionary:
+		victima.take_damage(99)  # collateral kill on the enemy board
+		return {"success": true}
+	_session._apply_single_spell_effect(spell.spell_effects[0], 0, aliado)
+	assert_true(victima.is_dead, "la víctima colateral muere")
+	assert_true(_session.get_dead_creatures(1).has(victima), "la muerte colateral queda registrada")
+	assert_false(_session.decks[1].get_board().has(victima), "la víctima sale del tablero")
+	assert_true(deaths.has(1), "se emitió creature_died para la muerte colateral")
