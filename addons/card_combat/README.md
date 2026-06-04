@@ -244,13 +244,19 @@ default keeps hitting the lone opponent, unchanged.
 
 Spell targeting is intentionally minimal and caster-relative. `TargetType`
 resolves everything from the caster's point of view (`ENEMY_HERO`, `PLAYER_HERO`,
-`PLAYER_CREATURE`, `ENEMY_CREATURES`, `PLAYER_CREATURES`, `SUMMON_BOARD`) — now
-team-aware, so the "enemy"/"ally" sets span every enemy/allied side — and a
-spell has a **single** explicit single-target slot (`PLAYER_CREATURE`). The engine
-does **not** provide multi-target "choose N" or split targets — those are game
-rules, not engine primitives. A game that needs
-richer targeting expresses it through an injected `effect_fn` (full control over
-resolution) rather than by extending the built-in `TargetType` catalog.
+`PLAYER_CREATURE`, `ENEMY_CREATURES`, `PLAYER_CREATURES`, `SUMMON_BOARD`,
+`CHOSEN_CREATURES`) — now team-aware, so the "enemy"/"ally" sets span every
+enemy/allied side. A spell has one explicit **single**-target slot
+(`PLAYER_CREATURE`, target = a `CardInstance`) and one bounded **multi**-target slot
+(`CHOSEN_CREATURES`, target = an `Array` of `target_count` `CardInstance`s; the
+effect applies to each). Both fizzle if too few living targets are supplied (single:
+none; multi: fewer than `target_count`) — mana and card stay, `play_card` returns
+`false`, `spell_fizzled` fires. Via `CombatCommand`, single-target is encoded as
+`{target_side, target_index}` and multi-target as `target_specs` (an Array of
+`{side, index}`). The engine does **not** provide split targets, "choose up to N", or
+conditional targeting — those are game rules: express them through an injected
+`effect_fn` (full control over resolution) rather than by extending the built-in
+`TargetType` catalog.
 
 ## AI
 
@@ -276,10 +282,12 @@ subclassing `CombatAI` must use the `enemy_heroes: Array[Combatant]` parameter i
 these two overrides (breaking change from the old single `enemy_hero`).
 
 `choose_spell_target(spell, own_board, enemy_board)` is consulted by `auto_resolve`
-when the AI plays a single-target spell (`PLAYER_CREATURE`): both boards are
-passed because the engine is agnostic about which side a spell hits — inspect
-`spell.spell_effects` to decide (a DAMAGE wants an enemy, a BUFF an ally). If it
-returns no living target, the spell is skipped (not consumed) for that turn.
+when the AI plays a spell that needs explicit targets: both boards are passed
+because the engine is agnostic about which side a spell hits — inspect
+`spell.spell_effects` to decide (a DAMAGE wants enemies, a HEAL/BUFF allies). It
+returns a single `CardInstance` for a `PLAYER_CREATURE` spell, or an `Array` of up
+to `target_count` for a `CHOSEN_CREATURES` spell. If it returns no living target (or
+fewer than `target_count`), the spell is skipped (not consumed) for that turn.
 
 ## Observability (signals + event_log)
 
