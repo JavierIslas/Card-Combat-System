@@ -1297,3 +1297,88 @@ func test_player_creature_effect_fn_barre_muertes_colaterales() -> void:
 	assert_true(_session.get_dead_creatures(1).has(victima), "la muerte colateral queda registrada")
 	assert_false(_session.decks[1].get_board().has(victima), "la víctima sale del tablero")
 	assert_true(deaths.has(1), "se emitió creature_died para la muerte colateral")
+
+
+# --- CHOSEN_CREATURES (bounded multi-target) ---
+
+func _chosen_damage_spell(value: int, count: int) -> CardData:
+	var d := CardData.new()
+	d.cost = 0
+	d.play_kind = CardData.PlayKind.EFFECT
+	var e := SpellEffect.new()
+	e.effect_type = SpellEffect.EffectType.DAMAGE
+	e.value = value
+	e.target_type = SpellEffect.TargetType.CHOSEN_CREATURES
+	e.target_count = count
+	var effects: Array[SpellEffect] = [e]
+	d.spell_effects = effects
+	return d
+
+
+func _session_with_two_creatures_and(spell: CardData) -> CombatSession:
+	# Active side (0) holds two creatures and the spell, all cost 0, with mana to
+	# spare. After start() it is in MAIN; the caller plays the cards.
+	_session.config.starting_max_mana = 10
+	_session.config.initial_hand_size = 3
+	var deck0: Array[CardData] = [_creature(0, 1, 5), _creature(0, 1, 5), spell]
+	_session.setup(_hero(), deck0, _hero(), _empty(), 1)
+	_session.start()
+	_session.play_card(deck0[0])
+	_session.play_card(deck0[1])
+	return _session
+
+
+func test_chosen_creatures_aplica_a_cada_elegida() -> void:
+	var spell := _chosen_damage_spell(2, 2)
+	var session := _session_with_two_creatures_and(spell)
+	var board: Array = session.decks[0].get_board()
+	var chosen: Array = [board[0], board[1]]
+	var ok := session.play_card(spell, false, 0, 0, chosen)
+	assert_true(ok, "el hechizo multi-target se juega")
+	assert_eq(board[0].current_health, 3, "la primera elegida recibe el daño")
+	assert_eq(board[1].current_health, 3, "la segunda elegida recibe el daño")
+
+
+func test_chosen_creatures_fizzle_si_faltan_targets() -> void:
+	var spell := _chosen_damage_spell(2, 2)  # needs 2 living targets
+	var session := _session_with_two_creatures_and(spell)
+	var board: Array = session.decks[0].get_board()
+	var hand_before: int = session.decks[0].get_hand().size()
+	var ok := session.play_card(spell, false, 0, 0, [board[0]])  # only 1 supplied
+	assert_false(ok, "fizzle: menos de target_count vivos -> play_card false")
+	assert_eq(session.decks[0].get_hand().size(), hand_before, "no se consume la carta")
+	assert_eq(board[0].current_health, 5, "no se aplica daño al fizzlear")
+
+
+func test_chosen_creatures_via_command_con_target_specs() -> void:
+	var spell := _chosen_damage_spell(2, 2)
+	var session := _session_with_two_creatures_and(spell)
+	var board: Array = session.decks[0].get_board()
+	var spell_hand_index: int = session.decks[0].get_hand().find(spell)
+	var cmd := CombatCommand.new(CombatCommand.CommandType.PLAY_CARD, 0, {
+		"hand_index": spell_hand_index,
+		"target_specs": [{"side": 0, "index": 0}, {"side": 0, "index": 1}],
+	})
+	assert_true(session.apply_command(cmd), "el comando multi-target se aplica")
+	assert_eq(board[0].current_health, 3, "primera elegida dañada vía comando")
+	assert_eq(board[1].current_health, 3, "segunda elegida dañada vía comando")
+
+
+func test_auto_resolve_con_chosen_corre_y_es_determinista() -> void:
+	# End-to-end of the AI contract: a CHOSEN_CREATURES spell driven by auto_resolve
+	# (AI returns an Array -> fizzle check -> _apply_chosen_creatures) runs without
+	# error and stays deterministic for a fixed seed.
+	var deck0a: Array[CardData] = [_creature(1, 2, 3), _creature(2, 3, 3), _chosen_damage_spell(2, 2)]
+	var deck0b: Array[CardData] = [_creature(1, 2, 3), _creature(2, 3, 3), _chosen_damage_spell(2, 2)]
+	var s1 := CombatSession.new()
+	s1.ais[0] = HeuristicAI.new()
+	s1.ais[1] = HeuristicAI.new()
+	s1.setup(_hero(), deck0a, _hero(), _starter(), 5)
+	s1.auto_resolve()
+	var s2 := CombatSession.new()
+	s2.ais[0] = HeuristicAI.new()
+	s2.ais[1] = HeuristicAI.new()
+	s2.setup(_hero(), deck0b, _hero(), _starter(), 5)
+	s2.auto_resolve()
+	assert_gt(s1.get_result()["turn_number"], 1, "el combate con CHOSEN realmente avanzó")
+	assert_eq(s1.get_result(), s2.get_result(), "auto_resolve con CHOSEN es determinista")

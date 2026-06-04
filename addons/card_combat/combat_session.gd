@@ -372,12 +372,22 @@ func _spell_needs_missing_target(card: CardData, target: Variant) -> bool:
 
 
 func _effect_needs_missing_target(effect: SpellEffect, target: Variant) -> bool:
-	## Single source of truth for the fizzle predicate: a single-target effect
-	## (PLAYER_CREATURE) cast with no living creature target. Shared by play_card
-	## (via _spell_needs_missing_target) and the ad-hoc play_spell path.
-	if effect.target_type != SpellEffect.TargetType.PLAYER_CREATURE:
-		return false
-	return not (target is CardInstance and not target.is_dead)
+	## Single source of truth for the fizzle predicate. A single-target effect
+	## (PLAYER_CREATURE) needs one living creature; a multi-target effect
+	## (CHOSEN_CREATURES) needs at least target_count living creatures supplied.
+	## Shared by play_card (via _spell_needs_missing_target) and play_spell.
+	if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE:
+		return not (target is CardInstance and not target.is_dead)
+	if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
+		return _count_living_targets(target) < maxi(effect.target_count, 1)
+	return false
+
+
+func _count_living_targets(target: Variant) -> int:
+	## Number of living creatures in a chosen-target list (0 if it is not an Array).
+	if not (target is Array):
+		return 0
+	return CardInstance.living(target).size()
 
 
 func _can_play_from_hand(card: CardData) -> bool:
@@ -607,8 +617,17 @@ func _cmd_advance() -> bool:
 
 
 func _resolve_command_target(payload: Dictionary) -> Variant:
-	## Decode a creature target encoded as {target_side, target_index}. Returns null
-	## (the hero, or "no target") when either field is absent/negative.
+	## Decode a creature target. Multi-target (CHOSEN_CREATURES) is encoded as
+	## `target_specs`: an Array of {side, index} decoded into an Array[CardInstance].
+	## Single-target is {target_side, target_index}; returns null (the hero, or "no
+	## target") when either field is absent/negative.
+	if payload.has("target_specs"):
+		var chosen: Array[CardInstance] = []
+		for spec in payload["target_specs"]:
+			var inst: CardInstance = _board_at(int(spec.get("side", -1)), int(spec.get("index", -1)))
+			if inst != null:
+				chosen.append(inst)
+		return chosen
 	var ts: int = int(payload.get("target_side", -1))
 	var ti: int = int(payload.get("target_index", -1))
 	if ts < 0 or ti < 0:
@@ -1119,16 +1138,19 @@ func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 
 
 func _ai_spell_target(card: CardData, side: int, side_ai: CombatAI) -> Variant:
-	## Consult the AI for a single-target spell's target. Other spells resolve
-	## relative to the caster, so they need no explicit target.
-	if not _spell_is_single_target(card):
+	## Consult the AI for a spell that needs explicit targets (single PLAYER_CREATURE
+	## or multi CHOSEN_CREATURES). The AI returns a CardInstance or an Array depending
+	## on the spell; other spells resolve relative to the caster and need no target.
+	if not _spell_needs_explicit_target(card):
 		return null
 	return side_ai.choose_spell_target(card, ally_boards(side), enemy_boards(side))
 
 
-func _spell_is_single_target(card: CardData) -> bool:
+func _spell_needs_explicit_target(card: CardData) -> bool:
 	for effect in card.spell_effects:
 		if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE:
+			return true
+		if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
 			return true
 	return false
 
@@ -1463,6 +1485,9 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			_apply_effect_and_sweep(effect, ally_boards(side), context)
 		SpellEffect.TargetType.SUMMON_BOARD:
 			_apply_summon_effect(effect, side, context)
+		SpellEffect.TargetType.CHOSEN_CREATURES:
+			# Bounded multi-target: `target` is the caller-chosen Array of creatures.
+			_apply_chosen_creatures(effect, target, context)
 
 
 func _apply_enemy_hero_effect(effect: SpellEffect, side: int, target_side: int, context: Dictionary) -> void:
@@ -1497,6 +1522,22 @@ func _apply_player_creature_effect(effect: SpellEffect, target: Variant, context
 		_apply_effect_and_sweep(effect, target, context)
 	else:
 		push_warning("PLAYER_CREATURE spell with no valid target — not applied")
+
+
+func _apply_chosen_creatures(effect: SpellEffect, target: Variant, context: Dictionary) -> void:
+	# Apply the effect to each caster-chosen creature individually, reusing the
+	# single-target apply (DAMAGE / HEAL / BUFF_ATTACK). Public casting already
+	# rejects a target list shorter than target_count before consuming (fizzle); this
+	# is the low-level resolution. Drain + sweep once at the end so chained deaths
+	# surface like any other multi-target spell.
+	if not (target is Array):
+		push_warning("CHOSEN_CREATURES spell with no creature list — not applied")
+		return
+	for inst in target:
+		if inst is CardInstance and not inst.is_dead:
+			effect.apply(inst, context)
+	_drain_triggers()
+	_sweep_all_boards()
 
 
 func _apply_summon_effect(effect: SpellEffect, side: int, context: Dictionary) -> void:
