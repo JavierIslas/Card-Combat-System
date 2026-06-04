@@ -101,6 +101,15 @@ var exhaust_fn: Callable = Callable()
 ## because the hand is full (see config.max_hand_size). Empty = burned silently.
 var discard_fn: Callable = Callable()
 
+## Optional attack-targeting restriction hook (e.g. TAUNT). Signature:
+## (attacker: CardInstance, enemy_creatures: Array) -> Array. Returns the subset of
+## living enemy creatures the attacker is RESTRICTED to: a non-empty list means the
+## attacker MUST hit one of them (a hero swing or any other creature is illegal); an
+## empty list means no restriction (any creature / hero, the previous behavior).
+## Empty Callable = no restriction. Agnostic: the engine never reads what makes a
+## creature "taunt"; the hook decides. Re-injected via deserialize hooks.
+var attack_restriction_fn: Callable = Callable()
+
 ## How ability triggers are dispatched. INLINE (default) fires ability_fn the
 ## moment a trigger happens, exactly as before — a chained trigger resolves
 ## depth-first, mid-sweep. QUEUED defers every trigger into a FIFO queue drained at
@@ -428,6 +437,10 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 		ts = target_side if target_side >= 0 else _default_enemy_side(active_side)
 		if ts < 0 or are_allies(ts, active_side):
 			return false
+	# Targeting restriction (e.g. TAUNT): when the hook restricts this attacker to a
+	# set of creatures, a hero swing or a non-listed creature is illegal.
+	if not _attack_target_allowed(attacker, target):
+		return false
 	var pair = CombatPair.new(attacker, target)
 	pair.target_side = ts
 	_attack_pairs[active_side].append(pair)
@@ -476,6 +489,24 @@ func _find_attack_pair(attacker: CardInstance) -> CombatPair:
 		if pair.attacker == attacker:
 			return pair
 	return null
+
+
+func _required_attack_targets(attacker: CardInstance) -> Array:
+	## Creatures the attack_restriction_fn forces `attacker` to choose among (e.g. the
+	## living enemy taunts). Empty when there is no hook or no restriction in play.
+	## Single source for both the declare_attacker guard and the auto-play redirect.
+	if not attack_restriction_fn.is_valid():
+		return []
+	return attack_restriction_fn.call(attacker, CardInstance.living(enemy_boards(active_side)))
+
+
+func _attack_target_allowed(attacker: CardInstance, target: Variant) -> bool:
+	## Enforce the targeting restriction: with a non-empty required set the target must
+	## be one of those creatures; otherwise (no hook / empty set) any target is allowed.
+	var required: Array = _required_attack_targets(attacker)
+	if required.is_empty():
+		return true
+	return target is CardInstance and required.has(target)
 
 
 func end_main_phase() -> void:
@@ -888,6 +919,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session.damage_fn = hooks.get("damage_fn", Callable())
 	session.exhaust_fn = hooks.get("exhaust_fn", Callable())
 	session.discard_fn = hooks.get("discard_fn", Callable())
+	session.attack_restriction_fn = hooks.get("attack_restriction_fn", Callable())
 	session._resolver.damage_fn = session.damage_fn
 	session._restore_topology(data)
 	session._restore_scalars(data)
@@ -1074,7 +1106,22 @@ func _auto_play_active() -> void:
 	for attacker in attackers:
 		# null -> swing at a hero; the engine routes it to the first living enemy side.
 		var target: Variant = side_ai.choose_attack_target(attacker, enemy_board, enemy_heroes)
+		# Redirect to a legal target when a restriction (e.g. TAUNT) applies, so the
+		# attack isn't wasted on an illegal target the AI can't see.
+		target = _redirect_for_restriction(attacker, target)
 		declare_attacker(attacker, target)
+
+
+func _redirect_for_restriction(attacker: CardInstance, chosen: Variant) -> Variant:
+	## Map an AI's chosen target to a legal one under the attack restriction: keep it
+	## when unrestricted or already legal, else force the first required creature (e.g.
+	## a taunt). Keeps auto_resolve deterministic without teaching the AI about TAUNT.
+	var required: Array = _required_attack_targets(attacker)
+	if required.is_empty():
+		return chosen
+	if chosen is CardInstance and required.has(chosen):
+		return chosen
+	return required[0]
 
 
 func _living_enemy_heroes(side: int) -> Array[Combatant]:

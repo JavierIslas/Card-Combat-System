@@ -1382,3 +1382,99 @@ func test_auto_resolve_con_chosen_corre_y_es_determinista() -> void:
 	s2.auto_resolve()
 	assert_gt(s1.get_result()["turn_number"], 1, "el combate con CHOSEN realmente avanzó")
 	assert_eq(s1.get_result(), s2.get_result(), "auto_resolve con CHOSEN es determinista")
+
+
+# --- attack_restriction_fn (TAUNT-style targeting restriction) ----------------
+# The engine hook is exercised with an ad-hoc Callable so these tests stay
+# independent of AbilityLibrary: a creature is "taunt" if metadata.taunt is true.
+
+func _taunt_restriction(_attacker: CardInstance, enemy_creatures: Array) -> Array:
+	var out: Array = []
+	for inst in enemy_creatures:
+		if inst.card_data != null and inst.card_data.metadata.get("taunt", false):
+			out.append(inst)
+	return out
+
+
+func _taunt_card(cost: int, attack: int, health: int) -> CardData:
+	var d := _creature(cost, attack, health)
+	d.metadata = {"taunt": true}
+	return d
+
+
+func test_attack_restriction_obliga_a_atacar_al_taunt() -> void:
+	# With a living enemy taunt, a hero swing (null) and a non-taunt creature are both
+	# illegal; only the taunt is a legal target.
+	_setup_basico()
+	_session.attack_restriction_fn = _taunt_restriction
+	_session.start()
+	var attacker := CardInstance.new()
+	attacker.setup(_creature(0, 2, 2), 0)
+	attacker.can_attack_this_turn = true
+	_session.decks[0].add_to_board(attacker)
+	var taunt := CardInstance.new()
+	taunt.setup(_taunt_card(0, 1, 3), 1)
+	var plain := CardInstance.new()
+	plain.setup(_creature(0, 2, 2), 1)
+	_session.decks[1].add_to_board(taunt)
+	_session.decks[1].add_to_board(plain)
+	# Rejections first (they return before marking has_attacked_this_turn).
+	assert_false(_session.declare_attacker(attacker, null), "swing al heroe ilegal con taunt en juego")
+	assert_false(_session.declare_attacker(attacker, plain), "atacar a una criatura no-taunt es ilegal")
+	assert_true(_session.declare_attacker(attacker, taunt), "atacar al taunt es legal")
+
+
+func test_attack_restriction_sin_taunt_no_restringe() -> void:
+	# The hook is set but no enemy taunt is in play: the restriction is empty, so a
+	# hero swing is allowed (previous behavior).
+	_setup_basico()
+	_session.attack_restriction_fn = _taunt_restriction
+	_session.start()
+	var attacker := CardInstance.new()
+	attacker.setup(_creature(0, 2, 2), 0)
+	attacker.can_attack_this_turn = true
+	_session.decks[0].add_to_board(attacker)
+	var plain := CardInstance.new()
+	plain.setup(_creature(0, 2, 2), 1)
+	_session.decks[1].add_to_board(plain)
+	assert_true(_session.declare_attacker(attacker, null), "sin taunt, el swing al heroe sigue permitido")
+
+
+func test_redirect_for_restriction_mapea_a_un_target_legal() -> void:
+	# Auto-play redirect: an illegal AI choice maps to the first required creature; a
+	# legal one is kept; no hook keeps the choice untouched.
+	_setup_basico()
+	_session.start()
+	var attacker := CardInstance.new()
+	attacker.setup(_creature(0, 2, 2), 0)
+	var taunt := CardInstance.new()
+	taunt.setup(_taunt_card(0, 1, 3), 1)
+	var plain := CardInstance.new()
+	plain.setup(_creature(0, 2, 2), 1)
+	_session.decks[1].add_to_board(taunt)
+	_session.decks[1].add_to_board(plain)
+	_session.attack_restriction_fn = _taunt_restriction
+	assert_eq(_session._redirect_for_restriction(attacker, plain), taunt, "una eleccion ilegal se redirige al taunt")
+	assert_eq(_session._redirect_for_restriction(attacker, taunt), taunt, "una eleccion legal se mantiene")
+	assert_eq(_session._redirect_for_restriction(attacker, null), taunt, "el swing al heroe se redirige al taunt")
+	_session.attack_restriction_fn = Callable()
+	assert_eq(_session._redirect_for_restriction(attacker, plain), plain, "sin hook la eleccion no se toca")
+
+
+func test_auto_resolve_con_taunt_corre_y_es_determinista() -> void:
+	# End-to-end: auto_resolve with the restriction set drives the redirect path and
+	# stays deterministic for a fixed seed.
+	var t0 := _creature(2, 1, 5)
+	t0.metadata = {"taunt": true}
+	var deck_a: Array[CardData] = [_creature(1, 2, 3), t0.duplicate(true), _creature(3, 4, 4)]
+	var deck_b: Array[CardData] = [_creature(1, 2, 3), t0.duplicate(true), _creature(3, 4, 4)]
+	var s1 := CombatSession.new()
+	s1.attack_restriction_fn = _taunt_restriction
+	s1.setup(_hero(), deck_a, _hero(), _starter(), 5)
+	s1.auto_resolve()
+	var s2 := CombatSession.new()
+	s2.attack_restriction_fn = _taunt_restriction
+	s2.setup(_hero(), deck_b, _hero(), _starter(), 5)
+	s2.auto_resolve()
+	assert_gt(s1.get_result()["turn_number"], 1, "el combate con taunt realmente avanzó")
+	assert_eq(s1.get_result(), s2.get_result(), "auto_resolve con taunt es determinista")
