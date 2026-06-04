@@ -1360,42 +1360,20 @@ func _apply_effect_and_sweep(effect: SpellEffect, target: Variant, context: Dict
 
 func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null, target_side: int = -1) -> void:
 	## Agnostic resolution from the caster's perspective (`side`). TargetType is
-	## interpreted relative to the caster, so the same spell serves both sides with
-	## no duplicated logic.
-	var caster_deck: CombatDeck = decks[side]
+	## interpreted relative to the caster, so the same spell serves both sides with no
+	## duplicated logic. Each branch with real logic lives in a private helper below;
+	## this dispatcher only builds the shared context and routes by target_type.
 	# Unified context for every effect.apply path, so a custom effect_fn always
 	# receives the session and the casting side (it reaches heroes with full
 	# observability via context["session"].deal_damage_to_hero / heal_hero).
 	var context: Dictionary = {"session": self, "owner_id": side}
 	match effect.target_type:
 		SpellEffect.TargetType.ENEMY_HERO:
-			# Resolve which enemy hero is hit by team (explicit target_side or first
-			# living enemy), not by `1 - side`, so FFA / team games target correctly.
-			# A custom effect_fn overrides hero damage entirely; the default keeps the
-			# engine's signaled hero-damage so the event_log stays consistent.
-			var enemy_side: int = _resolve_enemy_hero_side(side, target_side)
-			if enemy_side < 0:
-				return
-			if effect.effect_fn.is_valid():
-				_apply_effect_and_sweep(effect, heroes[enemy_side], context)
-			else:
-				deal_damage_to_hero(enemy_side, effect.value)
+			_apply_enemy_hero_effect(effect, side, target_side, context)
 		SpellEffect.TargetType.PLAYER_HERO:
-			if effect.effect_fn.is_valid():
-				_apply_effect_and_sweep(effect, heroes[side], context)
-			else:
-				heal_hero(side, effect.value)
+			_apply_player_hero_effect(effect, side, context)
 		SpellEffect.TargetType.PLAYER_CREATURE:
-			# Public casting via play_card() already rejects a missing target before
-			# consuming (see _spell_needs_missing_target). This is a low-level guard
-			# for internal callers (e.g. auto-play) that bypass that check.
-			if target is CardInstance and not target.is_dead:
-				# Sweep every board, not just the target's: a built-in single-target
-				# damage only kills the target, but an injected effect_fn can hit other
-				# sides collaterally, and those deaths must surface like any other.
-				_apply_effect_and_sweep(effect, target, context)
-			else:
-				push_warning("PLAYER_CREATURE spell with no valid target — not applied")
+			_apply_player_creature_effect(effect, target, context)
 		SpellEffect.TargetType.ENEMY_CREATURES:
 			# "All enemies" resolves by teams: every enemy side's board, not a single
 			# opponent. In 1v1 this is the one other board, so behavior is unchanged.
@@ -1405,18 +1383,56 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 			# built-in buff can't kill, but a custom effect_fn could; sweep regardless.
 			_apply_effect_and_sweep(effect, ally_boards(side), context)
 		SpellEffect.TargetType.SUMMON_BOARD:
-			# Seed the deck-owned hooks via context so _apply_summon builds the
-			# instances already configured (fires ON_SETUP with the handler).
-			context["ability_fn"] = caster_deck.ability_fn
-			context["max_permanent_buffs"] = caster_deck.max_permanent_buffs
-			var result: Dictionary = effect.apply(null, context)
-			var summoned: Array = result.get("summoned", [])
-			for inst in summoned:
-				caster_deck.add_to_board(inst)
-				# Spell summons bypass play_creature (no CARD_PLAYED), so emit a
-				# dedicated event/signal; otherwise a log-only replay never sees the
-				# creature appear on the board.
-				_emit_creature_summoned(inst, side)
+			_apply_summon_effect(effect, side, context)
+
+
+func _apply_enemy_hero_effect(effect: SpellEffect, side: int, target_side: int, context: Dictionary) -> void:
+	# Resolve which enemy hero is hit by team (explicit target_side or first living
+	# enemy), not by `1 - side`, so FFA / team games target correctly. A custom
+	# effect_fn overrides hero damage entirely; the default keeps the engine's
+	# signaled hero-damage so the event_log stays consistent.
+	var enemy_side: int = _resolve_enemy_hero_side(side, target_side)
+	if enemy_side < 0:
+		return
+	if effect.effect_fn.is_valid():
+		_apply_effect_and_sweep(effect, heroes[enemy_side], context)
+	else:
+		deal_damage_to_hero(enemy_side, effect.value)
+
+
+func _apply_player_hero_effect(effect: SpellEffect, side: int, context: Dictionary) -> void:
+	if effect.effect_fn.is_valid():
+		_apply_effect_and_sweep(effect, heroes[side], context)
+	else:
+		heal_hero(side, effect.value)
+
+
+func _apply_player_creature_effect(effect: SpellEffect, target: Variant, context: Dictionary) -> void:
+	# Public casting via play_card() already rejects a missing target before consuming
+	# (see _spell_needs_missing_target). This is a low-level guard for internal callers
+	# (e.g. auto-play) that bypass that check.
+	if target is CardInstance and not target.is_dead:
+		# Sweep every board, not just the target's: a built-in single-target damage
+		# only kills the target, but an injected effect_fn can hit other sides
+		# collaterally, and those deaths must surface like any other.
+		_apply_effect_and_sweep(effect, target, context)
+	else:
+		push_warning("PLAYER_CREATURE spell with no valid target — not applied")
+
+
+func _apply_summon_effect(effect: SpellEffect, side: int, context: Dictionary) -> void:
+	# Seed the deck-owned hooks via context so _apply_summon builds the instances
+	# already configured (fires ON_SETUP with the handler).
+	var caster_deck: CombatDeck = decks[side]
+	context["ability_fn"] = caster_deck.ability_fn
+	context["max_permanent_buffs"] = caster_deck.max_permanent_buffs
+	var result: Dictionary = effect.apply(null, context)
+	var summoned: Array = result.get("summoned", [])
+	for inst in summoned:
+		caster_deck.add_to_board(inst)
+		# Spell summons bypass play_creature (no CARD_PLAYED), so emit a dedicated
+		# event/signal; otherwise a log-only replay never sees the creature appear.
+		_emit_creature_summoned(inst, side)
 
 
 func deal_damage_to_hero(side: int, amount: int) -> void:
