@@ -82,7 +82,31 @@ func choose_spell_target(spell: CardData, own_board: Array[CardInstance], enemy_
 	var candidates: Array[CardInstance] = CardInstance.living(board)
 	if candidates.is_empty():
 		return null
+	# CHOSEN_CREATURES: return up to target_count distinct living creatures (the
+	# engine fizzles/skips if fewer than target_count are returned). Single-target
+	# spells return one creature, unchanged.
+	var n: int = _chosen_count(spell)
+	if n > 0:
+		return _pick_random_distinct(candidates, n)
 	return candidates[_rng.randi() % candidates.size()]
+
+
+func _chosen_count(spell: CardData) -> int:
+	## target_count if the spell carries a CHOSEN_CREATURES effect, else 0 (single).
+	for effect in spell.spell_effects:
+		if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
+			return maxi(effect.target_count, 1)
+	return 0
+
+
+func _pick_random_distinct(candidates: Array[CardInstance], n: int) -> Array[CardInstance]:
+	var pool: Array[CardInstance] = candidates.duplicate()
+	var out: Array[CardInstance] = []
+	while out.size() < n and not pool.is_empty():
+		var i: int = _rng.randi() % pool.size()
+		out.append(pool[i])
+		pool.remove_at(i)
+	return out
 
 
 func _targets_enemies(spell: CardData) -> bool:

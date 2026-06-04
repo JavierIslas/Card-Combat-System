@@ -160,3 +160,30 @@ func test_serialize_state_captura_seed_y_estado() -> void:
 	var state := ai.serialize_state()
 	assert_eq(int(state.get("seed", -99)), 3, "guarda el seed")
 	assert_true(state.has("rng_state"), "guarda el estado vivo del RNG")
+
+
+func _chosen_spell(type: SpellEffect.EffectType, count: int) -> CardData:
+	var c := _spell_card(type)
+	c.spell_effects[0].target_type = SpellEffect.TargetType.CHOSEN_CREATURES
+	c.spell_effects[0].target_count = count
+	return c
+
+
+func test_choose_spell_target_chosen_devuelve_array_de_target_count() -> void:
+	var ai := DummyAI.new()
+	ai.setup(1)
+	var e1 := _inst(1, 5, 1)
+	var e2 := _inst(1, 5, 1)
+	var e3 := _inst(1, 5, 1)
+	var result: Variant = ai.choose_spell_target(_chosen_spell(SpellEffect.EffectType.DAMAGE, 2), [], [e1, e2, e3])
+	assert_true(result is Array, "CHOSEN devuelve un Array")
+	assert_eq(result.size(), 2, "elige target_count criaturas")
+	assert_true(result[0] != result[1], "las elegidas son distintas")
+
+
+func test_choose_spell_target_chosen_topa_a_los_vivos_disponibles() -> void:
+	var ai := DummyAI.new()
+	ai.setup(1)
+	var solo := _inst(1, 5, 1)
+	var result: Variant = ai.choose_spell_target(_chosen_spell(SpellEffect.EffectType.DAMAGE, 3), [], [solo])
+	assert_eq(result.size(), 1, "con menos vivos que target_count devuelve los disponibles (motor fizzlea)")

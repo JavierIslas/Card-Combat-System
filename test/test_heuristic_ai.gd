@@ -192,3 +192,43 @@ func _starter() -> Array[CardData]:
 		d.play_kind = CardData.PlayKind.UNIT
 		cards.append(d)
 	return cards
+
+
+func _chosen_spell(type: SpellEffect.EffectType, value: int, count: int) -> CardData:
+	var c := _spell_card(type, value)
+	c.spell_effects[0].target_type = SpellEffect.TargetType.CHOSEN_CREATURES
+	c.spell_effects[0].target_count = count
+	return c
+
+
+func test_choose_spell_target_chosen_dano_prefiere_los_mas_debiles() -> void:
+	var ai := HeuristicAI.new()
+	var fuerte := _inst(1, 9, 1)
+	var debil := _inst(1, 1, 1)
+	var medio := _inst(1, 4, 1)
+	var result: Variant = ai.choose_spell_target(_chosen_spell(SpellEffect.EffectType.DAMAGE, 2, 2), [], [fuerte, debil, medio])
+	assert_true(result is Array, "CHOSEN devuelve un Array")
+	assert_eq(result.size(), 2, "elige target_count")
+	assert_true(result.has(debil) and result.has(medio), "prefiere los de menor vida")
+	assert_false(result.has(fuerte), "no incluye el de más vida")
+
+
+func test_choose_spell_target_chosen_cura_al_mas_herido() -> void:
+	var ai := HeuristicAI.new()
+	var sano := _inst(1, 5, 0)
+	var herido := _inst(1, 5, 0)
+	herido.take_damage(3)
+	var result: Variant = ai.choose_spell_target(_chosen_spell(SpellEffect.EffectType.HEAL, 2, 1), [sano, herido], [])
+	assert_eq(result.size(), 1, "elige target_count")
+	assert_eq(result[0], herido, "la cura elige al aliado más herido")
+
+
+func test_choose_spell_target_chosen_determinista() -> void:
+	var spell := _chosen_spell(SpellEffect.EffectType.DAMAGE, 2, 2)
+	var ai1 := HeuristicAI.new()
+	var ai2 := HeuristicAI.new()
+	var board1: Array[CardInstance] = [_inst(1, 9, 1), _inst(1, 1, 1), _inst(1, 4, 1)]
+	var board2: Array[CardInstance] = [_inst(1, 9, 1), _inst(1, 1, 1), _inst(1, 4, 1)]
+	var r1: Variant = ai1.choose_spell_target(spell, [], board1)
+	var r2: Variant = ai2.choose_spell_target(spell, [], board2)
+	assert_eq(r1.size(), r2.size(), "selección determinista, mismo tamaño")

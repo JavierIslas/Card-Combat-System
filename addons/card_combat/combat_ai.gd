@@ -46,10 +46,13 @@ func choose_attack_target(_attacker: CardInstance, _enemy_board: Array[CardInsta
 
 
 func choose_spell_target(_spell: CardData, _own_board: Array[CardInstance], _enemy_board: Array[CardInstance]) -> Variant:
-	## Pick a living CardInstance for a single-target spell, or null if none fits.
-	## Both boards are the combined ally / enemy creatures across sides (each carries
-	## its owner_id). Inspect `_spell.spell_effects` (a DAMAGE wants an enemy, a BUFF
-	## an ally) to decide. Returning null makes the spell skip without being cast.
+	## Pick targets for a spell that needs them. For a single-target spell
+	## (PLAYER_CREATURE) return a living CardInstance, or null if none fits. For a
+	## bounded multi-target spell (CHOSEN_CREATURES) return an Array of up to
+	## target_count living CardInstances (returning fewer makes the spell fizzle/skip,
+	## same as null for single-target). Both boards are the combined ally / enemy
+	## creatures across sides (each carries its owner_id); inspect
+	## `_spell.spell_effects` (a DAMAGE wants enemies, a HEAL/BUFF allies) to decide.
 	push_error("CombatAI.choose_spell_target not implemented")
 	return null
 

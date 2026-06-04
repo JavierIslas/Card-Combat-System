@@ -93,9 +93,32 @@ func choose_spell_target(spell: CardData, own_board: Array[CardInstance], enemy_
 	var effect: SpellEffect = _first_effect(spell)
 	if effect == null:
 		return _first_living(enemy_board)
+	if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
+		return _pick_chosen(effect, own_board, enemy_board)
 	if _is_damage(effect):
 		return _pick_damage_target(effect.value, enemy_board)
 	return _pick_support_target(effect, own_board)
+
+
+func _pick_chosen(effect: SpellEffect, own_board: Array[CardInstance], enemy_board: Array[CardInstance]) -> Array[CardInstance]:
+	## Deterministic bounded multi-target: damage picks the weakest enemies (best kill
+	## value); support picks the most-damaged ally (heal) or strongest ally (buff).
+	## Returns up to target_count; the engine fizzles/skips if too few are available.
+	var damage: bool = _is_damage(effect)
+	var heal: bool = effect.effect_type == SpellEffect.EffectType.HEAL
+	var candidates: Array[CardInstance] = CardInstance.living(enemy_board if damage else own_board)
+	if damage:
+		candidates.sort_custom(func(a: CardInstance, b: CardInstance) -> bool: return a.current_health < b.current_health)
+	elif heal:
+		candidates.sort_custom(func(a: CardInstance, b: CardInstance) -> bool: return _missing_health(a) > _missing_health(b))
+	else:
+		candidates.sort_custom(func(a: CardInstance, b: CardInstance) -> bool: return a.current_attack > b.current_attack)
+	var out: Array[CardInstance] = []
+	for inst in candidates:
+		if out.size() >= maxi(effect.target_count, 1):
+			break
+		out.append(inst)
+	return out
 
 
 func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstance]) -> Dictionary:
