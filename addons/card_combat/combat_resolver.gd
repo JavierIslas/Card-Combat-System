@@ -22,7 +22,6 @@ var damage_fn: Callable = Callable()
 
 func resolve_combat(pairs: Array) -> Dictionary:
 	var pairs_result: Array = []
-	var hero_damage: int = 0
 
 	# Phase 1: Calculate all damage. Each entry is [target: CardInstance, amount: int].
 	var pending_damage: Array[Array] = []
@@ -33,8 +32,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 		var a_dmg := calculate_damage(a, d)
 
 		if d == null:
-			# Direct attack to hero
-			hero_damage += a_dmg
+			# Direct attack to hero: the dealt damage lives in this pair's
+			# attacker_damage_dealt, which the session aggregates per target_side.
 			pairs_result.append({
 				"attacker": a,
 				"defender": null,
@@ -72,7 +71,6 @@ func resolve_combat(pairs: Array) -> Dictionary:
 
 	return {
 		"pairs_result": pairs_result,
-		"hero_damage": hero_damage,
 	}
 
 

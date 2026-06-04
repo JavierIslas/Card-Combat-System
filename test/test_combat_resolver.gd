@@ -8,6 +8,17 @@ func before_each() -> void:
 	_resolver = CombatDamageResolver.new()
 
 
+func _hero_damage(result: Dictionary) -> int:
+	# Real source of truth for hero damage (the resolver no longer accumulates it):
+	# sum attacker_damage_dealt over pairs that hit a hero (defender == null), exactly
+	# as CombatSession._resolve_active_attacks aggregates it per target_side.
+	var total: int = 0
+	for pr in result["pairs_result"]:
+		if pr["defender"] == null:
+			total += pr["attacker_damage_dealt"]
+	return total
+
+
 func _make_creature(attack: int, health: int) -> CardInstance:
 	var data := CardData.new()
 	data.attack = attack
@@ -41,7 +52,7 @@ func test_trade_mutuo_ambos_mueren() -> void:
 	var pr: Dictionary = result["pairs_result"][0]
 	assert_true(pr["attacker_died"], "atacante muere")
 	assert_true(pr["defender_died"], "defensor muere")
-	assert_eq(result["hero_damage"], 0, "sin daño al héroe en trade entre criaturas")
+	assert_eq(_hero_damage(result), 0, "sin daño al héroe en trade entre criaturas")
 
 
 func test_dano_simultaneo_intercambio_completo() -> void:
@@ -58,7 +69,7 @@ func test_ataque_directo_al_heroe() -> void:
 	var a := _make_creature(4, 3)
 	var pair := CombatPair.new(a, null)
 	var result := _resolver.resolve_combat([pair])
-	assert_eq(result["hero_damage"], 4, "daño directo al héroe")
+	assert_eq(_hero_damage(result), 4, "daño directo al héroe")
 	var pr: Dictionary = result["pairs_result"][0]
 	assert_null(pr["defender"])
 	assert_false(pr["attacker_died"], "atacante no muere en ataque directo")
@@ -85,4 +96,4 @@ func test_dos_atacantes_mismo_bloqueador() -> void:
 	assert_true(d.is_dead, "el defensor muere por el dano combinado (2+2 sobre 3)")
 	assert_eq(a1.current_health, 4, "cada atacante recibe el ataque del defensor (1)")
 	assert_eq(a2.current_health, 4)
-	assert_eq(result["hero_damage"], 0, "ambos atacantes fueron bloqueados, sin dano al heroe")
+	assert_eq(_hero_damage(result), 0, "ambos atacantes fueron bloqueados, sin dano al heroe")
