@@ -15,8 +15,8 @@ packaging / future export) and can be mirrored to a standalone repo.
 | Class | Role |
 |-------|------|
 | `Combatant` | Generic participant: `current_health/max_health`, `take_damage`, `heal`, signals. Each side's hero is one of these (`heroes[side]`) |
-| `CardData` | Card core (id/cost/stats/type) + opaque `metadata: Dictionary` for game-specific fields |
-| `CardInstance` | Card in play (turn state, health, flags). Fires ability triggers via `ability_fn` |
+| `CardData` | Card core (id/cost/stats) + `play_kind` (UNIT / EFFECT / PERSISTENT) + opaque `metadata: Dictionary` for game-specific fields |
+| `CardInstance` | Card in play (turn state, health, flags, `is_combatant`). Fires ability triggers via `ability_fn`; carries permanent/temp/continuous stat layers |
 | `CombatCommand` | Serializable driver intention (input); fed to `CombatSession.apply_command` and accumulated in `command_log` |
 | `HiddenCardStats` | Declared vs. hidden stats for bluffing |
 | `CombatDeck` | Hand, deck, board, graveyard and mana for one side, plus game-defined extra zones |
@@ -117,6 +117,35 @@ comes from `max_buffs` (one-off override) or from `max_permanent_buffs` (seeded
 from `CombatConfig`). It also raises `current_max_health`, which is the cap
 respected by `heal()`. For "+1/+1 with cap 3", the game sets
 `config.max_permanent_buffs_per_card = 3` and calls `inst.apply_permanent_buff(1, 1)`.
+
+### Continuous modifiers (auras)
+
+Where a permanent buff is one-shot and a temp buff expires on the next refresh, a
+**continuous modifier** stays only while its source keeps it applied — the model for
+an aura/enchantment. The engine provides the primitive; the game decides when to add
+and remove it (typically the source's `ON_SETUP` / `ON_DEATH`):
+
+```gdscript
+inst.add_continuous_modifier("aura:hill_giant", 1, 1)   # +1/+1 while the aura lives
+inst.remove_continuous_modifier("aura:hill_giant")      # rolled back exactly
+inst.has_continuous_modifier("aura:hill_giant")
+```
+
+Modifiers are keyed by an opaque `source_id`: re-adding the same id **replaces** its
+delta instead of stacking (idempotent refresh), and different ids sum. Removal caps
+current health to the restored max rather than subtracting blindly (damage already
+absorbed by the buffer is not double-counted), exactly like temp buffs. Continuous
+modifiers survive `reveal()` and round-trip through `serialize()`/`deserialize()`.
+
+### Non-combatant permanents (`PlayKind.PERSISTENT`)
+
+A `PERSISTENT` card goes to the board and persists (it fires lifecycle triggers like
+a creature) but **never fights**: it cannot attack or block. The engine derives
+`CardInstance.is_combatant` from `play_kind` (UNIT = true, PERSISTENT = false), so a
+PERSISTENT permanent never gains `can_attack_this_turn` on refresh and is excluded
+from `get_defenders()`. It is the engine primitive for an aura/enchantment that lives
+on the board and drives continuous modifiers on other creatures via `ability_fn`.
+Game-domain types (Weapon, Land, Trap) still belong in `metadata`, not in `play_kind`.
 
 ### Extra card zones (generic)
 
