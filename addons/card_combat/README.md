@@ -30,6 +30,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CombatAI` | Base AI contract: defines the 5 signatures; subclass for a custom AI |
 | `DummyAI` | Reference/default AI (random, optional seed); `extends CombatAI` |
 | `HeuristicAI` | Optional stronger AI (greedy, deterministic): curve-filling plays, value trades, threat blocking; `extends CombatAI`. Inject via `ais[side]`; DummyAI stays the default |
+| `AbilityLibrary` | Opt-in keyword interpreter (`abilities/`): CHARGE/IMMUNITY/LIFESTEAL via `ability_fn`, TAUNT via `attack_restriction_fn`. Not part of the core; the game wires it in or ignores it |
 
 ## Injection points (how the game layer specializes it)
 
@@ -91,6 +92,16 @@ packaging / future export) and can be mirrored to a standalone repo.
    on `setup()`. Signature: `(card: CardData, owner_id: int)`. Called when a card is
    drawn with a full hand (`config.max_hand_size`) and burned to the graveyard.
    Empty = the card is burned silently.
+9. **`CombatSession.attack_restriction_fn: Callable`** — attack-targeting restriction
+   (e.g. TAUNT). Signature: `(attacker: CardInstance, enemy_creatures: Array) ->
+   Array`. Returns the subset of living enemy creatures the attacker is **restricted**
+   to: a non-empty list means the attacker MUST hit one of them (a hero swing or any
+   other creature is illegal); an empty list means no restriction (any creature / hero,
+   the previous behavior). Enforced in `declare_attacker`; in `auto_resolve` an
+   illegal AI choice is redirected to the first required creature. Empty Callable = no
+   restriction, so a game that never sets it behaves exactly as before. Re-injected via
+   the `deserialize` hooks like the other Callables. Agnostic: the engine never reads
+   what makes a creature "taunt"; the hook decides.
 
 ### Trigger dispatch order (`trigger_mode`)
 
@@ -147,6 +158,34 @@ from `get_defenders()`. It is the engine primitive for an aura/enchantment that 
 on the board and drives continuous modifiers on other creatures via `ability_fn`.
 Game-domain types (Weapon, Land, Trap) still belong in `metadata`, not in `play_kind`.
 
+### Keyword library (`abilities/`, opt-in)
+
+`AbilityLibrary` (in `addons/card_combat/abilities/`) is a **ready-made**,
+**opt-in** interpreter for a few common keywords — it is *not* part of the agnostic
+core. A game wires it in explicitly (or ignores it and writes its own handler):
+
+```gdscript
+var lib := AbilityLibrary.new(session)
+session.ability_fn = lib.ability_handler          # CHARGE / IMMUNITY / LIFESTEAL
+session.attack_restriction_fn = lib.taunt_restriction   # TAUNT
+```
+
+Keywords are declared per card in `metadata["keywords"]` (an opaque `Array[String]`
+the engine never reads):
+
+| Keyword | Effect |
+|---------|--------|
+| `CHARGE` | can attack the turn it enters play (clears summoning sickness; combatants only) |
+| `IMMUNITY` | absorbs the next N hits (`metadata["immunity_hits"]`, default 1; `-1` = all) |
+| `LIFESTEAL` | combat damage it deals heals its owner's hero by the same amount |
+| `TAUNT` | while alive, enemy attackers must target it (drives `attack_restriction_fn`) |
+
+The library holds a **weak** reference to the session (LIFESTEAL heals through
+`session.heal_hero`), so it never forms a reference cycle with the session that owns
+its Callable. It is a convenience layer built entirely on the public engine surface
+(`ability_fn` triggers + `attack_restriction_fn`); everything it does, a game could
+also do by hand.
+
 ### Extra card zones (generic)
 
 Beyond the four core zones (draw pile, hand, board, graveyard), the game can
@@ -194,7 +233,7 @@ FSM per side turn:
 |-------|-----------|------|
 | `PREPARATION` | active | only the active side ramps mana, draws and refreshes |
 | `MAIN` | active | `play_card` |
-| `ATTACK` | active | `declare_attacker(attacker, target?, target_side?)` (target = an enemy creature; null swings at a hero, `target_side` picks which enemy hero) |
+| `ATTACK` | active | `declare_attacker(attacker, target?, target_side?)` (target = an enemy creature; null swings at a hero, `target_side` picks which enemy hero; `attack_restriction_fn` can force a target, e.g. TAUNT) |
 | `DEFENSE` | **passive** | `declare_blocker(attacker, blocker)` — any enemy side's defender redirects that attack to itself |
 | `RESOLVE` | engine | resolves the active side's attacks, then hands the turn to the next living side |
 
