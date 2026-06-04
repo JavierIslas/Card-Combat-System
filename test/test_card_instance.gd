@@ -247,3 +247,106 @@ func test_reveal_preserva_buff_temporal_activo() -> void:
 	assert_eq(inst.current_attack, 6, "base real 4 + temp 2")
 	assert_eq(inst.current_health, 8, "base real 6 + temp 2")
 	assert_eq(inst.current_max_health, 8, "max real 6 + temp 2")
+
+
+func test_continuous_modifier_sube_stats_y_max() -> void:
+	var inst := _make_instance(3, 5)
+	inst.add_continuous_modifier("aura", 2, 2)
+	assert_true(inst.has_continuous_modifier("aura"), "el modificador queda registrado")
+	assert_eq(inst.current_attack, 5, "ataque sube por el aura")
+	assert_eq(inst.current_health, 7, "vida sube por el aura")
+	assert_eq(inst.current_max_health, 7, "max sube por el aura")
+
+
+func test_continuous_modifier_se_quita_al_remover() -> void:
+	var inst := _make_instance(3, 5)
+	inst.add_continuous_modifier("aura", 2, 2)
+	assert_true(inst.remove_continuous_modifier("aura"), "remove devuelve true si existia")
+	assert_false(inst.has_continuous_modifier("aura"), "ya no esta registrado")
+	assert_eq(inst.current_attack, 3, "ataque vuelve al base")
+	assert_eq(inst.current_max_health, 5, "max vuelve al base")
+	assert_eq(inst.current_health, 5, "vida topada al max restaurado")
+
+
+func test_remove_continuous_modifier_ausente_devuelve_false() -> void:
+	var inst := _make_instance(3, 5)
+	assert_false(inst.remove_continuous_modifier("nope"), "remove de fuente ausente es false")
+	assert_eq(inst.current_attack, 3, "no toca stats")
+
+
+func test_re_agregar_misma_fuente_reemplaza_sin_apilar() -> void:
+	# Re-adding the same source id replaces its delta instead of stacking, so a game
+	# can refresh an aura idempotently (e.g. its value changed).
+	var inst := _make_instance(3, 5)
+	inst.add_continuous_modifier("aura", 2, 2)
+	inst.add_continuous_modifier("aura", 1, 1)
+	assert_eq(inst.current_attack, 4, "queda solo el ultimo delta (3 + 1), no apila")
+	assert_eq(inst.current_max_health, 6, "max = 5 + 1, no apila")
+
+
+func test_dos_fuentes_continuas_distintas_se_suman() -> void:
+	var inst := _make_instance(3, 5)
+	inst.add_continuous_modifier("aura_a", 2, 0)
+	inst.add_continuous_modifier("aura_b", 1, 0)
+	assert_eq(inst.current_attack, 6, "dos fuentes distintas suman 3 + 2 + 1")
+	inst.remove_continuous_modifier("aura_a")
+	assert_eq(inst.current_attack, 4, "al quitar una queda la otra (3 + 1)")
+
+
+func test_continuous_modifier_no_penaliza_dano_absorbido() -> void:
+	# Like temp buffs: the modifier's health buffer absorbs damage; removing it caps
+	# current health to the restored max instead of subtracting blindly.
+	var inst := _make_instance(0, 5)
+	inst.add_continuous_modifier("aura", 0, 3)  # 8/8
+	inst.take_damage(2)  # 6/8, fully absorbed by the buffer
+	inst.remove_continuous_modifier("aura")
+	assert_eq(inst.current_max_health, 5, "max vuelve al base")
+	assert_eq(inst.current_health, 5, "dano absorbido por el colchon, queda full")
+
+
+func test_reveal_preserva_modificador_continuo_activo() -> void:
+	# A continuous modifier added while hidden survives the reveal (real base +
+	# permanent + temp + continuous).
+	var inst := CardInstance.new()
+	var hidden := HiddenCardStats.new()
+	hidden.declared_attack = 1
+	hidden.declared_health = 1
+	inst.hidden_stats = hidden
+	inst.setup(_make_card(4, 6), 0, true)
+	inst.add_continuous_modifier("aura", 2, 2)
+	inst.reveal()
+	assert_eq(inst.current_attack, 6, "base real 4 + continuo 2")
+	assert_eq(inst.current_max_health, 8, "max real 6 + continuo 2")
+
+
+func test_continuous_modifier_round_trip_serializa() -> void:
+	var inst := _make_instance(3, 5)
+	inst.add_continuous_modifier("aura", 2, 2)
+	var restored := CardInstance.deserialize(inst.serialize())
+	assert_true(restored.has_continuous_modifier("aura"), "el modificador sobrevive el round-trip")
+	assert_eq(restored.current_attack, 5, "stats restaurados")
+	# And it still rolls back exactly after a resume.
+	restored.remove_continuous_modifier("aura")
+	assert_eq(restored.current_attack, 3, "se revierte exacto tras el resume")
+
+
+func test_unit_es_combatiente() -> void:
+	var inst := _make_instance(3, 5)  # _make_card default play_kind = UNIT
+	assert_true(inst.is_combatant, "una UNIT es combatiente")
+
+
+func test_persistent_no_es_combatiente() -> void:
+	var data := _make_card(0, 4)
+	data.play_kind = CardData.PlayKind.PERSISTENT
+	var inst := CardInstance.new()
+	inst.setup(data, 0)
+	assert_false(inst.is_combatant, "una PERSISTENT no es combatiente")
+
+
+func test_is_combatant_se_re_deriva_en_deserialize() -> void:
+	var data := _make_card(0, 4)
+	data.play_kind = CardData.PlayKind.PERSISTENT
+	var inst := CardInstance.new()
+	inst.setup(data, 0)
+	var restored := CardInstance.deserialize(inst.serialize())
+	assert_false(restored.is_combatant, "is_combatant se re-deriva de play_kind tras el resume")

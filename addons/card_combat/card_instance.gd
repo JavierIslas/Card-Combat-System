@@ -47,6 +47,11 @@ var owner_id: int = 0
 var is_hidden: bool = false
 var is_dead: bool = false
 var hidden_stats: HiddenCardStats = null
+## Whether this instance fights. Derived from card_data.play_kind in setup (UNIT =
+## true; PERSISTENT = false): a non-combatant persists on the board and fires
+## triggers but never attacks or blocks. The engine reads this, not play_kind, so
+## the combat checks stay a single boolean. Single source = play_kind.
+var is_combatant: bool = true
 
 var current_attack: int = 0
 var current_health: int = 0
@@ -81,6 +86,16 @@ var _buff_health_total: int = 0
 ## without dropping a temp buff applied while the card was hidden.
 var _temp_attack_total: int = 0
 var _temp_health_total: int = 0
+## Continuous modifiers keyed by an opaque source id (e.g. an aura). Unlike
+## permanent/temp buffs, a continuous modifier stays only while its source keeps it
+## applied: the game adds it (ON_SETUP of the aura) and removes it (ON_DEATH of the
+## aura), and re-adding the same source id replaces the old delta instead of
+## stacking. Each entry is {"attack": int, "health": int}. The engine knows no
+## "aura" rule; it only provides the add/remove primitive and the deterministic
+## recompute. Totals are tracked like the other layers so reveal() can rebuild stats.
+var _continuous_modifiers: Dictionary = {}
+var _continuous_attack_total: int = 0
+var _continuous_health_total: int = 0
 
 ## Injectable ability handler. Signature:
 ## (inst: CardInstance, trigger: int, context: Dictionary).
@@ -117,6 +132,9 @@ func setup(data: CardData, p_owner: int, p_hidden: bool = false) -> void:
 	card_data = data
 	owner_id = p_owner
 	is_hidden = p_hidden
+	# Only UNIT cards fight; a PERSISTENT permanent sits on the board without ever
+	# attacking or blocking. Derived here so the rest of the engine reads one bool.
+	is_combatant = data.play_kind == CardData.PlayKind.UNIT
 
 	if p_hidden:
 		current_attack = hidden_stats.declared_attack if hidden_stats else data.attack
@@ -138,8 +156,8 @@ func reveal() -> void:
 	# creature: the real max is base + buffs, and current health keeps the same
 	# missing-health gap it had under the declared (bluff) stats.
 	var damage_taken: int = current_max_health - current_health
-	current_attack = card_data.attack + _buff_attack_total + _temp_attack_total
-	current_max_health = card_data.health + _buff_health_total + _temp_health_total
+	current_attack = card_data.attack + _buff_attack_total + _temp_attack_total + _continuous_attack_total
+	current_max_health = card_data.health + _buff_health_total + _temp_health_total + _continuous_health_total
 	current_health = maxi(current_max_health - damage_taken, 0)
 
 	_fire(Trigger.ON_REVEAL)
@@ -207,6 +225,44 @@ func apply_temp_buff(attack_delta: int, health_delta: int) -> void:
 	current_max_health += health_delta
 
 
+func add_continuous_modifier(source_id: String, attack_delta: int, health_delta: int) -> void:
+	## Apply (or replace) a continuous stat modifier from `source_id`. Re-adding the
+	## same source replaces its previous delta instead of stacking, so a game can
+	## refresh an aura idempotently. The delta and when to add/remove it are decided
+	## by the game layer; the engine only keeps the stats consistent.
+	if _continuous_modifiers.has(source_id):
+		remove_continuous_modifier(source_id)
+	_continuous_modifiers[source_id] = {"attack": attack_delta, "health": health_delta}
+	_continuous_attack_total += attack_delta
+	_continuous_health_total += health_delta
+	current_attack += attack_delta
+	current_health += health_delta
+	current_max_health += health_delta
+
+
+func remove_continuous_modifier(source_id: String) -> bool:
+	## Roll back the continuous modifier from `source_id` (e.g. its source died).
+	## Mirrors _expire_temp_buffs: max health drops and current health is capped to
+	## the restored max rather than subtracted blindly, so damage already absorbed by
+	## the modifier's buffer is not double-counted. Returns false if absent.
+	if not _continuous_modifiers.has(source_id):
+		return false
+	var mod: Dictionary = _continuous_modifiers[source_id]
+	var attack_delta: int = mod["attack"]
+	var health_delta: int = mod["health"]
+	_continuous_modifiers.erase(source_id)
+	_continuous_attack_total -= attack_delta
+	_continuous_health_total -= health_delta
+	current_attack -= attack_delta
+	current_max_health -= health_delta
+	current_health = mini(current_health, current_max_health)
+	return true
+
+
+func has_continuous_modifier(source_id: String) -> bool:
+	return _continuous_modifiers.has(source_id)
+
+
 func _expire_temp_buffs() -> void:
 	## Roll back temporary buffs. Attack drops by the tracked delta; max health
 	## drops too and current health is capped to the restored max instead of
@@ -263,6 +319,9 @@ func serialize() -> Dictionary:
 		"buff_health_total": _buff_health_total,
 		"temp_attack_total": _temp_attack_total,
 		"temp_health_total": _temp_health_total,
+		"continuous_modifiers": _continuous_modifiers.duplicate(true),
+		"continuous_attack_total": _continuous_attack_total,
+		"continuous_health_total": _continuous_health_total,
 	}
 
 
@@ -271,6 +330,8 @@ static func deserialize(data: Dictionary, p_ability_fn: Callable = Callable()) -
 	## saved combat does not re-fire ON_SETUP (which would re-apply on-play effects).
 	var inst := CardInstance.new()
 	inst.card_data = CardData.from_dict(data.get("card_data", {}))
+	# Re-derive the combatant flag from play_kind (deserialize skips setup).
+	inst.is_combatant = inst.card_data != null and inst.card_data.play_kind == CardData.PlayKind.UNIT
 	inst.owner_id = int(data.get("owner_id", 0))
 	inst.is_hidden = data.get("is_hidden", false)
 	inst.is_dead = data.get("is_dead", false)
@@ -290,5 +351,13 @@ static func deserialize(data: Dictionary, p_ability_fn: Callable = Callable()) -
 	inst._buff_health_total = int(data.get("buff_health_total", 0))
 	inst._temp_attack_total = int(data.get("temp_attack_total", 0))
 	inst._temp_health_total = int(data.get("temp_health_total", 0))
+	# Rebuild the continuous modifiers, normalizing deltas to int (a JSON round-trip
+	# turns them into floats), so remove_continuous_modifier subtracts exact ints.
+	var raw_mods: Dictionary = data.get("continuous_modifiers", {})
+	for source_id in raw_mods:
+		var mod: Dictionary = raw_mods[source_id]
+		inst._continuous_modifiers[source_id] = {"attack": int(mod.get("attack", 0)), "health": int(mod.get("health", 0))}
+	inst._continuous_attack_total = int(data.get("continuous_attack_total", 0))
+	inst._continuous_health_total = int(data.get("continuous_health_total", 0))
 	inst.ability_fn = p_ability_fn
 	return inst
