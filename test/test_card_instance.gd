@@ -1,6 +1,6 @@
 extends GutTest
 ## Caracterizacion de CardInstance: stats, dano, inmunidad, mejoras permanentes
-## genericas (apply_permanent_buff) y revelado de bluff.
+## genericas (apply_permanent_buff), revelado de bluff y can_be_attacked.
 
 
 func _make_card(attack: int, health: int) -> CardData:
@@ -378,3 +378,33 @@ func test_is_combatant_se_re_deriva_en_deserialize() -> void:
 	inst.setup(data, 0)
 	var restored := CardInstance.deserialize(inst.serialize())
 	assert_false(restored.is_combatant, "is_combatant se re-deriva de play_kind tras el resume")
+
+
+# --- can_be_attacked ---
+
+func test_can_be_attacked_default_es_true() -> void:
+	var inst := _make_instance(2, 3)
+	assert_true(inst.can_be_attacked, "por defecto una criatura puede ser objetivo de ataque")
+
+
+func test_can_be_attacked_false_sobrevive_round_trip() -> void:
+	var inst := _make_instance(2, 3)
+	inst.can_be_attacked = false
+	var restored := CardInstance.deserialize(inst.serialize())
+	assert_false(restored.can_be_attacked, "can_be_attacked=false se preserva en el round-trip")
+
+
+func test_can_be_attacked_true_sobrevive_round_trip() -> void:
+	var inst := _make_instance(2, 3)
+	inst.can_be_attacked = true
+	var restored := CardInstance.deserialize(inst.serialize())
+	assert_true(restored.can_be_attacked, "can_be_attacked=true se preserva en el round-trip")
+
+
+func test_can_be_attacked_default_en_saves_legacy() -> void:
+	# Un save que no contiene la clave debe deserializar como true (no romper saves viejos).
+	var inst := _make_instance(2, 3)
+	var data: Dictionary = inst.serialize()
+	data.erase("can_be_attacked")
+	var restored := CardInstance.deserialize(data)
+	assert_true(restored.can_be_attacked, "save legacy sin can_be_attacked deserializa como true")

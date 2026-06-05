@@ -71,6 +71,10 @@ var has_attacked_this_turn: bool = false
 
 # Immunity
 var immunity_hits_remaining: int = 0
+## When false this creature cannot be chosen as an attack target. Set by abilities
+## (e.g. STEALTH) and cleared when the creature acts. The engine enforces this in
+## _attack_target_allowed; it does not interpret why it is false.
+var can_be_attacked: bool = true
 
 ## Accumulated permanent buffs (generic: any delta via apply_permanent_buff). The
 ## engine does not know "+1/+1": the delta and the cap are decided by the game
@@ -317,6 +321,7 @@ func serialize() -> Dictionary:
 		"times_attacked": times_attacked,
 		"has_attacked_this_turn": has_attacked_this_turn,
 		"immunity_hits_remaining": immunity_hits_remaining,
+		"can_be_attacked": can_be_attacked,
 		"permanent_buff_count": permanent_buff_count,
 		"max_permanent_buffs": max_permanent_buffs,
 		"buff_attack_total": _buff_attack_total,
@@ -349,6 +354,7 @@ static func deserialize(data: Dictionary, p_ability_fn: Callable = Callable()) -
 	inst.times_attacked = int(data.get("times_attacked", 0))
 	inst.has_attacked_this_turn = data.get("has_attacked_this_turn", false)
 	inst.immunity_hits_remaining = int(data.get("immunity_hits_remaining", 0))
+	inst.can_be_attacked = data.get("can_be_attacked", true)
 	inst.permanent_buff_count = int(data.get("permanent_buff_count", 0))
 	inst.max_permanent_buffs = int(data.get("max_permanent_buffs", -1))
 	inst._buff_attack_total = int(data.get("buff_attack_total", 0))

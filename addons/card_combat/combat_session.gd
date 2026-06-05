@@ -501,8 +501,11 @@ func _required_attack_targets(attacker: CardInstance) -> Array:
 
 
 func _attack_target_allowed(attacker: CardInstance, target: Variant) -> bool:
-	## Enforce the targeting restriction: with a non-empty required set the target must
-	## be one of those creatures; otherwise (no hook / empty set) any target is allowed.
+	## Enforce targeting restrictions: a creature with can_be_attacked=false is never
+	## a valid target regardless of other rules; then the restriction hook (e.g. TAUNT)
+	## must be satisfied if it narrows the required set.
+	if target is CardInstance and not target.can_be_attacked:
+		return false
 	var required: Array = _required_attack_targets(attacker)
 	if required.is_empty():
 		return true
@@ -1113,15 +1116,17 @@ func _auto_play_active() -> void:
 
 
 func _redirect_for_restriction(attacker: CardInstance, chosen: Variant) -> Variant:
-	## Map an AI's chosen target to a legal one under the attack restriction: keep it
-	## when unrestricted or already legal, else force the first required creature (e.g.
-	## a taunt). Keeps auto_resolve deterministic without teaching the AI about TAUNT.
+	## Map an AI's chosen target to a legal one. If chosen already passes
+	## _attack_target_allowed (covers both can_be_attacked and TAUNT), keep it.
+	## Otherwise force the first required creature (TAUNT), or null (hero swing)
+	## when there is no required set. Keeps auto_resolve deterministic without
+	## teaching the AI about TAUNT or STEALTH.
+	if _attack_target_allowed(attacker, chosen):
+		return chosen
 	var required: Array = _required_attack_targets(attacker)
-	if required.is_empty():
-		return chosen
-	if chosen is CardInstance and required.has(chosen):
-		return chosen
-	return required[0]
+	if not required.is_empty():
+		return required[0]
+	return null
 
 
 func _living_enemy_heroes(side: int) -> Array[Combatant]:
