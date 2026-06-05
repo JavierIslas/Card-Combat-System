@@ -1648,6 +1648,24 @@ func deal_damage_to_hero(side: int, amount: int) -> void:
 	_emit_combatant_damaged(side, amount)
 
 
+func draw_for(side: int, count: int = 1) -> Array[CardData]:
+	## Public draw entry for abilities (e.g. a "draw a card" battlecry/deathrattle).
+	## Draws `count` cards for `side` through its deck, so each drawn card fires
+	## card_drawn + the side-level ON_DRAW and respects fatigue (exhaust_fn) and overdraw
+	## (discard_fn) exactly like the per-turn draw. Returns the cards drawn (an exhausted
+	## pile yields fewer). Drains any deferred triggers (QUEUED) before returning. No-op
+	## for an invalid side.
+	var drawn: Array[CardData] = []
+	if side < 0 or side >= side_count() or decks[side] == null:
+		return drawn
+	for _i in maxi(count, 0):
+		var card: CardData = decks[side].draw_card()
+		if card != null:
+			drawn.append(card)
+	_drain_triggers()
+	return drawn
+
+
 func heal_hero(side: int, amount: int) -> void:
 	## Public hero-heal entry, counterpart of deal_damage_to_hero. Emits
 	## combatant_healed with the ACTUAL amount restored (clamped at max health), so a

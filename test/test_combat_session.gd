@@ -542,6 +542,33 @@ func test_attacks_per_turn_permite_multiples_swings() -> void:
 	assert_eq(_session._attack_pairs[0].size(), 2, "se declararon dos pares")
 
 
+func test_draw_for_roba_y_aumenta_la_mano() -> void:
+	var session := CombatSession.new()
+	session.setup(_hero(), _starter(), _hero(), _empty(), 1)
+	var before: int = session.decks[0].hand_size
+	var drawn := session.draw_for(0, 1)
+	assert_eq(drawn.size(), 1, "robó una carta")
+	assert_eq(session.decks[0].hand_size, before + 1, "la mano creció en uno")
+
+
+func test_draw_for_dispara_on_draw_por_carta() -> void:
+	var session := CombatSession.new()
+	var draws: Array = [0]
+	session.ability_fn = func(inst: Variant, trigger: int, _ctx: Dictionary) -> void:
+		if inst == null and trigger == CardInstance.Trigger.ON_DRAW:
+			draws[0] += 1
+	session.setup(_hero(), _starter(), _hero(), _empty(), 1)
+	var baseline: int = draws[0]
+	session.draw_for(0, 2)
+	assert_eq(draws[0] - baseline, 2, "draw_for disparó ON_DRAW por cada carta robada")
+
+
+func test_draw_for_lado_invalido_es_no_op() -> void:
+	var session := CombatSession.new()
+	session.setup(_hero(), _starter(), _hero(), _empty(), 1)
+	assert_eq(session.draw_for(5, 1).size(), 0, "lado invalido devuelve lista vacia")
+
+
 func test_attacks_per_turn_default_uno_rechaza_segundo() -> void:
 	# Default attacks_per_turn=1 keeps the classic single-swing rule.
 	_setup_basico()
