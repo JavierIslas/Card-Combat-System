@@ -21,14 +21,25 @@ extends RefCounted
 ##   var lib := AbilityLibrary.new(session)
 ##   session.ability_fn = lib.ability_handler
 ##   session.attack_restriction_fn = lib.taunt_restriction
+##   # Optional extra hooks, only needed for the keywords that use them:
+##   session.incoming_damage_fn = lib.armor_damage      # ARMOR
+##   session.spell_power_fn = lib.spell_power            # SPELLPOWER
+##   session.aura_fn = lib.recompute_auras              # LORD
 ##
 ## Supported keywords (declared per card as metadata = {"keywords": ["CHARGE", ...]}):
-##   CHARGE    - can attack the turn it enters play (no summoning sickness)
-##   IMMUNITY  - absorbs the next N hits (metadata["immunity_hits"], default 1; -1 = all)
-##   LIFESTEAL - combat damage it deals heals its owner's hero by the same amount
-##   TAUNT     - while alive, enemy attackers must target it (via taunt_restriction)
-##   THORNS    - when hit, deals metadata["thorns"] (default 1) back to the dealer
-##   STEALTH   - cannot be chosen as an attack target until it attacks (via can_be_attacked)
+##   CHARGE     - can attack the turn it enters play (no summoning sickness)
+##   IMMUNITY   - absorbs the next N hits (metadata["immunity_hits"], default 1; -1 = all)
+##   LIFESTEAL  - combat damage it deals heals its owner's hero by the same amount
+##   TAUNT      - while alive, enemy attackers must target it (via taunt_restriction)
+##   THORNS     - when hit, deals metadata["thorns"] (default 1) back to the dealer
+##   STEALTH    - cannot be chosen as an attack target until it attacks (via can_be_attacked)
+##   WINDFURY   - may attack metadata["windfury_attacks"] (default 2) times per turn
+##   FREEZE     - the creatures it damages are frozen metadata["freeze_turns"] (default 1) turns
+##   ARMOR      - reduces each incoming hit by metadata["armor"] (needs incoming_damage_fn wired)
+##   BATTLECRY  - on play, deals metadata["battlecry_damage"] (default 1) to the chosen target
+##   SPELLPOWER - adds metadata["spell_power"] to its owner's spell damage (needs spell_power_fn wired)
+##   LORD       - buffs other friendly creatures by metadata["aura_attack"]/["aura_health"]
+##                (default 1/1) while alive (needs aura_fn wired)
 ##
 ## When multiple restriction fns are needed (e.g. TAUNT + STEALTH), wire the composed
 ## callable instead of one fn alone:
@@ -42,6 +53,16 @@ const KEYWORD_LIFESTEAL := "LIFESTEAL"
 const KEYWORD_STEALTH := "STEALTH"
 const KEYWORD_TAUNT := "TAUNT"
 const KEYWORD_THORNS := "THORNS"
+const KEYWORD_WINDFURY := "WINDFURY"
+const KEYWORD_FREEZE := "FREEZE"
+const KEYWORD_ARMOR := "ARMOR"
+const KEYWORD_BATTLECRY := "BATTLECRY"
+const KEYWORD_SPELLPOWER := "SPELLPOWER"
+const KEYWORD_LORD := "LORD"
+
+## Continuous-modifier source id the LORD aura recompute owns on every buffed creature.
+## A single aggregated key (replaced each recompute) keeps the buff idempotent.
+const AURA_SOURCE_ID := "ability_library_lord"
 
 ## Weak reference to the session, used only by LIFESTEAL to heal the owner's hero
 ## through the session's observable API (heal_hero emits the heal event). Weak so the
@@ -90,9 +111,14 @@ func ability_handler(inst: Variant, trigger: int, context: Dictionary) -> void:
 		CardInstance.Trigger.ON_DAMAGE_DEALT:
 			if keywords.has(KEYWORD_LIFESTEAL):
 				_apply_lifesteal(inst, context)
+			if keywords.has(KEYWORD_FREEZE):
+				_apply_freeze(inst, context)
 		CardInstance.Trigger.ON_DAMAGE_TAKEN:
 			if keywords.has(KEYWORD_THORNS):
 				_apply_thorns(inst, context)
+		CardInstance.Trigger.ON_PLAY:
+			if keywords.has(KEYWORD_BATTLECRY):
+				_apply_battlecry(inst, context)
 
 
 func taunt_restriction(_attacker: CardInstance, enemy_creatures: Array) -> Array:
@@ -116,6 +142,8 @@ func _apply_on_setup(inst: CardInstance, keywords: Array) -> void:
 		inst.immunity_hits_remaining = _immunity_hits(inst)
 	if keywords.has(KEYWORD_STEALTH) and inst.is_combatant:
 		inst.can_be_attacked = false
+	if keywords.has(KEYWORD_WINDFURY) and inst.is_combatant:
+		inst.attacks_per_turn = _windfury_attacks(inst)
 
 
 func _apply_lifesteal(inst: CardInstance, context: Dictionary) -> void:
@@ -136,6 +164,91 @@ func _apply_thorns(inst: CardInstance, context: Dictionary) -> void:
 	var source: Variant = context.get("source", null)
 	if source is CardInstance and not source.is_dead:
 		source.take_damage(_thorns_damage(inst), inst)
+
+
+func _apply_freeze(inst: CardInstance, context: Dictionary) -> void:
+	## FREEZE: the creature this one just dealt combat damage to is frozen. `target` is
+	## the victim carried in the ON_DAMAGE_DEALT context (a living CardInstance, or null
+	## for a hero hit, which freezes nothing).
+	var target: Variant = context.get("target", null)
+	if target is CardInstance and not target.is_dead:
+		target.freeze(_freeze_turns(inst))
+
+
+func _apply_battlecry(inst: CardInstance, context: Dictionary) -> void:
+	## BATTLECRY: on play, deal metadata["battlecry_damage"] to the chosen target. `target`
+	## is the on-play target carried in the ON_PLAY context (a living CardInstance, or null
+	## when none was chosen, which does nothing).
+	var target: Variant = context.get("target", null)
+	if target is CardInstance and not target.is_dead:
+		target.take_damage(_battlecry_damage(inst), inst)
+
+
+func armor_damage(inst: Variant, amount: int, _source: Variant) -> int:
+	## incoming_damage_fn for ARMOR: reduce each incoming hit by metadata["armor"]
+	## (floored at 0). A creature without the ARMOR keyword (or armor 0) is unchanged, so
+	## this is safe to wire for every instance. Signature matches CardInstance.incoming_damage_fn.
+	if not (inst is CardInstance) or not _keywords_of(inst).has(KEYWORD_ARMOR):
+		return amount
+	return maxi(amount - int(inst.card_data.metadata.get("armor", 0)), 0)
+
+
+func spell_power(owner_id: int) -> int:
+	## spell_power_fn for SPELLPOWER: sum metadata["spell_power"] over the owner's living
+	## board creatures carrying the keyword, so a "+N spell damage" minion boosts its
+	## owner's damage spells. Needs the session (for the boards); a collected session
+	## (dead weakref) contributes 0.
+	var session: CombatSession = _session_ref.get_ref()
+	if session == null:
+		return 0
+	var total: int = 0
+	for inst in CardInstance.living(session.decks[owner_id].get_board()):
+		if _keywords_of(inst).has(KEYWORD_SPELLPOWER):
+			total += int(inst.card_data.metadata.get("spell_power", 0))
+	return total
+
+
+func recompute_auras(session: CombatSession) -> void:
+	## aura_fn for LORD: idempotently buff every creature by the summed aura of the OTHER
+	## living LORD creatures on its own board. Each creature carries a single aggregated
+	## continuous modifier under AURA_SOURCE_ID, re-added (replaced) on every recompute, so
+	## a lord entering or dying re-derives the totals without stacking.
+	if session == null:
+		return
+	for side in session.side_count():
+		var board: Array = CardInstance.living(session.decks[side].get_board())
+		var total_attack: int = 0
+		var total_health: int = 0
+		for src in board:
+			if _keywords_of(src).has(KEYWORD_LORD):
+				total_attack += int(src.card_data.metadata.get("aura_attack", 1))
+				total_health += int(src.card_data.metadata.get("aura_health", 1))
+		for inst in board:
+			# A lord does not buff itself: subtract its own contribution from the total.
+			var attack_delta: int = total_attack
+			var health_delta: int = total_health
+			if _keywords_of(inst).has(KEYWORD_LORD):
+				attack_delta -= int(inst.card_data.metadata.get("aura_attack", 1))
+				health_delta -= int(inst.card_data.metadata.get("aura_health", 1))
+			if attack_delta != 0 or health_delta != 0:
+				inst.add_continuous_modifier(AURA_SOURCE_ID, attack_delta, health_delta)
+			else:
+				inst.remove_continuous_modifier(AURA_SOURCE_ID)
+
+
+func _windfury_attacks(inst: CardInstance) -> int:
+	## Attacks WINDFURY grants: metadata["windfury_attacks"] (default 2).
+	return int(inst.card_data.metadata.get("windfury_attacks", 2))
+
+
+func _freeze_turns(inst: CardInstance) -> int:
+	## Turns FREEZE applies: metadata["freeze_turns"] (default 1).
+	return int(inst.card_data.metadata.get("freeze_turns", 1))
+
+
+func _battlecry_damage(inst: CardInstance) -> int:
+	## Damage BATTLECRY deals to its target: metadata["battlecry_damage"] (default 1).
+	return int(inst.card_data.metadata.get("battlecry_damage", 1))
 
 
 func _thorns_damage(inst: CardInstance) -> int:

@@ -246,3 +246,123 @@ func test_stealth_y_taunt_coexisten_via_compositor() -> void:
 	var composed := AbilityLibrary.compose_restrictions([_lib.taunt_restriction])
 	var required: Array = composed.call(attacker, [taunt_inst, stealth_inst])
 	assert_eq(required, [taunt_inst], "con TAUNT vivo el compositor fuerza al taunt, no al stealth")
+
+
+# --- Keywords sobre los hooks nuevos ---
+
+func _bare_inst(card: CardData, owner: int = 0) -> CardInstance:
+	# Instancia sin el handler cableado en setup (para usarla como objetivo/victima).
+	var i := CardInstance.new()
+	i.setup(card, owner)
+	return i
+
+
+func _session_with_lib() -> Array:
+	# Devuelve [session, lib] con dos lados de mazo vacío, para SPELLPOWER y LORD.
+	var session := CombatSession.new()
+	var lib := AbilityLibrary.new(session)
+	var h0 := Combatant.new()
+	var h1 := Combatant.new()
+	var empty0: Array[CardData] = []
+	var empty1: Array[CardData] = []
+	session.setup(h0, empty0, h1, empty1, 1)
+	return [session, lib]
+
+
+func test_windfury_sube_attacks_per_turn() -> void:
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_WINDFURY]))
+	assert_eq(inst.attacks_per_turn, 2, "WINDFURY default = 2 ataques por turno")
+
+
+func test_windfury_lee_metadata() -> void:
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_WINDFURY], {"windfury_attacks": 3}))
+	assert_eq(inst.attacks_per_turn, 3, "WINDFURY lee windfury_attacks de metadata")
+
+
+func test_windfury_en_persistent_no_aplica() -> void:
+	var inst := _inst(_card(CardData.PlayKind.PERSISTENT, [AbilityLibrary.KEYWORD_WINDFURY]))
+	assert_eq(inst.attacks_per_turn, 1, "un no-combatiente no gana ataques extra")
+
+
+func test_freeze_congela_a_la_criatura_danada() -> void:
+	var attacker := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_FREEZE]))
+	var victim := _bare_inst(_card(CardData.PlayKind.UNIT, []), 1)
+	_lib.ability_handler(attacker, CardInstance.Trigger.ON_DAMAGE_DEALT, {"target": victim, "amount": 2})
+	assert_true(victim.is_frozen(), "FREEZE congela a la criatura dañada")
+
+
+func test_freeze_a_heroe_sin_target_creature_es_no_op() -> void:
+	var attacker := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_FREEZE]))
+	_lib.ability_handler(attacker, CardInstance.Trigger.ON_DAMAGE_DEALT, {"target": null, "amount": 2})
+	assert_true(true, "sin target criatura no crashea")
+
+
+func test_battlecry_dana_al_target_elegido() -> void:
+	var caster := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_BATTLECRY], {"battlecry_damage": 2}))
+	var victim := _bare_inst(_card(CardData.PlayKind.UNIT, []), 1)  # vida 3
+	_lib.ability_handler(caster, CardInstance.Trigger.ON_PLAY, {"target": victim})
+	assert_eq(victim.current_health, 1, "BATTLECRY daña al target (3 - 2)")
+
+
+func test_battlecry_sin_target_es_no_op() -> void:
+	var caster := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_BATTLECRY]))
+	_lib.ability_handler(caster, CardInstance.Trigger.ON_PLAY, {"target": null})
+	assert_true(true, "sin target no crashea")
+
+
+func test_armor_reduce_el_dano_entrante() -> void:
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_ARMOR], {"armor": 2}))
+	assert_eq(_lib.armor_damage(inst, 5, null), 3, "ARMOR resta 2 al daño entrante")
+
+
+func test_armor_sin_keyword_no_cambia_el_dano() -> void:
+	var inst := _inst(_card(CardData.PlayKind.UNIT, []))
+	assert_eq(_lib.armor_damage(inst, 5, null), 5, "sin ARMOR el daño es íntegro")
+
+
+func test_armor_no_baja_de_cero() -> void:
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_ARMOR], {"armor": 10}))
+	assert_eq(_lib.armor_damage(inst, 4, null), 0, "ARMOR no produce daño negativo")
+
+
+func test_spellpower_suma_el_del_tablero_del_dueno() -> void:
+	var pair := _session_with_lib()
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var m1 := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_SPELLPOWER], {"spell_power": 1}), 0)
+	var m2 := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_SPELLPOWER], {"spell_power": 2}), 0)
+	session.decks[0].add_to_board(m1)
+	session.decks[0].add_to_board(m2)
+	assert_eq(lib.spell_power(0), 3, "suma el spell_power del tablero del dueño")
+	assert_eq(lib.spell_power(1), 0, "el otro lado no tiene spell power")
+
+
+func test_lord_buffea_a_otras_criaturas_idempotente() -> void:
+	var pair := _session_with_lib()
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var lord := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_LORD]), 0)
+	var minion := _bare_inst(_card(CardData.PlayKind.UNIT, []), 0)  # 2/3
+	session.decks[0].add_to_board(lord)
+	session.decks[0].add_to_board(minion)
+	lib.recompute_auras(session)
+	assert_eq(minion.current_attack, 3, "el minion gana +1 de ataque del lord")
+	assert_eq(minion.current_max_health, 4, "y +1 de vida máxima")
+	assert_eq(lord.current_attack, 2, "el lord no se buffea a sí mismo")
+	lib.recompute_auras(session)
+	assert_eq(minion.current_attack, 3, "recompute idempotente: no apila")
+
+
+func test_lord_muerto_retira_el_aura_en_recompute() -> void:
+	var pair := _session_with_lib()
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var lord := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_LORD]), 0)
+	var minion := _bare_inst(_card(CardData.PlayKind.UNIT, []), 0)
+	session.decks[0].add_to_board(lord)
+	session.decks[0].add_to_board(minion)
+	lib.recompute_auras(session)
+	assert_eq(minion.current_attack, 3, "buffeado con el lord vivo")
+	lord.is_dead = true
+	lib.recompute_auras(session)
+	assert_eq(minion.current_attack, 2, "al morir el lord el recompute retira el aura")
