@@ -324,6 +324,74 @@ func test_play_card_hechizo_dana_al_lado_opuesto() -> void:
 	assert_eq(_session.heroes[1].current_health, 24, "30 - 6 al héroe del lado opuesto")
 
 
+func _lord_aura() -> Callable:
+	# aura_fn idempotente: cada criatura no-lord de un tablero con un lord vivo recibe
+	# +1/+1 de la fuente "aura"; sin lord, se retira. Recomputa todo el estado.
+	return func(s: CombatSession) -> void:
+		for side in s.side_count():
+			var board: Array[CardInstance] = s.decks[side].get_board()
+			var has_lord := false
+			for inst in board:
+				if not inst.is_dead and inst.card_data != null and inst.card_data.metadata.get("lord", false):
+					has_lord = true
+			for inst in board:
+				if inst.is_dead:
+					continue
+				if has_lord and not inst.card_data.metadata.get("lord", false):
+					inst.add_continuous_modifier("aura", 1, 1)
+				else:
+					inst.remove_continuous_modifier("aura")
+
+
+func test_aura_fn_recomputa_cuando_entra_un_lord() -> void:
+	_setup_basico()
+	_session.start()
+	_session.aura_fn = _lord_aura()
+	var minion := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(minion)
+	_session.play_card(minion)
+	var minion_inst: CardInstance = _session.decks[0].get_board()[0]
+	assert_eq(minion_inst.current_attack, 2, "sin lord no hay aura")
+	var lord := _creature(0, 3, 3)
+	lord.metadata = {"lord": true}
+	_session.decks[0]._hand.append(lord)
+	_session.play_card(lord)
+	assert_eq(minion_inst.current_attack, 3, "al entrar el lord, el minion gana +1 de ataque")
+	assert_eq(minion_inst.current_max_health, 3, "y +1 de vida máxima")
+
+
+func test_aura_fn_recomputa_cuando_muere_el_lord_en_sweep() -> void:
+	_setup_basico()
+	_session.start()
+	_session.aura_fn = _lord_aura()
+	var minion := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(minion)
+	_session.play_card(minion)
+	var lord := _creature(0, 3, 3)
+	lord.metadata = {"lord": true}
+	_session.decks[0]._hand.append(lord)
+	_session.play_card(lord)
+	var minion_inst: CardInstance = _session.decks[0].get_board()[0]
+	assert_eq(minion_inst.current_attack, 3, "con lord vivo el minion está buffeado")
+	# Matar al lord y forzar un sweep con un hechizo (que recomputa auras al barrer).
+	_session.decks[0].get_board()[1].take_damage(99)
+	var sweeper := _spell(0, SpellEffect.EffectType.AOE_DAMAGE, 0, SpellEffect.TargetType.ENEMY_CREATURES)
+	_session.decks[0]._hand.append(sweeper)
+	_session.play_card(sweeper)
+	assert_eq(minion_inst.current_attack, 2, "al morir el lord, el sweep recomputa y retira el aura")
+
+
+func test_recompute_auras_publico_y_sin_hook() -> void:
+	_setup_basico()
+	var calls: Array = [0]
+	_session.aura_fn = func(_s: CombatSession) -> void: calls[0] += 1
+	_session.recompute_auras()
+	assert_eq(calls[0], 1, "recompute_auras invoca el aura_fn")
+	_session.aura_fn = Callable()
+	_session.recompute_auras()
+	assert_eq(calls[0], 1, "sin hook es no-op (no crashea)")
+
+
 func test_spell_power_fn_potencia_el_bolt_al_heroe() -> void:
 	# El spell_power_fn suma daño al bolt ENEMY_HERO del lanzador.
 	_setup_basico()

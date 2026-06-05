@@ -129,6 +129,14 @@ var cost_fn: Callable = Callable()
 ## too. Empty = no bonus. Re-injected via deserialize hooks.
 var spell_power_fn: Callable = Callable()
 
+## Optional aura recompute hook. Signature: (session: CombatSession) -> void. The engine
+## calls it whenever board membership changes (a creature enters, is summoned, or dies),
+## so a game can re-apply continuous_modifiers across the boards idempotently (a "lord"
+## that buffs neighbours). The engine owns WHEN to recompute; the hook owns WHAT each
+## aura does, reading the boards off the session. Empty = no auras. Re-injected via
+## deserialize hooks. Also callable directly via recompute_auras().
+var aura_fn: Callable = Callable()
+
 ## How ability triggers are dispatched. INLINE (default) fires ability_fn the
 ## moment a trigger happens, exactly as before — a chained trigger resolves
 ## depth-first, mid-sweep. QUEUED defers every trigger into a FIFO queue drained at
@@ -367,6 +375,9 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 	var inst: CardInstance = decks[active_side].play_creature(card, as_hidden, declared_attack, declared_health)
 	# Fire the deferred ON_SETUP (QUEUED) before handing control back to the driver.
 	_drain_triggers()
+	# A new creature on the board may change auras (its own, or a lord buffing it).
+	if inst != null:
+		recompute_auras()
 	return inst != null
 
 
@@ -952,6 +963,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session.incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
 	session.cost_fn = hooks.get("cost_fn", Callable())
 	session.spell_power_fn = hooks.get("spell_power_fn", Callable())
+	session.aura_fn = hooks.get("aura_fn", Callable())
 	session._resolver.damage_fn = session.damage_fn
 	session._restore_topology(data)
 	session._restore_scalars(data)
@@ -1648,6 +1660,9 @@ func _apply_summon_effect(effect: SpellEffect, side: int, context: Dictionary) -
 		# Spell summons bypass play_creature (no CARD_PLAYED), so emit a dedicated
 		# event/signal; otherwise a log-only replay never sees the creature appear.
 		_emit_creature_summoned(inst, side)
+	# New creatures on the board may change auras (their own, or a lord buffing them).
+	if not summoned.is_empty():
+		recompute_auras()
 
 
 func deal_damage_to_hero(side: int, amount: int) -> void:
@@ -1725,3 +1740,13 @@ func _sweep_all_boards() -> void:
 	## boards must be checked, not just the caster's and the lone opponent's.
 	for s in side_count():
 		_check_board_deaths(decks[s])
+	# Board membership may have changed (deaths removed creatures): let auras recompute.
+	recompute_auras()
+
+
+func recompute_auras() -> void:
+	## Trigger the aura recompute hook, if one is wired. Called by the engine on every
+	## board-membership change (entry / summon / death) and exposed so a game can also
+	## force a recompute. No-op when no aura_fn is injected.
+	if aura_fn.is_valid():
+		aura_fn.call(self)
