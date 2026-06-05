@@ -30,7 +30,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `CombatAI` | Base AI contract: defines the 5 signatures; subclass for a custom AI |
 | `DummyAI` | Reference/default AI (random, optional seed); `extends CombatAI` |
 | `HeuristicAI` | Optional stronger AI (greedy, deterministic): curve-filling plays, value trades, threat blocking; `extends CombatAI`. Inject via `ais[side]`; DummyAI stays the default |
-| `AbilityLibrary` | Opt-in keyword interpreter (`abilities/`): CHARGE/IMMUNITY/LIFESTEAL via `ability_fn`, TAUNT via `attack_restriction_fn`. Not part of the core; the game wires it in or ignores it |
+| `AbilityLibrary` | Opt-in keyword interpreter (`abilities/`): CHARGE/IMMUNITY/LIFESTEAL/THORNS via `ability_fn`, TAUNT via `attack_restriction_fn`. Not part of the core; the game wires it in or ignores it |
 
 ## Injection points (how the game layer specializes it)
 
@@ -181,6 +181,7 @@ the engine never reads):
 | `IMMUNITY` | absorbs the next N hits (`metadata["immunity_hits"]`, default 1; `-1` = all) |
 | `LIFESTEAL` | combat damage it deals heals its owner's hero by the same amount |
 | `TAUNT` | while alive, enemy attackers must target it (drives `attack_restriction_fn`) |
+| `THORNS` | when hit, deals `metadata["thorns"]` (default 1) back to the dealer (reads the `source` in `ON_DAMAGE_TAKEN`; sourceless damage like spells/fatigue reflects nothing) |
 
 The library holds a **weak** reference to the session (LIFESTEAL heals through
 `session.heal_hero`), so it never forms a reference cycle with the session that owns
