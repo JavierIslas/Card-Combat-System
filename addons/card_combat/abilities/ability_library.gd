@@ -27,11 +27,13 @@ extends RefCounted
 ##   IMMUNITY  - absorbs the next N hits (metadata["immunity_hits"], default 1; -1 = all)
 ##   LIFESTEAL - combat damage it deals heals its owner's hero by the same amount
 ##   TAUNT     - while alive, enemy attackers must target it (via taunt_restriction)
+##   THORNS    - when hit, deals metadata["thorns"] (default 1) back to the dealer
 
 const KEYWORD_CHARGE := "CHARGE"
 const KEYWORD_IMMUNITY := "IMMUNITY"
 const KEYWORD_LIFESTEAL := "LIFESTEAL"
 const KEYWORD_TAUNT := "TAUNT"
+const KEYWORD_THORNS := "THORNS"
 
 ## Weak reference to the session, used only by LIFESTEAL to heal the owner's hero
 ## through the session's observable API (heal_hero emits the heal event). Weak so the
@@ -58,6 +60,9 @@ func ability_handler(inst: Variant, trigger: int, context: Dictionary) -> void:
 		CardInstance.Trigger.ON_DAMAGE_DEALT:
 			if keywords.has(KEYWORD_LIFESTEAL):
 				_apply_lifesteal(inst, context)
+		CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			if keywords.has(KEYWORD_THORNS):
+				_apply_thorns(inst, context)
 
 
 func taunt_restriction(_attacker: CardInstance, enemy_creatures: Array) -> Array:
@@ -90,6 +95,20 @@ func _apply_lifesteal(inst: CardInstance, context: Dictionary) -> void:
 	var amount: int = int(context.get("amount", 0))
 	if amount > 0:
 		session.heal_hero(inst.owner_id, amount)
+
+
+func _apply_thorns(inst: CardInstance, context: Dictionary) -> void:
+	## Reflect damage back at the dealer. `source` is the dealer carried in the
+	## ON_DAMAGE_TAKEN context: a living CardInstance in combat, or null for sourceless
+	## damage (spell / fatigue), which reflects nothing. A dead source is left alone.
+	var source: Variant = context.get("source", null)
+	if source is CardInstance and not source.is_dead:
+		source.take_damage(_thorns_damage(inst), inst)
+
+
+func _thorns_damage(inst: CardInstance) -> int:
+	## Damage THORNS reflects: metadata["thorns"] (default 1).
+	return int(inst.card_data.metadata.get("thorns", 1))
 
 
 func _immunity_hits(inst: CardInstance) -> int:

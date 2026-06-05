@@ -120,3 +120,39 @@ func test_taunt_restriction_vacia_sin_taunts() -> void:
 	plain.setup(_card(CardData.PlayKind.UNIT, []), 1)
 	var required: Array = _lib.taunt_restriction(null, [plain])
 	assert_true(required.is_empty(), "sin taunts no hay restriccion")
+
+
+func test_thorns_refleja_dano_a_la_fuente() -> void:
+	# THORNS hits back at whoever dealt the damage (the source carried in the context).
+	var atacante := CardInstance.new()
+	atacante.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_THORNS]))
+	_lib.ability_handler(inst, CardInstance.Trigger.ON_DAMAGE_TAKEN, {"amount": 2, "source": atacante})
+	assert_eq(atacante.current_health, 2, "THORNS devuelve 1 por defecto a la fuente (3-1)")
+
+
+func test_thorns_lee_la_cantidad_de_metadata() -> void:
+	var atacante := CardInstance.new()
+	atacante.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	atacante.current_health = 10
+	atacante.current_max_health = 10
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_THORNS], {"thorns": 3}))
+	_lib.ability_handler(inst, CardInstance.Trigger.ON_DAMAGE_TAKEN, {"amount": 1, "source": atacante})
+	assert_eq(atacante.current_health, 7, "THORNS respeta metadata.thorns (10-3)")
+
+
+func test_thorns_sin_fuente_es_no_op() -> void:
+	# Spell / fatigue damage carries source = null; THORNS must not crash or reflect.
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_THORNS]))
+	_lib.ability_handler(inst, CardInstance.Trigger.ON_DAMAGE_TAKEN, {"amount": 3, "source": null})
+	assert_true(true, "THORNS con source null es un no-op seguro")
+
+
+func test_thorns_no_refleja_a_fuente_muerta() -> void:
+	var atacante := CardInstance.new()
+	atacante.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	atacante.is_dead = true
+	var vida := atacante.current_health
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_THORNS]))
+	_lib.ability_handler(inst, CardInstance.Trigger.ON_DAMAGE_TAKEN, {"amount": 2, "source": atacante})
+	assert_eq(atacante.current_health, vida, "THORNS no golpea a una fuente ya muerta")
