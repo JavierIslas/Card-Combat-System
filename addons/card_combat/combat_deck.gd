@@ -202,6 +202,16 @@ func gain_mana(amount: int) -> void:
 	mana_changed.emit(_mana)
 
 
+func add_mana(amount: int, cap: int) -> void:
+	## Ability-driven mana change (mana ramp / "the coin"; a negative amount spends or
+	## models overload). Unlike gain_mana (the per-turn refill capped at _max_mana), this
+	## clamps to [0, cap] so a grant may exceed the side's normal max up to the absolute
+	## ceiling. A negative cap means no upper limit. Emits mana_changed.
+	var raised: int = maxi(_mana + amount, 0)
+	_mana = raised if cap < 0 else mini(raised, cap)
+	mana_changed.emit(_mana)
+
+
 func increment_max_mana(amount: int = 2) -> void:
 	_max_mana += amount
 	max_mana_changed.emit(_max_mana)

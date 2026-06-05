@@ -401,6 +401,28 @@ func test_sin_cost_fn_usa_el_coste_de_la_carta() -> void:
 	assert_true(_deck.can_play_card(card), "con 3 de maná sí")
 
 
+func test_add_mana_puede_exceder_el_max_normal_hasta_el_cap() -> void:
+	# add_mana otorga maná más allá del max por turno, hasta el cap absoluto.
+	_deck.setup(_cards(0), 0, 2)  # _max_mana = 2
+	_deck.add_mana(5, 10)
+	assert_eq(_deck.mana, 5, "sube por encima del max normal (2), bajo el cap (10)")
+	_deck.add_mana(100, 10)
+	assert_eq(_deck.mana, 10, "clampa al cap absoluto")
+
+
+func test_add_mana_negativo_no_baja_de_cero() -> void:
+	_deck.setup(_cards(0), 0, 5)
+	_deck.add_mana(3, 10)
+	_deck.add_mana(-50, 10)
+	assert_eq(_deck.mana, 0, "no baja de cero")
+
+
+func test_add_mana_cap_negativo_no_limita() -> void:
+	_deck.setup(_cards(0), 0, 2)
+	_deck.add_mana(99, -1)
+	assert_eq(_deck.mana, 99, "cap negativo = sin límite superior")
+
+
 func test_persistent_no_es_defensor() -> void:
 	_deck.setup(_cards(0), 0)
 	var unit := _instance_on_board(CardData.PlayKind.UNIT)

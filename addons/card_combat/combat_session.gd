@@ -1666,6 +1666,15 @@ func draw_for(side: int, count: int = 1) -> Array[CardData]:
 	return drawn
 
 
+func add_mana(side: int, amount: int) -> void:
+	## Public mana entry for abilities: add `amount` to `side`'s current mana, clamped to
+	## [0, config.max_mana_cap], emitting mana_changed (so it enters the replay stream). A
+	## negative amount spends/reduces (e.g. overload). No-op for an invalid side.
+	if side < 0 or side >= side_count() or decks[side] == null:
+		return
+	decks[side].add_mana(amount, config.max_mana_cap)
+
+
 func heal_hero(side: int, amount: int) -> void:
 	## Public hero-heal entry, counterpart of deal_damage_to_hero. Emits
 	## combatant_healed with the ACTUAL amount restored (clamped at max health), so a

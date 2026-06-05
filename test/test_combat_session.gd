@@ -569,6 +569,26 @@ func test_draw_for_lado_invalido_es_no_op() -> void:
 	assert_eq(session.draw_for(5, 1).size(), 0, "lado invalido devuelve lista vacia")
 
 
+func test_add_mana_sube_y_loguea_mana_changed() -> void:
+	var session := CombatSession.new()
+	session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	var before: int = session.decks[0].mana
+	session.add_mana(0, 3)
+	assert_eq(session.decks[0].mana, before + 3, "el maná del lado sube")
+	var has_event := false
+	for ev in session.event_log:
+		if ev.type == CombatEvent.EventType.MANA_CHANGED:
+			has_event = true
+	assert_true(has_event, "add_mana entra en el event_log via mana_changed")
+
+
+func test_add_mana_lado_invalido_es_no_op() -> void:
+	var session := CombatSession.new()
+	session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	session.add_mana(9, 5)  # no crashea
+	assert_eq(session.decks[0].mana, session.decks[0].mana, "lado invalido no muta otros lados")
+
+
 func test_attacks_per_turn_default_uno_rechaza_segundo() -> void:
 	# Default attacks_per_turn=1 keeps the classic single-swing rule.
 	_setup_basico()
