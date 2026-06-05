@@ -357,6 +357,17 @@ func test_freeze_dos_turnos_persiste_un_refresh_extra() -> void:
 	assert_true(unit.can_attack_this_turn, "tercer refresh ya descongelada")
 
 
+func test_play_creature_seedea_incoming_damage_fn() -> void:
+	# Una criatura jugada hereda el incoming_damage_fn del deck (que la sesión seedea).
+	_deck.setup(_cards(0), 0, 5)
+	_deck.incoming_damage_fn = func(_i: CardInstance, amount: int, _src: Variant) -> int: return amount - 1
+	var card := _make_card(1, 1, 5)
+	_deck._hand.append(card)
+	_deck.gain_mana(5)
+	var inst := _deck.play_creature(card)
+	assert_eq(inst.take_damage(3), 2, "la criatura jugada aplica el hook del deck")
+
+
 func test_persistent_no_es_defensor() -> void:
 	_deck.setup(_cards(0), 0)
 	var unit := _instance_on_board(CardData.PlayKind.UNIT)

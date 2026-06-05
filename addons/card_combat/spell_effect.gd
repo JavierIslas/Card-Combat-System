@@ -185,6 +185,7 @@ func _apply_summon(context: Dictionary) -> Dictionary:
 	var owner_id: int = int(context.get("owner_id", 0))
 	var ability: Callable = context.get("ability_fn", Callable())
 	var buff_cap: int = int(context.get("max_permanent_buffs", -1))
+	var incoming: Callable = context.get("incoming_damage_fn", Callable())
 	var summoned: Array[CardInstance] = []
 	for i in summon_count:
 		var data := CardData.new()
@@ -194,6 +195,7 @@ func _apply_summon(context: Dictionary) -> Dictionary:
 		data.health = summon_health
 		data.play_kind = CardData.PlayKind.UNIT
 		var inst := CardInstance.with_hooks(ability, buff_cap)
+		inst.incoming_damage_fn = incoming
 		inst.setup(data, owner_id)
 		summoned.append(inst)
 	return {"success": true, "damage_dealt": 0, "healed": 0, "buff_amount": 0, "summoned": summoned}

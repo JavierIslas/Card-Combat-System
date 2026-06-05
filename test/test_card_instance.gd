@@ -455,3 +455,34 @@ func test_frozen_turns_sobrevive_round_trip_y_default_legacy() -> void:
 	data.erase("frozen_turns")
 	var legacy := CardInstance.deserialize(data)
 	assert_eq(legacy.frozen_turns, 0, "save legacy sin frozen_turns deserializa como 0")
+
+
+func test_incoming_damage_fn_reduce_el_dano() -> void:
+	var inst := _make_instance(2, 10)
+	inst.incoming_damage_fn = func(_i: CardInstance, amount: int, _src: Variant) -> int: return amount - 2
+	var dealt := inst.take_damage(5)
+	assert_eq(dealt, 3, "el hook resta 2 al daño entrante")
+	assert_eq(inst.current_health, 7, "la vida baja solo el daño reducido")
+
+
+func test_incoming_damage_fn_previene_sin_consumir_inmunidad() -> void:
+	# El hook corre antes de la inmunidad: un golpe totalmente prevenido (devuelve 0) no
+	# gasta una carga de inmunidad.
+	var inst := _make_instance(2, 10)
+	inst.immunity_hits_remaining = 1
+	inst.incoming_damage_fn = func(_i: CardInstance, _amount: int, _src: Variant) -> int: return 0
+	var dealt := inst.take_damage(5)
+	assert_eq(dealt, 0, "daño prevenido")
+	assert_eq(inst.current_health, 10, "vida intacta")
+	assert_eq(inst.immunity_hits_remaining, 1, "la inmunidad no se consumió")
+
+
+func test_incoming_damage_fn_recibe_la_fuente() -> void:
+	var inst := _make_instance(2, 10)
+	var source := _make_instance(3, 3)
+	var seen_source: Array = [null]
+	inst.incoming_damage_fn = func(_i: CardInstance, amount: int, src: Variant) -> int:
+		seen_source[0] = src
+		return amount
+	inst.take_damage(4, source)
+	assert_eq(seen_source[0], source, "el hook recibe la fuente del daño")

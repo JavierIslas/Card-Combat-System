@@ -148,6 +148,21 @@ func test_summon_id_fn_inyectado() -> void:
 	assert_eq(result["summoned"][0].card_data.card_id, "GAME::Lobo::0/1", "usa el id_fn del juego")
 
 
+func test_summon_recibe_incoming_damage_fn_del_contexto() -> void:
+	# Una criatura invocada hereda el hook de daño entrante que viaja en el contexto,
+	# igual que ability_fn, para que armadura/prevención también la cubra.
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.SUMMON
+	effect.summon_name = "Eco"
+	effect.summon_attack = 1
+	effect.summon_health = 5
+	effect.summon_count = 1
+	var reduce := func(_i: CardInstance, amount: int, _src: Variant) -> int: return amount - 1
+	var result := effect.apply(null, {"incoming_damage_fn": reduce})
+	var inst: CardInstance = result["summoned"][0]
+	assert_eq(inst.take_damage(3), 2, "el invocado aplica el incoming_damage_fn del contexto")
+
+
 func test_effect_fn_inyectado_reemplaza_el_match() -> void:
 	# El effect_fn inyectado corta el match interno: la capa-juego resuelve un
 	# tipo de efecto fuera del catálogo del motor.

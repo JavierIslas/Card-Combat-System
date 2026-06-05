@@ -119,6 +119,13 @@ var _continuous_health_total: int = 0
 ## for side-level triggers (ON_DRAW). If not injected, the engine applies no ability
 ## semantics (agnostic).
 var ability_fn: Callable = Callable()
+## Injectable pre-damage hook. Signature: (inst: CardInstance, amount: int, source:
+## Variant) -> int. Runs at the start of take_damage and returns the adjusted incoming
+## amount, so a game can implement armor / damage reduction (return amount - n),
+## prevention (return 0) or redirection (deal to another instance as a side effect and
+## return 0). Seeded by the deck like ability_fn; not serialized (re-injected on
+## resume). Empty = damage is applied unchanged.
+var incoming_damage_fn: Callable = Callable()
 
 
 static func with_hooks(p_ability_fn: Callable, p_max_buffs: int) -> CardInstance:
@@ -188,6 +195,13 @@ func take_damage(amount: int, source: Variant = null) -> int:
 	## sourceless callers are unchanged.
 	if amount <= 0:
 		return 0
+	# Pre-damage interception (armor / prevention / redirect). Runs before immunity so a
+	# fully prevented hit (returns 0) does not consume an immunity charge. The hook may
+	# also deal damage elsewhere (redirect) as a side effect.
+	if incoming_damage_fn.is_valid():
+		amount = int(incoming_damage_fn.call(self, amount, source))
+		if amount <= 0:
+			return 0
 	if immunity_hits_remaining != 0:
 		if immunity_hits_remaining > 0:
 			immunity_hits_remaining -= 1

@@ -60,6 +60,11 @@ var max_hand_size: int = -1
 ## because the hand is full. Empty = the card just goes to the graveyard.
 var discard_fn: Callable = Callable()
 
+## Optional pre-damage hook, seeded by the session into every CardInstance created.
+## Signature: (inst, amount, source) -> int. Empty = damage unchanged. See
+## CardInstance.incoming_damage_fn.
+var incoming_damage_fn: Callable = Callable()
+
 
 func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable(), p_max_permanent_buffs: int = -1, p_shuffle_seed: int = -1) -> void:
 	owner_id = owner
@@ -138,6 +143,7 @@ func play_creature(card: CardData, as_hidden: bool = false, declared_attack: int
 	_hand.remove_at(idx)
 
 	var inst := CardInstance.with_hooks(ability_fn, max_permanent_buffs)
+	inst.incoming_damage_fn = incoming_damage_fn
 	if as_hidden:
 		var hidden := HiddenCardStats.new()
 		hidden.declared_attack = declared_attack
@@ -321,6 +327,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatDeck:
 	deck.discard_fn = hooks.get("discard_fn", Callable())
 	deck.max_board_size = int(hooks.get("max_board_size", -1))
 	deck.max_hand_size = int(hooks.get("max_hand_size", -1))
+	deck.incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
 	deck._mana = int(data.get("mana", 0))
 	deck._max_mana = int(data.get("max_mana", 1))
 	deck._rng.seed = int(data.get("rng_seed", 0))
@@ -330,7 +337,9 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatDeck:
 	deck._graveyard = _deserialize_cards(data.get("graveyard", []))
 	var board: Array[CardInstance] = []
 	for d in data.get("board", []):
-		board.append(CardInstance.deserialize(d, deck.ability_fn))
+		var inst := CardInstance.deserialize(d, deck.ability_fn)
+		inst.incoming_damage_fn = deck.incoming_damage_fn
+		board.append(inst)
 	deck._board = board
 	var raw_zones: Dictionary = data.get("extra_zones", {})
 	for zone_name: String in raw_zones:

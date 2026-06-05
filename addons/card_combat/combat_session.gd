@@ -110,6 +110,12 @@ var discard_fn: Callable = Callable()
 ## creature "taunt"; the hook decides. Re-injected via deserialize hooks.
 var attack_restriction_fn: Callable = Callable()
 
+## Optional pre-damage hook, seeded into every CardInstance (via the decks) on setup.
+## Signature: (inst, amount, source) -> int. Lets a game reduce (armor), prevent or
+## redirect incoming damage before it lands, for combat AND spell damage alike. Empty =
+## damage unchanged. Re-injected via deserialize hooks. See CardInstance.incoming_damage_fn.
+var incoming_damage_fn: Callable = Callable()
+
 ## How ability triggers are dispatched. INLINE (default) fires ability_fn the
 ## moment a trigger happens, exactly as before — a chained trigger resolves
 ## depth-first, mid-sweep. QUEUED defers every trigger into a FIFO queue drained at
@@ -222,6 +228,7 @@ func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatD
 	deck.max_board_size = config.max_board_size
 	deck.max_hand_size = config.max_hand_size
 	deck.discard_fn = discard_fn
+	deck.incoming_damage_fn = incoming_damage_fn
 	_wire_deck_events(deck)
 	deck.draw_initial_hand(config.initial_hand_size)
 	return deck
@@ -278,6 +285,7 @@ func _deck_hooks() -> Dictionary:
 		"discard_fn": discard_fn,
 		"max_board_size": config.max_board_size,
 		"max_hand_size": config.max_hand_size,
+		"incoming_damage_fn": incoming_damage_fn,
 	}
 
 
@@ -926,6 +934,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session.exhaust_fn = hooks.get("exhaust_fn", Callable())
 	session.discard_fn = hooks.get("discard_fn", Callable())
 	session.attack_restriction_fn = hooks.get("attack_restriction_fn", Callable())
+	session.incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
 	session._resolver.damage_fn = session.damage_fn
 	session._restore_topology(data)
 	session._restore_scalars(data)
@@ -1605,6 +1614,7 @@ func _apply_summon_effect(effect: SpellEffect, side: int, context: Dictionary) -
 	var caster_deck: CombatDeck = decks[side]
 	context["ability_fn"] = caster_deck.ability_fn
 	context["max_permanent_buffs"] = caster_deck.max_permanent_buffs
+	context["incoming_damage_fn"] = caster_deck.incoming_damage_fn
 	var result: Dictionary = effect.apply(null, context)
 	var summoned: Array = result.get("summoned", [])
 	for inst in summoned:
