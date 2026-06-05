@@ -374,8 +374,10 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 		return true
 	var inst: CardInstance = decks[active_side].play_creature(card, as_hidden, declared_attack, declared_health)
 	# ON_PLAY (battlecry): fires after ON_SETUP, carrying the chosen target (the same
-	# `target` arg a targeted spell uses; null when the creature needs none).
-	if inst != null:
+	# `target` arg a targeted spell uses; null when the creature needs none). Skipped
+	# entirely when no ability handler is wired: ON_PLAY would be a pure no-op anyway, so
+	# this avoids the per-play context alloc + fire in the agnostic/engine-only path.
+	if inst != null and _effective_ability_fn.is_valid():
 		inst._fire(CardInstance.Trigger.ON_PLAY, {"target": target})
 	# Fire the deferred ON_SETUP / ON_PLAY (QUEUED) before handing control back.
 	_drain_triggers()
@@ -1229,11 +1231,14 @@ func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 				_apply_spell_effects(card_to_play, side, target)
 				plays += 1
 		else:
-			# Ask the AI for an on-play target (battlecry); default AIs return null.
-			var play_target: Variant = side_ai.choose_play_target(card_to_play, ally_boards(side), enemy_boards(side))
 			var played: CardInstance = deck.play_creature(card_to_play)
-			if played != null:
+			# ON_PLAY (battlecry) only when an ability handler is wired: otherwise skip the
+			# AI target query + fire entirely (a no-op), keeping the engine-only auto_resolve
+			# path — and its determinism — exactly as before this feature.
+			if played != null and _effective_ability_fn.is_valid():
+				var play_target: Variant = side_ai.choose_play_target(card_to_play, ally_boards(side), enemy_boards(side))
 				played._fire(CardInstance.Trigger.ON_PLAY, {"target": play_target})
+			if played != null:
 				recompute_auras()
 			plays += 1
 		card_to_play = side_ai.choose_card_to_play(_playable_hand(deck, skipped), deck.mana)
