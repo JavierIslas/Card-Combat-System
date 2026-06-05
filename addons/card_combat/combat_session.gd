@@ -61,6 +61,12 @@ var turn_number: int = 0
 # Turn order over sides, interleaved by team so teammates don't act back-to-back
 # (round-robin between teams). Rebuilt from `teams` in setup_sides / deserialize.
 var _turn_order: Array[int] = [0, 1]
+# Cached ally/enemy side-lists per side, derived from `teams` (which is static for a
+# combat). Rebuilt alongside _turn_order so allies_of/enemies_of are O(1) lookups
+# instead of re-scanning every side and allocating a fresh array on each call (hot in
+# the board-flattening paths). Defaults mirror the 1v1 teams=[0,1] layout.
+var _allies_of: Array = [[0] as Array[int], [1] as Array[int]]
+var _enemies_of: Array = [[1] as Array[int], [0] as Array[int]]
 # CombatPair declared by each side, indexed by side.
 var _attack_pairs: Array[Array] = [[], []]
 # attacker CardInstance -> blocker CardInstance, for the current turn.
@@ -753,20 +759,14 @@ func are_allies(side_a: int, side_b: int) -> bool:
 func allies_of(side: int) -> Array[int]:
 	## Sides on the same team as `side`, INCLUDING `side` itself (per design D1: a
 	## PLAYER_CREATURES spell covers the caster's board and its teammates' boards).
-	var out: Array[int] = []
-	for s in side_count():
-		if are_allies(s, side):
-			out.append(s)
-	return out
+	## Returns the shared cached list (rebuilt from `teams`); read-only — do not mutate.
+	return _allies_of[side]
 
 
 func enemies_of(side: int) -> Array[int]:
 	## Sides on a different team from `side`. In 1v1 this is just the other side.
-	var out: Array[int] = []
-	for s in side_count():
-		if not are_allies(s, side):
-			out.append(s)
-	return out
+	## Returns the shared cached list (rebuilt from `teams`); read-only — do not mutate.
+	return _enemies_of[side]
 
 
 func passive_sides() -> Array[int]:
@@ -820,6 +820,29 @@ func _rebuild_turn_order() -> void:
 			if round_idx < g.size():
 				_turn_order.append(g[round_idx])
 		round_idx += 1
+	# Same input (`teams`), same lifecycle: refresh the cached ally/enemy lists here so
+	# they can never drift from the turn order.
+	_rebuild_relations()
+
+
+func _rebuild_relations() -> void:
+	## Cache the ally/enemy side-list per side from `teams`, so allies_of/enemies_of are
+	## O(1) reads instead of re-scanning every side and allocating a fresh array on each
+	## call. Driven by teams.size() like _rebuild_turn_order (it runs in setup_sides before
+	## the decks array is resized, so side_count() is not yet valid here).
+	var n: int = teams.size()
+	_allies_of = []
+	_enemies_of = []
+	for side in n:
+		var allies: Array[int] = []
+		var enemies: Array[int] = []
+		for s in n:
+			if teams[s] == teams[side]:
+				allies.append(s)
+			else:
+				enemies.append(s)
+		_allies_of.append(allies)
+		_enemies_of.append(enemies)
 
 
 func _is_side_out(side: int) -> bool:
