@@ -192,8 +192,12 @@ func refresh_creatures_for_turn() -> void:
 			# A PERSISTENT permanent still refreshes (expires temp buffs, fires
 			# ON_TURN_REFRESH) but never becomes able to attack: it is not a combatant.
 			inst.refresh_for_turn()
+			# A frozen combatant is denied this turn's swing; ticking afterwards thaws it
+			# for the next turn. refresh_for_turn already fired ON_TURN_REFRESH, so an
+			# ability that just froze it (during this refresh) is honored here.
 			if inst.is_combatant:
-				inst.can_attack_this_turn = true
+				inst.can_attack_this_turn = not inst.is_frozen()
+			inst.tick_freeze()
 
 
 func get_defenders() -> Array[CardInstance]:

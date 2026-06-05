@@ -424,3 +424,34 @@ func test_attacks_per_turn_default_uno_en_saves_legacy() -> void:
 	data.erase("attacks_per_turn")
 	var restored := CardInstance.deserialize(data)
 	assert_eq(restored.attacks_per_turn, 1, "save legacy sin attacks_per_turn deserializa como 1")
+
+
+func test_freeze_marca_y_tick_descongela() -> void:
+	var inst := _make_instance(2, 3)
+	assert_false(inst.is_frozen(), "arranca sin congelar")
+	inst.freeze(1)
+	assert_true(inst.is_frozen(), "freeze(1) la congela")
+	inst.tick_freeze()
+	assert_false(inst.is_frozen(), "un tick la descongela")
+	inst.tick_freeze()
+	assert_eq(inst.frozen_turns, 0, "tick no baja de cero")
+
+
+func test_freeze_toma_la_duracion_mas_larga() -> void:
+	var inst := _make_instance(2, 3)
+	inst.freeze(2)
+	inst.freeze(1)
+	assert_eq(inst.frozen_turns, 2, "re-congelar conserva la duración más larga")
+	inst.freeze(0)
+	assert_eq(inst.frozen_turns, 2, "freeze(0) es no-op")
+
+
+func test_frozen_turns_sobrevive_round_trip_y_default_legacy() -> void:
+	var inst := _make_instance(2, 3)
+	inst.freeze(2)
+	var restored := CardInstance.deserialize(inst.serialize())
+	assert_eq(restored.frozen_turns, 2, "frozen_turns se preserva en el round-trip")
+	var data: Dictionary = inst.serialize()
+	data.erase("frozen_turns")
+	var legacy := CardInstance.deserialize(data)
+	assert_eq(legacy.frozen_turns, 0, "save legacy sin frozen_turns deserializa como 0")

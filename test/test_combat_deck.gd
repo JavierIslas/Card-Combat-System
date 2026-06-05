@@ -332,6 +332,31 @@ func test_persistent_no_gana_ataque_en_refresh() -> void:
 	assert_false(aura.can_attack_this_turn, "la PERSISTENT nunca gana ataque")
 
 
+func test_freeze_niega_ataque_un_turno_y_luego_descongela() -> void:
+	# Una criatura congelada 1 turno no gana ataque en el refresh; el siguiente refresh
+	# (ya descongelada) sí la habilita.
+	_deck.setup(_cards(0), 0)
+	var unit := _instance_on_board(CardData.PlayKind.UNIT)
+	unit.freeze(1)
+	_deck.refresh_creatures_for_turn()
+	assert_false(unit.can_attack_this_turn, "congelada: el refresh no habilita el ataque")
+	assert_false(unit.is_frozen(), "el refresh consumió el turno de congelación")
+	_deck.refresh_creatures_for_turn()
+	assert_true(unit.can_attack_this_turn, "descongelada: el refresh siguiente habilita el ataque")
+
+
+func test_freeze_dos_turnos_persiste_un_refresh_extra() -> void:
+	_deck.setup(_cards(0), 0)
+	var unit := _instance_on_board(CardData.PlayKind.UNIT)
+	unit.freeze(2)
+	_deck.refresh_creatures_for_turn()
+	assert_false(unit.can_attack_this_turn, "primer refresh sigue congelada")
+	_deck.refresh_creatures_for_turn()
+	assert_false(unit.can_attack_this_turn, "segundo refresh sigue congelada")
+	_deck.refresh_creatures_for_turn()
+	assert_true(unit.can_attack_this_turn, "tercer refresh ya descongelada")
+
+
 func test_persistent_no_es_defensor() -> void:
 	_deck.setup(_cards(0), 0)
 	var unit := _instance_on_board(CardData.PlayKind.UNIT)

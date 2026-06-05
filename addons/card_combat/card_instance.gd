@@ -81,6 +81,11 @@ var immunity_hits_remaining: int = 0
 ## (e.g. STEALTH) and cleared when the creature acts. The engine enforces this in
 ## _attack_target_allowed; it does not interpret why it is false.
 var can_be_attacked: bool = true
+## Turns the creature is frozen for: while > 0 it is denied its attack on its own
+## turn refresh, then the counter ticks down by one. Set by abilities (e.g. a FREEZE
+## keyword) via freeze(); the engine only skips the swing and decrements, it does not
+## know what froze it.
+var frozen_turns: int = 0
 
 ## Accumulated permanent buffs (generic: any delta via apply_permanent_buff). The
 ## engine does not know "+1/+1": the delta and the cap are decided by the game
@@ -289,6 +294,23 @@ func _expire_temp_buffs() -> void:
 	_temp_health_total = 0
 
 
+func freeze(turns: int) -> void:
+	## Freeze the creature for `turns` of its own turns. Re-freezing keeps the longer
+	## remaining duration instead of overwriting, so two sources don't shorten it.
+	if turns > 0:
+		frozen_turns = maxi(frozen_turns, turns)
+
+
+func is_frozen() -> bool:
+	return frozen_turns > 0
+
+
+func tick_freeze() -> void:
+	## Consume one frozen turn. Called by the deck right after a refresh denies the
+	## swing, so the creature thaws for its following turn.
+	frozen_turns = maxi(frozen_turns - 1, 0)
+
+
 func refresh_for_turn() -> void:
 	_expire_temp_buffs()
 	damage_taken_this_turn = 0
@@ -329,6 +351,7 @@ func serialize() -> Dictionary:
 		"attacks_per_turn": attacks_per_turn,
 		"immunity_hits_remaining": immunity_hits_remaining,
 		"can_be_attacked": can_be_attacked,
+		"frozen_turns": frozen_turns,
 		"permanent_buff_count": permanent_buff_count,
 		"max_permanent_buffs": max_permanent_buffs,
 		"buff_attack_total": _buff_attack_total,
@@ -364,6 +387,7 @@ static func deserialize(data: Dictionary, p_ability_fn: Callable = Callable()) -
 	inst.attacks_per_turn = int(data.get("attacks_per_turn", 1))
 	inst.immunity_hits_remaining = int(data.get("immunity_hits_remaining", 0))
 	inst.can_be_attacked = data.get("can_be_attacked", true)
+	inst.frozen_turns = int(data.get("frozen_turns", 0))
 	inst.permanent_buff_count = int(data.get("permanent_buff_count", 0))
 	inst.max_permanent_buffs = int(data.get("max_permanent_buffs", -1))
 	inst._buff_attack_total = int(data.get("buff_attack_total", 0))
