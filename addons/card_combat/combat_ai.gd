@@ -63,6 +63,15 @@ func choose_blockers(_attackers: Array[CardInstance], _own_board: Array[CardInst
 	return {}
 
 
+func choose_play_target(_card: CardData, _own_board: Array[CardInstance], _enemy_board: Array[CardInstance]) -> Variant:
+	## Optional: pick the target for a creature's on-play effect (a battlecry), used by
+	## auto_resolve to fill the ON_PLAY context. Unlike the five core methods this is NOT
+	## mandatory: the default returns null (no target), so an AI for a game without
+	## battlecries needs no override and existing AIs keep working. Return a living
+	## CardInstance (from either board, each carries its owner_id) or null.
+	return null
+
+
 func serialize_state() -> Dictionary:
 	## Optional, agnostic state hook for save/resume. The default is empty: a
 	## stateless AI needs nothing. An AI with internal state (e.g. a seeded RNG)

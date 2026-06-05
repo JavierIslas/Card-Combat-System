@@ -621,6 +621,44 @@ func test_attacks_per_turn_permite_multiples_swings() -> void:
 	assert_eq(_session._attack_pairs[0].size(), 2, "se declararon dos pares")
 
 
+func test_play_card_creature_dispara_on_play_con_target() -> void:
+	# ON_PLAY se dispara al jugar una criatura, tras ON_SETUP, con el target elegido en
+	# el contexto (battlecry). Aquí el handler daña al objetivo provisto a play_card.
+	# ability_fn debe asignarse ANTES de setup (se propaga a decks/instancias ahí).
+	var fired: Array = [0]
+	_session.ability_fn = func(inst: Variant, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_PLAY and inst is CardInstance:
+			fired[0] += 1
+			var tgt: Variant = ctx.get("target", null)
+			if tgt is CardInstance:
+				tgt.take_damage(3)
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	# Objetivo enemigo en el tablero del lado 1.
+	var victim := CardInstance.new()
+	victim.setup(_creature(0, 1, 5), 1)
+	_session.decks[1].add_to_board(victim)
+	var battlecry := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(battlecry)
+	_session.play_card(battlecry, false, 0, 0, victim)
+	assert_eq(fired[0], 1, "ON_PLAY se disparó una vez")
+	assert_eq(victim.current_health, 2, "la battlecry dañó al target elegido (5 - 3)")
+
+
+func test_play_card_creature_on_play_sin_target_es_null() -> void:
+	# Una criatura sin objetivo recibe target=null en el contexto ON_PLAY.
+	var seen: Array = ["unset"]
+	_session.ability_fn = func(inst: Variant, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_PLAY and inst is CardInstance:
+			seen[0] = ctx.get("target", "missing")
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	var minion := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(minion)
+	_session.play_card(minion)
+	assert_eq(seen[0], null, "sin target explícito, el contexto trae null")
+
+
 func test_draw_for_roba_y_aumenta_la_mano() -> void:
 	var session := CombatSession.new()
 	session.setup(_hero(), _starter(), _hero(), _empty(), 1)
