@@ -1432,6 +1432,8 @@ func _resolve_winner() -> void:
 
 
 func _process_death_results(pairs_result: Array) -> void:
+	# Record the resolver-known deaths first, in pair order, so their creature_died
+	# sequence is preserved exactly as before.
 	for pr in pairs_result:
 		var attacker: CardInstance = pr["attacker"]
 		var defender: Variant = pr["defender"]
@@ -1439,9 +1441,11 @@ func _process_death_results(pairs_result: Array) -> void:
 			_record_death(attacker)
 		if defender != null and pr["defender_died"]:
 			_record_death(defender)
-	# Remove dead from every side's board.
-	for s in side_count():
-		decks[s].remove_dead_creatures()
+	# Then sweep every board so collateral deaths from combat triggers (a reflect /
+	# thorns chain, or a kill landed during a QUEUED drain) surface like spell deaths:
+	# recorded AND removed, not silently dropped by a blind board cleanup. _record_death
+	# is idempotent, so the deaths recorded above are not doubled.
+	_sweep_all_boards()
 
 
 func _record_death(inst: CardInstance) -> void:

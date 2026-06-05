@@ -577,6 +577,39 @@ func test_declare_blocker_redirige_dano_al_bloqueador() -> void:
 	assert_eq(atk.current_health, 2, "el atacante recibe el golpe del bloqueador (3 - 1)")
 
 
+func test_muerte_colateral_en_combate_queda_registrada() -> void:
+	# A combat trigger (e.g. reflect/thorns) can kill a creature that is NOT part of any
+	# attack pair. That collateral death must surface like a spell death — recorded,
+	# off the board and in the event_log — not silently dropped by the board cleanup.
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.new()
+	atk.setup(_creature(0, 3, 3), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var tercero := CardInstance.new()
+	tercero.setup(_creature(0, 1, 1), 1)
+	var blk := CardInstance.new()
+	# When the blocker is hit it reflects lethal damage onto an uninvolved creature.
+	blk.ability_fn = func(_i: CardInstance, trigger: int, _ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			tercero.take_damage(99)
+	blk.setup(_creature(0, 1, 4), 1)
+	_session.decks[1].add_to_board(blk)
+	_session.decks[1].add_to_board(tercero)
+	var deaths: Array = []
+	_session.creature_died.connect(func(_card: CardInstance, owner: int) -> void: deaths.append(owner))
+	_session.declare_attacker(atk, null)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.declare_blocker(atk, blk)
+	_session.end_defense_phase()
+	assert_true(tercero.is_dead, "el tercero muere por el reflejo del bloqueador")
+	assert_true(_session.get_dead_creatures(1).has(tercero), "la muerte colateral queda registrada")
+	assert_false(_session.decks[1].get_board().has(tercero), "el tercero sale del tablero")
+	assert_true(deaths.has(1), "se emitió creature_died para la muerte colateral")
+
+
 func test_bloqueo_bilateral_el_lado_cero_tambien_bloquea() -> void:
 	# La otra dirección: en el turno del lado 1, el lado 0 (ahora pasivo) bloquea.
 	_session.setup(_hero(30), [_creature(9, 1, 1)], _hero(30), [_creature(9, 1, 1)], 1)
