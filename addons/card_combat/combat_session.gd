@@ -489,8 +489,11 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	attacker.has_attacked_this_turn = true
 	attacker.times_attacked += 1
 	# target is a CardInstance for a directed attack, or null when swinging at the hero.
-	attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
-	_drain_triggers()
+	# Skip the context alloc + fire entirely with no handler wired: ON_ATTACK would be a
+	# pure no-op, and the queue stays empty so the drain is too (same gate as ON_PLAY).
+	if _effective_ability_fn.is_valid():
+		attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
+		_drain_triggers()
 	return true
 
 
@@ -522,8 +525,10 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 		return false
 	pair.defender = blocker
 	_block_assignments[attacker] = blocker
-	blocker._fire(CardInstance.Trigger.ON_BLOCK, {"attacker": attacker})
-	_drain_triggers()
+	# Same no-handler gate as ON_ATTACK: skip the alloc + fire + drain when nothing listens.
+	if _effective_ability_fn.is_valid():
+		blocker._fire(CardInstance.Trigger.ON_BLOCK, {"attacker": attacker})
+		_drain_triggers()
 	return true
 
 
@@ -1452,6 +1457,10 @@ func _resolve_active_attacks() -> void:
 func _fire_turn_trigger(side: int, trigger: CardInstance.Trigger) -> void:
 	## Fire a per-side turn trigger (ON_TURN_START / ON_TURN_END) on every living
 	## creature of `side`. Reuses CardInstance.living so dead creatures are skipped.
+	# With no handler wired the whole sweep is a no-op: skip it before the living() alloc
+	# and the per-creature context allocs (same gate as ON_ATTACK/ON_PLAY).
+	if not _effective_ability_fn.is_valid():
+		return
 	for inst in CardInstance.living(decks[side].get_board()):
 		inst._fire(trigger, {"side": side})
 
@@ -1461,6 +1470,9 @@ func _fire_damage_dealt(pairs_result: Array) -> void:
 	## Fires after the damage was applied (so ON_DAMAGE_TAKEN/ON_DEATH already ran on
 	## the victims); a dealer that died in the trade still reports the hit it landed.
 	## Spells have no creature dealer, so they never fire ON_DAMAGE_DEALT.
+	# No handler wired -> every fire below is a no-op: skip before the per-pr context allocs.
+	if not _effective_ability_fn.is_valid():
+		return
 	for pr in pairs_result:
 		var attacker: CardInstance = pr["attacker"]
 		var defender: Variant = pr["defender"]
