@@ -63,6 +63,26 @@ func test_damage_valor_cero_no_hace_nada() -> void:
 	assert_false(result["success"])
 
 
+func test_damage_suma_spell_power_del_context() -> void:
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.DAMAGE
+	effect.value = 3
+	var target := _make_instance(0, 10)
+	var result := effect.apply(target, {"spell_power": 2})
+	assert_eq(result["damage_dealt"], 5, "daño = valor + spell_power")
+	assert_eq(target.current_health, 5)
+
+
+func test_damage_spell_power_no_baja_de_cero() -> void:
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.DAMAGE
+	effect.value = 2
+	var target := _make_instance(0, 10)
+	var result := effect.apply(target, {"spell_power": -5})
+	assert_eq(result["damage_dealt"], 0, "un spell_power negativo no produce daño negativo")
+	assert_eq(target.current_health, 10)
+
+
 # --- HEAL ---
 
 func test_heal_sobre_combatant() -> void:
@@ -102,6 +122,26 @@ func test_aoe_golpea_todo_el_array() -> void:
 	effect.apply([a, b], {})
 	assert_eq(a.current_health, 3)
 	assert_true(b.is_dead, "la criatura de 1 de vida muere por el AOE")
+
+
+func test_aoe_suma_spell_power_a_cada_objetivo() -> void:
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.AOE_DAMAGE
+	effect.value = 2
+	var a := _make_instance(0, 10)
+	effect.apply([a], {"spell_power": 3})
+	assert_eq(a.current_health, 5, "cada objetivo recibe valor + spell_power")
+
+
+func test_heal_ignora_spell_power() -> void:
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.HEAL
+	effect.value = 4
+	var hero := Combatant.new()
+	hero.max_health = 30
+	hero.current_health = 10
+	effect.apply(hero, {"spell_power": 5})
+	assert_eq(hero.current_health, 14, "la curación ignora el spell_power")
 
 
 # --- SUMMON ---

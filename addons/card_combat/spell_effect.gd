@@ -97,15 +97,18 @@ static func from_dict(data: Dictionary) -> SpellEffect:
 func apply(target: Variant, _combat_context: Dictionary) -> Dictionary:
 	if effect_fn.is_valid():
 		return effect_fn.call(self, target, _combat_context)
+	# Spell power boosts damage-type effects only (DAMAGE / AOE_DAMAGE); heals, buffs and
+	# summons ignore it. It comes from the caster's spell_power_fn via the context.
+	var bonus: int = int(_combat_context.get("spell_power", 0))
 	match effect_type:
 		EffectType.DAMAGE:
-			return _apply_damage(target)
+			return _apply_damage(target, bonus)
 		EffectType.HEAL:
 			return _apply_heal(target)
 		EffectType.BUFF_ATTACK:
 			return _apply_buff(target)
 		EffectType.AOE_DAMAGE:
-			return _apply_aoe_damage(target)
+			return _apply_aoe_damage(target, bonus)
 		EffectType.SUMMON:
 			return _apply_summon(_combat_context)
 		_:
@@ -116,16 +119,18 @@ func _empty_result() -> Dictionary:
 	return {"success": false, "damage_dealt": 0, "healed": 0, "buff_amount": 0}
 
 
-func _apply_damage(target: Variant) -> Dictionary:
+func _apply_damage(target: Variant, bonus: int = 0) -> Dictionary:
 	if value <= 0:
 		return _empty_result()
+	# Spell power adds to the base value; floored at 0 so a negative bonus can't heal.
+	var dmg: int = maxi(value + bonus, 0)
 	if target is CardInstance:
 		if target.is_dead:
 			return _empty_result()
-		var dealt: int = target.take_damage(value)
+		var dealt: int = target.take_damage(dmg)
 		return {"success": true, "damage_dealt": dealt, "healed": 0, "buff_amount": 0}
 	if target is int:
-		return {"success": true, "damage_dealt": value, "healed": 0, "buff_amount": 0}
+		return {"success": true, "damage_dealt": dmg, "healed": 0, "buff_amount": 0}
 	return _empty_result()
 
 
@@ -166,14 +171,15 @@ func _apply_buff(target: Variant) -> Dictionary:
 	return _empty_result()
 
 
-func _apply_aoe_damage(target: Variant) -> Dictionary:
+func _apply_aoe_damage(target: Variant, bonus: int = 0) -> Dictionary:
 	if value <= 0:
 		return _empty_result()
+	var dmg: int = maxi(value + bonus, 0)
 	if target is Array:
 		for inst in target:
 			if inst is CardInstance and not inst.is_dead:
-				inst.take_damage(value)
-		return {"success": true, "damage_dealt": value, "healed": 0, "buff_amount": 0}
+				inst.take_damage(dmg)
+		return {"success": true, "damage_dealt": dmg, "healed": 0, "buff_amount": 0}
 	return _empty_result()
 
 

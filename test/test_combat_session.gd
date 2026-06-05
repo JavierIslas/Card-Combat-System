@@ -324,6 +324,17 @@ func test_play_card_hechizo_dana_al_lado_opuesto() -> void:
 	assert_eq(_session.heroes[1].current_health, 24, "30 - 6 al héroe del lado opuesto")
 
 
+func test_spell_power_fn_potencia_el_bolt_al_heroe() -> void:
+	# El spell_power_fn suma daño al bolt ENEMY_HERO del lanzador.
+	_setup_basico()
+	_session.start()
+	_session.spell_power_fn = func(_owner: int) -> int: return 2
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 6, SpellEffect.TargetType.ENEMY_HERO)
+	_session.decks[0]._hand.append(spell)
+	_session.play_card(spell)
+	assert_eq(_session.heroes[1].current_health, 22, "30 - (6+2) con spell power")
+
+
 func test_combatant_damaged_espejado_en_event_log() -> void:
 	_setup_basico()
 	_session.start()

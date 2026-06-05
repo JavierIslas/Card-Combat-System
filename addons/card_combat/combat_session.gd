@@ -122,6 +122,13 @@ var incoming_damage_fn: Callable = Callable()
 ## card's own get_total_cost(). Re-injected via deserialize hooks.
 var cost_fn: Callable = Callable()
 
+## Optional spell-power hook. Signature: (owner_id: int) -> int. Returns a bonus added
+## to the value of the caster's damage spells (built-in DAMAGE / AOE_DAMAGE and the
+## ENEMY_HERO bolt), so a game can scale damage by board state ("+N spell damage").
+## It travels in the spell context as "spell_power", so a custom effect_fn can read it
+## too. Empty = no bonus. Re-injected via deserialize hooks.
+var spell_power_fn: Callable = Callable()
+
 ## How ability triggers are dispatched. INLINE (default) fires ability_fn the
 ## moment a trigger happens, exactly as before — a chained trigger resolves
 ## depth-first, mid-sweep. QUEUED defers every trigger into a FIFO queue drained at
@@ -377,7 +384,7 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 		return false
 	if not _consume_spell(card):
 		return false
-	var context: Dictionary = {"session": self, "owner_id": active_side}
+	var context: Dictionary = {"session": self, "owner_id": active_side, "spell_power": _spell_power_for(active_side)}
 	# An externally-built effect can kill (damage/AOE/custom effect_fn). Sweeping
 	# afterwards surfaces those deaths like any other (_record_death is idempotent),
 	# matching the play_card path; otherwise an ad-hoc kill would leave a zombie on
@@ -944,6 +951,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session.attack_restriction_fn = hooks.get("attack_restriction_fn", Callable())
 	session.incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
 	session.cost_fn = hooks.get("cost_fn", Callable())
+	session.spell_power_fn = hooks.get("spell_power_fn", Callable())
 	session._resolver.damage_fn = session.damage_fn
 	session._restore_topology(data)
 	session._restore_scalars(data)
@@ -1536,6 +1544,14 @@ func _apply_effect_and_sweep(effect: SpellEffect, target: Variant, context: Dict
 	_sweep_all_boards()
 
 
+func _spell_power_for(side: int) -> int:
+	## Spell-damage bonus for the caster, from the injected spell_power_fn. 0 when no
+	## hook is wired, so casting is unchanged in the agnostic engine.
+	if spell_power_fn.is_valid():
+		return int(spell_power_fn.call(side))
+	return 0
+
+
 func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant = null, target_side: int = -1) -> void:
 	## Agnostic resolution from the caster's perspective (`side`). TargetType is
 	## interpreted relative to the caster, so the same spell serves both sides with no
@@ -1544,7 +1560,7 @@ func _apply_single_spell_effect(effect: SpellEffect, side: int, target: Variant 
 	# Unified context for every effect.apply path, so a custom effect_fn always
 	# receives the session and the casting side (it reaches heroes with full
 	# observability via context["session"].deal_damage_to_hero / heal_hero).
-	var context: Dictionary = {"session": self, "owner_id": side}
+	var context: Dictionary = {"session": self, "owner_id": side, "spell_power": _spell_power_for(side)}
 	match effect.target_type:
 		SpellEffect.TargetType.ENEMY_HERO:
 			_apply_enemy_hero_effect(effect, side, target_side, context)
@@ -1578,7 +1594,8 @@ func _apply_enemy_hero_effect(effect: SpellEffect, side: int, target_side: int, 
 	if effect.effect_fn.is_valid():
 		_apply_effect_and_sweep(effect, heroes[enemy_side], context)
 	else:
-		deal_damage_to_hero(enemy_side, effect.value)
+		# Spell power boosts the bolt to the hero too, mirroring the creature-damage path.
+		deal_damage_to_hero(enemy_side, effect.value + int(context.get("spell_power", 0)))
 
 
 func _apply_player_hero_effect(effect: SpellEffect, side: int, context: Dictionary) -> void:
