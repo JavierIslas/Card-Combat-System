@@ -165,8 +165,12 @@ func reveal() -> void:
 	card_revealed.emit(self)
 
 
-func take_damage(amount: int) -> int:
+func take_damage(amount: int, source: Variant = null) -> int:
 	## Applies damage. Returns the actual damage taken (may be 0 with immunity).
+	## `source` is who dealt it (a CardInstance in combat, or null for sourceless
+	## damage like spells or fatigue); it travels in the ON_DAMAGE_TAKEN context so a
+	## reflect/thorns ability can hit back. Optional and null-defaulted, so existing
+	## sourceless callers are unchanged.
 	if amount <= 0:
 		return 0
 	if immunity_hits_remaining != 0:
@@ -179,9 +183,9 @@ func take_damage(amount: int) -> int:
 	damage_taken_this_turn += actual
 	card_damaged.emit(self, actual)
 	# ON_DAMAGE_TAKEN fires before any death so an ability can react to the hit
-	# (e.g. retaliate) before ON_DEATH. The source is not tracked here; combat
-	# damage exposes the dealer via ON_DAMAGE_DEALT on the session side.
-	_fire(Trigger.ON_DAMAGE_TAKEN, {"amount": actual})
+	# (e.g. retaliate) before ON_DEATH. `source` is null when the dealer is not a
+	# creature (spell / fatigue); combat passes the opponent instance.
+	_fire(Trigger.ON_DAMAGE_TAKEN, {"amount": actual, "source": source})
 
 	if current_health <= 0:
 		_die()

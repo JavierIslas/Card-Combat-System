@@ -53,6 +53,34 @@ func test_inmunidad_no_dispara_on_damage_taken() -> void:
 	assert_eq(events.size(), 0, "un golpe absorbido no dispara ON_DAMAGE_TAKEN")
 
 
+func test_take_damage_expone_la_fuente_en_on_damage_taken() -> void:
+	# The damage source travels in the trigger context so a reflect/thorns ability can
+	# hit back at whoever dealt the hit.
+	var sources: Array = []
+	var atacante := CardInstance.new()
+	atacante.setup(_make_card(2, 2), 1)
+	var inst := CardInstance.new()
+	inst.ability_fn = func(_i: CardInstance, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			sources.append(ctx.get("source", "missing"))
+	inst.setup(_make_card(0, 5), 0)
+	inst.take_damage(3, atacante)
+	assert_eq(sources, [atacante], "ON_DAMAGE_TAKEN expone quién causó el daño")
+
+
+func test_take_damage_sin_fuente_deja_source_nulo() -> void:
+	# Sources without a creature (spells, fatigue) keep the previous behavior: source
+	# is null, never absent, so a handler can read it uniformly.
+	var sources: Array = []
+	var inst := CardInstance.new()
+	inst.ability_fn = func(_i: CardInstance, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			sources.append(ctx.get("source", "missing"))
+	inst.setup(_make_card(0, 5), 0)
+	inst.take_damage(3)
+	assert_eq(sources, [null], "sin fuente el source viaja como null")
+
+
 func test_heal_dispara_on_heal_solo_con_delta_real() -> void:
 	var events: Array = []
 	var inst := CardInstance.new()

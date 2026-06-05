@@ -44,8 +44,10 @@ func resolve_combat(pairs: Array) -> Dictionary:
 			})
 		else:
 			var d_dmg := calculate_damage(d, a)
-			pending_damage.append([d, a_dmg])
-			pending_damage.append([a, d_dmg])
+			# Each entry is [target, amount, source]: the source is the opponent that
+			# dealt it, so ON_DAMAGE_TAKEN can name who hit (reflect / thorns).
+			pending_damage.append([d, a_dmg, a])
+			pending_damage.append([a, d_dmg, d])
 			pairs_result.append({
 				"attacker": a,
 				"defender": d,
@@ -59,7 +61,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 	for entry in pending_damage:
 		var target: CardInstance = entry[0]
 		var amount: int = entry[1]
-		target.take_damage(amount)
+		var source: CardInstance = entry[2]
+		target.take_damage(amount, source)
 
 	# Phase 3: Mark deaths
 	for pr in pairs_result:

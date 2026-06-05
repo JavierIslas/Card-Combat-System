@@ -44,6 +44,23 @@ func test_damage_fn_inyectada_reemplaza_la_formula() -> void:
 	assert_eq(_resolver.calculate_damage(atacante, defensor), 3, "5 - 2 segun el hook")
 
 
+func test_combate_expone_el_oponente_como_fuente() -> void:
+	# In a creature trade each side's ON_DAMAGE_TAKEN must name the opponent as the
+	# damage source, so a reflect/thorns ability can hit back.
+	var captured: Dictionary = {}
+	var tag := func(inst: CardInstance, who: String) -> void:
+		inst.ability_fn = func(_i: CardInstance, trigger: int, ctx: Dictionary) -> void:
+			if trigger == CardInstance.Trigger.ON_DAMAGE_TAKEN:
+				captured[who] = ctx.get("source", null)
+	var a := _make_creature(3, 5)
+	var d := _make_creature(2, 5)
+	tag.call(a, "attacker")
+	tag.call(d, "defender")
+	_resolver.resolve_combat([CombatPair.new(a, d)])
+	assert_eq(captured.get("defender"), a, "el defensor ve al atacante como fuente")
+	assert_eq(captured.get("attacker"), d, "el atacante ve al defensor como fuente")
+
+
 func test_trade_mutuo_ambos_mueren() -> void:
 	var a := _make_creature(3, 3)
 	var d := _make_creature(3, 3)
