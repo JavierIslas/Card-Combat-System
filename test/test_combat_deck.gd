@@ -368,6 +368,39 @@ func test_play_creature_seedea_incoming_damage_fn() -> void:
 	assert_eq(inst.take_damage(3), 2, "la criatura jugada aplica el hook del deck")
 
 
+func test_cost_fn_descuenta_el_coste() -> void:
+	# El cost_fn rebaja el coste: una carta de 3 cuesta 1, jugable con 1 de maná.
+	_deck.setup(_cards(0), 0, 5)
+	_deck.cost_fn = func(_card: CardData, _owner: int) -> int: return 1
+	var card := _make_card(3, 2, 2)
+	_deck._hand.append(card)
+	_deck.gain_mana(1)
+	assert_true(_deck.can_play_card(card), "con el descuento es jugable con 1 de maná")
+	assert_not_null(_deck.play_creature(card), "se juega")
+	assert_eq(_deck.mana, 0, "gastó solo el coste efectivo (1)")
+
+
+func test_cost_fn_no_baja_de_cero() -> void:
+	# Un descuento agresivo nunca produce gasto negativo de maná.
+	_deck.setup(_cards(0), 0, 5)
+	_deck.cost_fn = func(_card: CardData, _owner: int) -> int: return -5
+	var card := _make_card(3, 2, 2)
+	_deck._hand.append(card)
+	assert_true(_deck.can_play_card(card), "coste efectivo 0 es jugable sin maná")
+	_deck.play_creature(card)
+	assert_eq(_deck.mana, 0, "no hay gasto negativo")
+
+
+func test_sin_cost_fn_usa_el_coste_de_la_carta() -> void:
+	_deck.setup(_cards(0), 0, 5)
+	var card := _make_card(3, 2, 2)
+	_deck._hand.append(card)
+	_deck.gain_mana(2)
+	assert_false(_deck.can_play_card(card), "sin descuento, 2 de maná no alcanza para coste 3")
+	_deck.gain_mana(1)
+	assert_true(_deck.can_play_card(card), "con 3 de maná sí")
+
+
 func test_persistent_no_es_defensor() -> void:
 	_deck.setup(_cards(0), 0)
 	var unit := _instance_on_board(CardData.PlayKind.UNIT)

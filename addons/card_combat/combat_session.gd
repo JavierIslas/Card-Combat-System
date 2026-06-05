@@ -116,6 +116,12 @@ var attack_restriction_fn: Callable = Callable()
 ## damage unchanged. Re-injected via deserialize hooks. See CardInstance.incoming_damage_fn.
 var incoming_damage_fn: Callable = Callable()
 
+## Optional cost hook, seeded into both decks on setup(). Signature:
+## (card: CardData, owner_id: int) -> int. Returns the effective mana cost of a card
+## (e.g. a board-aware discount), honored by affordability and mana spend. Empty = the
+## card's own get_total_cost(). Re-injected via deserialize hooks.
+var cost_fn: Callable = Callable()
+
 ## How ability triggers are dispatched. INLINE (default) fires ability_fn the
 ## moment a trigger happens, exactly as before — a chained trigger resolves
 ## depth-first, mid-sweep. QUEUED defers every trigger into a FIFO queue drained at
@@ -229,6 +235,7 @@ func _make_deck(cards: Array[CardData], side: int, shuffle_seed: int) -> CombatD
 	deck.max_hand_size = config.max_hand_size
 	deck.discard_fn = discard_fn
 	deck.incoming_damage_fn = incoming_damage_fn
+	deck.cost_fn = cost_fn
 	_wire_deck_events(deck)
 	deck.draw_initial_hand(config.initial_hand_size)
 	return deck
@@ -286,6 +293,7 @@ func _deck_hooks() -> Dictionary:
 		"max_board_size": config.max_board_size,
 		"max_hand_size": config.max_hand_size,
 		"incoming_damage_fn": incoming_damage_fn,
+		"cost_fn": cost_fn,
 	}
 
 
@@ -935,6 +943,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	session.discard_fn = hooks.get("discard_fn", Callable())
 	session.attack_restriction_fn = hooks.get("attack_restriction_fn", Callable())
 	session.incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
+	session.cost_fn = hooks.get("cost_fn", Callable())
 	session._resolver.damage_fn = session.damage_fn
 	session._restore_topology(data)
 	session._restore_scalars(data)

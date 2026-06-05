@@ -65,6 +65,12 @@ var discard_fn: Callable = Callable()
 ## CardInstance.incoming_damage_fn.
 var incoming_damage_fn: Callable = Callable()
 
+## Optional cost hook, seeded by the session. Signature: (card: CardData, owner_id:
+## int) -> int. Returns the effective mana cost to play a card (e.g. a board-aware
+## discount), used by both the affordability check and mana spend. Empty = the card's
+## own get_total_cost(). Re-injected on deserialize.
+var cost_fn: Callable = Callable()
+
 
 func setup(cards: Array[CardData], owner: int, starting_max_mana: int = 2, p_ability_fn: Callable = Callable(), p_max_permanent_buffs: int = -1, p_shuffle_seed: int = -1) -> void:
 	owner_id = owner
@@ -136,7 +142,7 @@ func play_creature(card: CardData, as_hidden: bool = false, declared_attack: int
 		return null
 	if is_board_full():
 		return null
-	spend_mana(card.cost)
+	spend_mana(_effective_cost(card))
 	var idx := _hand.find(card)
 	if idx == -1:
 		return null
@@ -159,7 +165,7 @@ func play_creature(card: CardData, as_hidden: bool = false, declared_attack: int
 func play_spell(card: CardData) -> CardData:
 	if not can_play_card(card):
 		return null
-	spend_mana(card.cost)
+	spend_mana(_effective_cost(card))
 	var idx := _hand.find(card)
 	if idx == -1:
 		return null
@@ -169,9 +175,18 @@ func play_spell(card: CardData) -> CardData:
 
 
 func can_play_card(card: CardData) -> bool:
-	# Affordability lives on CardData (single source of truth, so a game's cost
-	# modifiers via get_total_cost apply here too); the deck only adds the hand check.
-	return card.can_afford(_mana) and _hand.has(card)
+	# Affordability uses the effective cost (cost_fn override or the card's own
+	# get_total_cost); the deck only adds the hand check.
+	return _mana >= _effective_cost(card) and _hand.has(card)
+
+
+func _effective_cost(card: CardData) -> int:
+	# Single source for "what does this card cost right now". The cost_fn lets a game
+	# apply board-aware discounts/surcharges; without it the card's own cost stands.
+	# Floored at 0 so a discount can never produce negative mana spend.
+	if cost_fn.is_valid():
+		return maxi(int(cost_fn.call(card, owner_id)), 0)
+	return card.get_total_cost()
 
 
 func spend_mana(amount: int) -> bool:
@@ -328,6 +343,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatDeck:
 	deck.max_board_size = int(hooks.get("max_board_size", -1))
 	deck.max_hand_size = int(hooks.get("max_hand_size", -1))
 	deck.incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
+	deck.cost_fn = hooks.get("cost_fn", Callable())
 	deck._mana = int(data.get("mana", 0))
 	deck._max_mana = int(data.get("max_mana", 1))
 	deck._rng.seed = int(data.get("rng_seed", 0))
