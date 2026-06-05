@@ -1,8 +1,9 @@
 extends GutTest
-## AbilityLibrary: opt-in keyword interpreter (CHARGE / IMMUNITY / LIFESTEAL / TAUNT)
-## driven by CardData.metadata["keywords"]. Verifies each keyword's effect, that
-## cards without it are untouched, and that the edge cases (PERSISTENT, dead session,
-## null instance, unknown keyword) are safe no-ops.
+## AbilityLibrary: opt-in keyword interpreter (CHARGE / IMMUNITY / LIFESTEAL / TAUNT /
+## THORNS / STEALTH) driven by CardData.metadata["keywords"]. Verifies each keyword's
+## effect, that cards without it are untouched, and that the edge cases (PERSISTENT,
+## dead session, null instance, unknown keyword) are safe no-ops. Also covers
+## compose_restrictions.
 
 
 var _lib: AbilityLibrary
@@ -156,3 +157,92 @@ func test_thorns_no_refleja_a_fuente_muerta() -> void:
 	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_THORNS]))
 	_lib.ability_handler(inst, CardInstance.Trigger.ON_DAMAGE_TAKEN, {"amount": 2, "source": atacante})
 	assert_eq(atacante.current_health, vida, "THORNS no golpea a una fuente ya muerta")
+
+
+# --- compose_restrictions ---
+
+func test_compositor_sin_fns_retorna_vacio() -> void:
+	var composed := AbilityLibrary.compose_restrictions([])
+	var attacker := CardInstance.new()
+	attacker.setup(_card(CardData.PlayKind.UNIT, []), 0)
+	var plain := CardInstance.new()
+	plain.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	var result: Array = composed.call(attacker, [plain])
+	assert_true(result.is_empty(), "sin fns el compositor no restringe")
+
+
+func test_compositor_fn_unica_equivale_a_directa() -> void:
+	var taunt := CardInstance.new()
+	taunt.setup(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_TAUNT]), 1)
+	var plain := CardInstance.new()
+	plain.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	var attacker := CardInstance.new()
+	attacker.setup(_card(CardData.PlayKind.UNIT, []), 0)
+	var composed := AbilityLibrary.compose_restrictions([_lib.taunt_restriction])
+	var direct: Array = _lib.taunt_restriction(attacker, [taunt, plain])
+	var via_compositor: Array = composed.call(attacker, [taunt, plain])
+	assert_eq(via_compositor, direct, "compositor con una fn produce el mismo resultado que llamarla directa")
+
+
+func test_compositor_primera_fn_restringe_segunda_no() -> void:
+	# fn1 restringe a [taunt], fn2 no restringe nada → resultado [taunt]
+	var taunt := CardInstance.new()
+	taunt.setup(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_TAUNT]), 1)
+	var plain := CardInstance.new()
+	plain.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	var attacker := CardInstance.new()
+	attacker.setup(_card(CardData.PlayKind.UNIT, []), 0)
+	var noop_fn := func(_att: CardInstance, _pool: Array) -> Array: return []
+	var composed := AbilityLibrary.compose_restrictions([_lib.taunt_restriction, noop_fn])
+	var result: Array = composed.call(attacker, [taunt, plain])
+	assert_eq(result, [taunt], "segunda fn noop no deshace la restriccion de la primera")
+
+
+func test_compositor_ambas_restringen_devuelve_interseccion() -> void:
+	# fn1 restringe a [a, b], fn2 restringe a [b] → resultado [b]
+	var a := CardInstance.new()
+	a.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	var b := CardInstance.new()
+	b.setup(_card(CardData.PlayKind.UNIT, []), 1)
+	var attacker := CardInstance.new()
+	attacker.setup(_card(CardData.PlayKind.UNIT, []), 0)
+	var fn1 := func(_att: CardInstance, _pool: Array) -> Array: return [a, b]
+	var fn2 := func(_att: CardInstance, _pool: Array) -> Array: return [b]
+	var composed := AbilityLibrary.compose_restrictions([fn1, fn2])
+	var result: Array = composed.call(attacker, [a, b])
+	assert_eq(result, [b], "composicion de dos restricciones devuelve la interseccion")
+
+
+# --- STEALTH ---
+
+func test_stealth_impide_ser_objetivo_al_entrar() -> void:
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_STEALTH]))
+	assert_false(inst.can_be_attacked, "STEALTH pone can_be_attacked=false al entrar al tablero")
+
+
+func test_stealth_se_rompe_al_atacar() -> void:
+	var inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_STEALTH]))
+	assert_false(inst.can_be_attacked, "sigilo activo antes de atacar")
+	_lib.ability_handler(inst, CardInstance.Trigger.ON_ATTACK, {})
+	assert_true(inst.can_be_attacked, "STEALTH se rompe cuando la criatura ataca")
+
+
+func test_stealth_en_persistent_no_aplica() -> void:
+	# PERSISTENT no es combatiente; no tiene sentido que tenga sigilo de ataque.
+	var inst := _inst(_card(CardData.PlayKind.PERSISTENT, [AbilityLibrary.KEYWORD_STEALTH]))
+	assert_true(inst.can_be_attacked, "STEALTH no aplica a un no-combatiente")
+
+
+func test_stealth_y_taunt_coexisten_via_compositor() -> void:
+	# Con compositor: la criatura TAUNT está expuesta, la STEALTH no.
+	# El atacante queda forzado al TAUNT (única criatura atacable con restricción).
+	var taunt_inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_TAUNT]))
+	var stealth_inst := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_STEALTH]))
+	var attacker := CardInstance.new()
+	attacker.setup(_card(CardData.PlayKind.UNIT, []), 0)
+	# Stealth aplica can_be_attacked=false sobre stealth_inst (ya aplicado en _inst via ON_SETUP).
+	# Compositor: taunt_restriction primero filtra taunts vivos; el stealth_inst NO tiene TAUNT
+	# y además tiene can_be_attacked=false — el motor lo bloquea en _attack_target_allowed.
+	var composed := AbilityLibrary.compose_restrictions([_lib.taunt_restriction])
+	var required: Array = composed.call(attacker, [taunt_inst, stealth_inst])
+	assert_eq(required, [taunt_inst], "con TAUNT vivo el compositor fuerza al taunt, no al stealth")

@@ -28,10 +28,18 @@ extends RefCounted
 ##   LIFESTEAL - combat damage it deals heals its owner's hero by the same amount
 ##   TAUNT     - while alive, enemy attackers must target it (via taunt_restriction)
 ##   THORNS    - when hit, deals metadata["thorns"] (default 1) back to the dealer
+##   STEALTH   - cannot be chosen as an attack target until it attacks (via can_be_attacked)
+##
+## When multiple restriction fns are needed (e.g. TAUNT + STEALTH), wire the composed
+## callable instead of one fn alone:
+##   session.attack_restriction_fn = AbilityLibrary.compose_restrictions(
+##       [lib.taunt_restriction, lib.stealth_restriction]
+##   )
 
 const KEYWORD_CHARGE := "CHARGE"
 const KEYWORD_IMMUNITY := "IMMUNITY"
 const KEYWORD_LIFESTEAL := "LIFESTEAL"
+const KEYWORD_STEALTH := "STEALTH"
 const KEYWORD_TAUNT := "TAUNT"
 const KEYWORD_THORNS := "THORNS"
 
@@ -46,6 +54,25 @@ func _init(session: CombatSession = null) -> void:
 	_session_ref = weakref(session)
 
 
+static func compose_restrictions(fns: Array) -> Callable:
+	## Chains multiple attack_restriction_fn callables so several keywords (e.g. TAUNT
+	## and STEALTH) can coexist on the same session. Each fn receives the pool narrowed
+	## by the previous one. If any fn restricts the pool the final pool is returned as
+	## the mandatory target list; if none restrict, returns [] (no restriction), which
+	## preserves the original single-fn contract.
+	return func(attacker: CardInstance, enemies: Array) -> Array:
+		var pool: Array = enemies
+		var restricted := false
+		for fn: Callable in fns:
+			if not fn.is_valid():
+				continue
+			var result: Array = fn.call(attacker, pool)
+			if not result.is_empty():
+				pool = result
+				restricted = true
+		return pool if restricted else []
+
+
 func ability_handler(inst: Variant, trigger: int, context: Dictionary) -> void:
 	## ability_fn entry point. Dispatches the supported keywords by trigger. Side-level
 	## triggers (ON_DRAW) carry a null instance and no keyword work, so they are ignored.
@@ -57,6 +84,9 @@ func ability_handler(inst: Variant, trigger: int, context: Dictionary) -> void:
 	match trigger:
 		CardInstance.Trigger.ON_SETUP:
 			_apply_on_setup(inst, keywords)
+		CardInstance.Trigger.ON_ATTACK:
+			if keywords.has(KEYWORD_STEALTH):
+				inst.can_be_attacked = true
 		CardInstance.Trigger.ON_DAMAGE_DEALT:
 			if keywords.has(KEYWORD_LIFESTEAL):
 				_apply_lifesteal(inst, context)
@@ -79,11 +109,13 @@ func taunt_restriction(_attacker: CardInstance, enemy_creatures: Array) -> Array
 
 func _apply_on_setup(inst: CardInstance, keywords: Array) -> void:
 	## On-play keywords: CHARGE clears summoning sickness (combatants only); IMMUNITY
-	## seeds the absorbed-hit counter.
+	## seeds the absorbed-hit counter; STEALTH hides the creature from attack targeting.
 	if keywords.has(KEYWORD_CHARGE) and inst.is_combatant:
 		inst.can_attack_this_turn = true
 	if keywords.has(KEYWORD_IMMUNITY):
 		inst.immunity_hits_remaining = _immunity_hits(inst)
+	if keywords.has(KEYWORD_STEALTH) and inst.is_combatant:
+		inst.can_be_attacked = false
 
 
 func _apply_lifesteal(inst: CardInstance, context: Dictionary) -> void:
