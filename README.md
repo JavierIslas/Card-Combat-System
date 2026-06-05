@@ -1,5 +1,7 @@
 # Card Combat Engine
 
+[![CI](https://github.com/JavierIslas/Card-Combat-System/actions/workflows/ci.yml/badge.svg)](https://github.com/JavierIslas/Card-Combat-System/actions/workflows/ci.yml)
+
 A turn-based **card combat engine** for Godot 4.6 / GDScript. It handles the
 *logic* of a card battle — turn FSM, mana, draw, attack/defense/block, damage
 resolution and pluggable AI — and stays **completely domain-agnostic**: it knows
@@ -80,6 +82,17 @@ Tests run under [GUT](https://github.com/bitwes/Gut) 9.6 in `test/`:
 ```bash
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit
 ```
+
+### Continuous integration
+
+Every push to `main` and every pull request runs three gates on Godot 4.6
+headless (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+
+- **Compile gate** — `--check-only` over every engine script, so a parse/type
+  error never merges even in files no test imports.
+- **Unit tests** — the full GUT suite above.
+- **Leak gate** — the benchmark's portable ObjectDB-leak detector (fails on a
+  reference cycle). Its µs figures are hardware-specific and not asserted in CI.
 
 ## License
 
