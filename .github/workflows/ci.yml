@@ -1,0 +1,63 @@
+name: CI
+
+# Runs the three manifest gates on every push to main and every PR:
+#   1. compile gate  — every engine .gd parses/type-checks (tools/check_scripts.gd)
+#   2. unit tests    — the GUT suite under test/
+#   3. leak gate     — benchmark's portable ObjectDB-leak detector
+# The benchmark's µs figures are hardware-specific and NOT asserted here; only its
+# leak detector (exit 1 on a reference cycle) is portable, so CI runs it with a
+# small combat count for speed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: "4.6"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cache the extracted binary keyed by version so a re-run skips the download.
+      - name: Cache Godot binary
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-bin
+          key: godot-${{ env.GODOT_VERSION }}-stable-linux
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          BASE="Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/${BASE}.zip"
+          mkdir -p ~/godot-bin
+          curl -fsSL "$URL" -o /tmp/godot.zip
+          unzip -o /tmp/godot.zip -d ~/godot-bin
+          mv ~/godot-bin/${BASE} ~/godot-bin/godot
+          chmod +x ~/godot-bin/godot
+
+      - name: Add Godot to PATH
+        run: echo "$HOME/godot-bin" >> "$GITHUB_PATH"
+
+      # First headless run generates the .godot import cache (icon, etc.); without it
+      # GUT can fail to load resources. Import errors must surface, so no `|| true`.
+      - name: Import resources
+        run: godot --headless --path . --import
+
+      - name: Compile gate
+        run: godot --headless --path . --script addons/card_combat/tools/check_scripts.gd
+
+      - name: Unit tests (GUT)
+        run: godot --headless --path . -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit
+
+      - name: Leak gate (benchmark)
+        run: godot --headless --path . --script addons/card_combat/benchmark/combat_benchmark.gd -- 40
