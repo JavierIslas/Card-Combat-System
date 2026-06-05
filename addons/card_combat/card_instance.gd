@@ -63,11 +63,17 @@ var can_attack_this_turn: bool = false
 ## turn refresh, but never reads it: it is a read hook for the game layer, e.g. an
 ## ability that retaliates based on how much it was hurt this turn.
 var damage_taken_this_turn: int = 0
-## Attack counter for the turn. The engine only resets it and round-trips it; it
-## does not increment it. Single-attack rules use has_attacked_this_turn instead.
-## Left as a hook for game layers with multi-attack abilities to increment/read.
+## Attacks already declared this turn. The engine increments it on every
+## declare_attacker and resets it on turn refresh; an attacker may declare while
+## times_attacked < attacks_per_turn. has_attacked_this_turn stays as a simple
+## "acted this turn" read flag.
 var times_attacked: int = 0
 var has_attacked_this_turn: bool = false
+## How many attacks this creature may declare per turn. Default 1 (the classic
+## single swing); a game raises it for multi-attack abilities (e.g. an extra-attack
+## keyword sets 2). The engine only compares it against times_attacked; it does not
+## know why a creature attacks more than once.
+var attacks_per_turn: int = 1
 
 # Immunity
 var immunity_hits_remaining: int = 0
@@ -320,6 +326,7 @@ func serialize() -> Dictionary:
 		"damage_taken_this_turn": damage_taken_this_turn,
 		"times_attacked": times_attacked,
 		"has_attacked_this_turn": has_attacked_this_turn,
+		"attacks_per_turn": attacks_per_turn,
 		"immunity_hits_remaining": immunity_hits_remaining,
 		"can_be_attacked": can_be_attacked,
 		"permanent_buff_count": permanent_buff_count,
@@ -353,6 +360,8 @@ static func deserialize(data: Dictionary, p_ability_fn: Callable = Callable()) -
 	inst.damage_taken_this_turn = int(data.get("damage_taken_this_turn", 0))
 	inst.times_attacked = int(data.get("times_attacked", 0))
 	inst.has_attacked_this_turn = data.get("has_attacked_this_turn", false)
+	# Legacy saves predate multi-attack: default to a single swing per turn.
+	inst.attacks_per_turn = int(data.get("attacks_per_turn", 1))
 	inst.immunity_hits_remaining = int(data.get("immunity_hits_remaining", 0))
 	inst.can_be_attacked = data.get("can_be_attacked", true)
 	inst.permanent_buff_count = int(data.get("permanent_buff_count", 0))

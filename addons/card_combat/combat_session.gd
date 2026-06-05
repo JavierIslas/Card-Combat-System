@@ -428,8 +428,10 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 		return false
 	if not decks[active_side].get_board().has(attacker):
 		return false
-	# Reject summoning-sick creatures and double declarations.
-	if not attacker.can_attack_this_turn or attacker.has_attacked_this_turn:
+	# Reject summoning-sick creatures and attackers that already used up their swings
+	# this turn. attacks_per_turn defaults to 1 (classic single attack); a multi-attack
+	# creature may declare again until times_attacked reaches it.
+	if not attacker.can_attack_this_turn or attacker.times_attacked >= attacker.attacks_per_turn:
 		return false
 	var ts: int = -1
 	if not (target is CardInstance):
@@ -445,6 +447,7 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	pair.target_side = ts
 	_attack_pairs[active_side].append(pair)
 	attacker.has_attacked_this_turn = true
+	attacker.times_attacked += 1
 	# target is a CardInstance for a directed attack, or null when swinging at the hero.
 	attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
 	_drain_triggers()

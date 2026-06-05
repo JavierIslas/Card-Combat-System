@@ -526,6 +526,35 @@ func test_declare_attacker_devuelve_false_por_rechazo() -> void:
 	assert_false(_session.declare_attacker(sick, null), "mareo de invocacion: false")
 
 
+func test_attacks_per_turn_permite_multiples_swings() -> void:
+	# Multi-attack (e.g. windfury): attacks_per_turn=2 lets the same creature declare
+	# two pairs in one turn; the third declaration is rejected.
+	_setup_basico()
+	_session.start()
+	var inst := CardInstance.new()
+	inst.setup(_creature(0, 2, 2), 0)
+	inst.can_attack_this_turn = true
+	inst.attacks_per_turn = 2
+	_session.decks[0].add_to_board(inst)
+	assert_true(_session.declare_attacker(inst, null), "primer swing: true")
+	assert_true(_session.declare_attacker(inst, null), "segundo swing: true")
+	assert_false(_session.declare_attacker(inst, null), "tercer swing agota los ataques: false")
+	assert_eq(_session._attack_pairs[0].size(), 2, "se declararon dos pares")
+
+
+func test_attacks_per_turn_default_uno_rechaza_segundo() -> void:
+	# Default attacks_per_turn=1 keeps the classic single-swing rule.
+	_setup_basico()
+	_session.start()
+	var inst := CardInstance.new()
+	inst.setup(_creature(0, 2, 2), 0)
+	inst.can_attack_this_turn = true
+	_session.decks[0].add_to_board(inst)
+	assert_eq(inst.attacks_per_turn, 1, "default es un ataque por turno")
+	assert_true(_session.declare_attacker(inst, null), "primer swing: true")
+	assert_false(_session.declare_attacker(inst, null), "segundo swing: false")
+
+
 func test_declare_attacker_devuelve_false_en_fase_incorrecta() -> void:
 	# Contrato de retorno: fuera de MAIN/ATTACK (aqui BEGIN, sin start) devuelve false.
 	_setup_basico()

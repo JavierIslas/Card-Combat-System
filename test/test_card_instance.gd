@@ -408,3 +408,19 @@ func test_can_be_attacked_default_en_saves_legacy() -> void:
 	data.erase("can_be_attacked")
 	var restored := CardInstance.deserialize(data)
 	assert_true(restored.can_be_attacked, "save legacy sin can_be_attacked deserializa como true")
+
+
+func test_attacks_per_turn_sobrevive_round_trip() -> void:
+	var inst := _make_instance(2, 3)
+	inst.attacks_per_turn = 2
+	var restored := CardInstance.deserialize(inst.serialize())
+	assert_eq(restored.attacks_per_turn, 2, "attacks_per_turn se preserva en el round-trip")
+
+
+func test_attacks_per_turn_default_uno_en_saves_legacy() -> void:
+	# Un save anterior a multi-ataque no trae la clave: debe deserializar como 1.
+	var inst := _make_instance(2, 3)
+	var data: Dictionary = inst.serialize()
+	data.erase("attacks_per_turn")
+	var restored := CardInstance.deserialize(data)
+	assert_eq(restored.attacks_per_turn, 1, "save legacy sin attacks_per_turn deserializa como 1")
