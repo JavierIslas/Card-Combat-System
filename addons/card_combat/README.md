@@ -41,8 +41,10 @@ packaging / future export) and can be mirrored to a standalone repo.
    the lifecycle triggers in `CardInstance.Trigger`:
    `ON_SETUP, ON_TURN_REFRESH, ON_DEATH, ON_REVEAL, ON_ATTACK, ON_BLOCK,
    ON_DAMAGE_TAKEN, ON_DAMAGE_DEALT, ON_HEAL, ON_TURN_START, ON_TURN_END, ON_DRAW`.
-   `context` carries trigger-specific primitives (e.g. `{"amount": n}` for
-   `ON_DAMAGE_TAKEN`, `{"target": inst}` for `ON_ATTACK`), `{}` when there is none.
+   `context` carries trigger-specific primitives (e.g. `{"amount": n, "source": who}`
+   for `ON_DAMAGE_TAKEN`, where `source` is the dealer — a `CardInstance` in combat,
+   `null` for sourceless damage like spells or fatigue; `{"target": inst}` for
+   `ON_ATTACK`), `{}` when there is none.
    `inst` is `null` for the side-level `ON_DRAW` (the drawn card travels in
    `context["card"]`), so a handler must tolerate `inst == null`.
    > **Breaking change since 1.x:** the handler took `(inst, trigger)`; it now takes
