@@ -153,6 +153,13 @@ static func with_hooks(p_ability_fn: Callable, p_max_buffs: int) -> CardInstance
 	return inst
 
 
+static func _derive_combatant(data: CardData) -> bool:
+	## Whether a card fights: only UNIT cards are combatants (PERSISTENT permanents sit on
+	## the board without attacking/blocking). Single source shared by setup() and
+	## deserialize(), so the derivation can never drift between the two paths.
+	return data != null and data.play_kind == CardData.PlayKind.UNIT
+
+
 static func living(board: Array) -> Array[CardInstance]:
 	## Filter a board down to its living instances. Single source for the "skip the
 	## dead" sweep shared by the decks and AIs, instead of repeating the loop.
@@ -169,7 +176,7 @@ func setup(data: CardData, p_owner: int, p_hidden: bool = false) -> void:
 	is_hidden = p_hidden
 	# Only UNIT cards fight; a PERSISTENT permanent sits on the board without ever
 	# attacking or blocking. Derived here so the rest of the engine reads one bool.
-	is_combatant = data.play_kind == CardData.PlayKind.UNIT
+	is_combatant = _derive_combatant(data)
 
 	if p_hidden:
 		current_attack = hidden_stats.declared_attack if hidden_stats else data.attack
@@ -410,7 +417,7 @@ static func deserialize(data: Dictionary, p_ability_fn: Callable = Callable()) -
 	var inst := CardInstance.new()
 	inst.card_data = CardData.from_dict(data.get("card_data", {}))
 	# Re-derive the combatant flag from play_kind (deserialize skips setup).
-	inst.is_combatant = inst.card_data != null and inst.card_data.play_kind == CardData.PlayKind.UNIT
+	inst.is_combatant = _derive_combatant(inst.card_data)
 	inst.owner_id = int(data.get("owner_id", 0))
 	inst.is_hidden = data.get("is_hidden", false)
 	inst.is_dead = data.get("is_dead", false)
