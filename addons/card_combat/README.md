@@ -41,14 +41,20 @@ packaging / future export) and can be mirrored to a standalone repo.
    the lifecycle triggers in `CardInstance.Trigger`:
    `ON_SETUP, ON_TURN_REFRESH, ON_DEATH, ON_REVEAL, ON_ATTACK, ON_BLOCK,
    ON_DAMAGE_TAKEN, ON_DAMAGE_DEALT, ON_HEAL, ON_TURN_START, ON_TURN_END, ON_DRAW,
-   ON_PLAY`.
+   ON_PLAY, ON_CAST`.
    `context` carries trigger-specific primitives (e.g. `{"amount": n, "source": who}`
    for `ON_DAMAGE_TAKEN`, where `source` is the dealer — a `CardInstance` in combat,
    `null` for sourceless damage like spells or fatigue; `{"target": inst}` for
    `ON_ATTACK`, and the chosen target for `ON_PLAY` — the battlecry hook, fired on play
    right after `ON_SETUP`), `{}` when there is none.
+   `ON_DAMAGE_DEALT` (creature-vs-creature combat only) also carries
+   `{"lethal": bool, "excess": int}`: `lethal` is whether the hit killed the target and
+   `excess` is the overkill (damage past the target's life total, `0` unless lethal and
+   `0` for a hero swing) — the hook for trample / overkill effects.
    `inst` is `null` for the side-level `ON_DRAW` (the drawn card travels in
-   `context["card"]`), so a handler must tolerate `inst == null`.
+   `context["card"]`) and `ON_CAST` (fired once per spell cast, *after* its effects
+   resolve, with `context = {"card", "owner"}` — the spell-synergy hook, "whenever you
+   cast a spell …"), so a handler must tolerate `inst == null`.
    > **Breaking change since 1.x:** the handler took `(inst, trigger)`; it now takes
    > a third `context` argument. Update existing handlers accordingly.
 2. **`SpellEffect.id_fn: Callable`** — resolves the id of a summoned creature
@@ -221,6 +227,8 @@ the engine never reads):
 | `BATTLECRY` | on play, deals `metadata["battlecry_damage"]` (default 1) to the chosen `ON_PLAY` target |
 | `SPELLPOWER` | adds `metadata["spell_power"]` to its owner's spell damage (needs `spell_power_fn = lib.spell_power`) |
 | `LORD` | buffs other friendly creatures by `metadata["aura_attack"]`/`["aura_health"]` (needs `aura_fn = lib.recompute_auras`) |
+| `OVERKILL` | lethal combat damage with excess tramples `metadata["overkill_factor"]` (default 1) × the excess to the slain creature's controller's hero (reads `lethal`/`excess` from `ON_DAMAGE_DEALT`) |
+| `SPELLBURST` | each time its owner casts a spell, gains `metadata["spellburst_attack"]`/`["spellburst_health"]` (default 1/1) as a permanent buff — recurring, capped by the permanent-buff limit (reacts to side-level `ON_CAST`) |
 
 The library holds a **weak** reference to the session (LIFESTEAL heals through
 `session.heal_hero`, LORD recomputes auras off the board), so it never forms a
