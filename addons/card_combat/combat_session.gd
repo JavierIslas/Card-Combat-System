@@ -512,36 +512,15 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	## `target_side` names which enemy hero is hit; -1 picks the first living enemy.
 	## A blocker declared in DEFENSE can later redirect this pair's damage. Returns
 	## true if the attacker was declared; false if any precondition rejected it.
-	if not CombatState.is_active_action_phase(phase):
-		_maybe_reject(&"declare_attacker", &"not_active_phase")
+	var reason: StringName = _attacker_declaration_rejection(attacker, target, target_side)
+	if reason != &"":
+		_maybe_reject(&"declare_attacker", reason)
 		return false
-	if _combat_over:
-		_maybe_reject(&"declare_attacker", &"combat_over")
-		return false
-	if attacker == null:
-		_maybe_reject(&"declare_attacker", &"attacker_null")
-		return false
-	if not decks[active_side].get_board().has(attacker):
-		_maybe_reject(&"declare_attacker", &"attacker_not_on_board")
-		return false
-	# Reject summoning-sick creatures and attackers that already used up their swings
-	# this turn. attacks_per_turn defaults to 1 (classic single attack); a multi-attack
-	# creature may declare again until times_attacked reaches it.
-	if not attacker.can_attack_this_turn or attacker.times_attacked >= attacker.attacks_per_turn:
-		_maybe_reject(&"declare_attacker", &"cannot_attack")
-		return false
+	# Hero swing resolves to a concrete enemy side; a directed attack keeps -1. The
+	# rejection check above already validated this side, so recomputing it is safe.
 	var ts: int = -1
 	if not (target is CardInstance):
-		# Hero attack: resolve and validate the target side (must be a living enemy).
 		ts = target_side if target_side >= 0 else _default_enemy_side(active_side)
-		if ts < 0 or are_allies(ts, active_side):
-			_maybe_reject(&"declare_attacker", &"invalid_target_side")
-			return false
-	# Targeting restriction (e.g. TAUNT): when the hook restricts this attacker to a
-	# set of creatures, a hero swing or a non-listed creature is illegal.
-	if not _attack_target_allowed(attacker, target):
-		_maybe_reject(&"declare_attacker", &"target_not_allowed")
-		return false
 	var pair = CombatPair.new(attacker, target)
 	pair.target_side = ts
 	_attack_pairs[active_side].append(pair)
@@ -556,40 +535,46 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	return true
 
 
+func _attacker_declaration_rejection(attacker: CardInstance, target: Variant, target_side: int) -> StringName:
+	## Rejection reason for an attacker declaration, or &"" if it is legal. Split out of
+	## declare_attacker so that action reads as validate -> apply -> fire. Same guard order
+	## as before, so the emitted reason for any illegal call is unchanged.
+	if not CombatState.is_active_action_phase(phase):
+		return &"not_active_phase"
+	if _combat_over:
+		return &"combat_over"
+	if attacker == null:
+		return &"attacker_null"
+	if not decks[active_side].get_board().has(attacker):
+		return &"attacker_not_on_board"
+	# Reject summoning-sick creatures and attackers that already used up their swings
+	# this turn. attacks_per_turn defaults to 1 (classic single attack); a multi-attack
+	# creature may declare again until times_attacked reaches it.
+	if not attacker.can_attack_this_turn or attacker.times_attacked >= attacker.attacks_per_turn:
+		return &"cannot_attack"
+	# Hero attack: resolve and validate the target side (must be a living enemy).
+	if not (target is CardInstance):
+		var ts: int = target_side if target_side >= 0 else _default_enemy_side(active_side)
+		if ts < 0 or are_allies(ts, active_side):
+			return &"invalid_target_side"
+	# Targeting restriction (e.g. TAUNT): when the hook restricts this attacker to a
+	# set of creatures, a hero swing or a non-listed creature is illegal.
+	if not _attack_target_allowed(attacker, target):
+		return &"target_not_allowed"
+	return &""
+
+
 func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 	## Passive-side action during DEFENSE: assign one of the passive side's
 	## defenders to intercept an attacker declared by the active side. This
 	## redirects that attack's damage to the blocker, overriding any directed
 	## target. A blocker can only be assigned once per turn. Returns true if the
 	## block was assigned; false if any precondition rejected it.
-	if not CombatState.is_passive_action_phase(phase):
-		_maybe_reject(&"declare_blocker", &"not_passive_phase")
-		return false
-	if _combat_over:
-		_maybe_reject(&"declare_blocker", &"combat_over")
-		return false
-	if attacker == null or blocker == null:
-		_maybe_reject(&"declare_blocker", &"null_argument")
-		return false
-	# The blocker must belong to an enemy side of the active attacker (any enemy
-	# team, not just a single passive side), and be one of that side's defenders.
-	var blocker_side: int = blocker.owner_id
-	if are_allies(blocker_side, active_side):
-		_maybe_reject(&"declare_blocker", &"blocker_is_ally")
-		return false
-	if not decks[blocker_side].get_defenders().has(blocker):
-		_maybe_reject(&"declare_blocker", &"not_a_defender")
-		return false
-	if blocker.is_dead:
-		_maybe_reject(&"declare_blocker", &"blocker_dead")
-		return false
-	if _block_assignments.values().has(blocker):
-		_maybe_reject(&"declare_blocker", &"blocker_already_assigned")
+	var reason: StringName = _blocker_declaration_rejection(attacker, blocker)
+	if reason != &"":
+		_maybe_reject(&"declare_blocker", reason)
 		return false
 	var pair: CombatPair = _find_attack_pair(attacker)
-	if pair == null:
-		_maybe_reject(&"declare_blocker", &"no_attack_pair")
-		return false
 	pair.defender = blocker
 	_block_assignments[attacker] = blocker
 	# Same no-handler gate as ON_ATTACK: skip the alloc + fire + drain when nothing listens.
@@ -597,6 +582,30 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 		blocker._fire(CardInstance.Trigger.ON_BLOCK, {"attacker": attacker})
 		_settle_reactive_triggers()
 	return true
+
+
+func _blocker_declaration_rejection(attacker: CardInstance, blocker: CardInstance) -> StringName:
+	## Rejection reason for a blocker declaration, or &"" if it is legal. Same guard order
+	## as the previous inline checks, so the emitted reason for any illegal call is unchanged.
+	if not CombatState.is_passive_action_phase(phase):
+		return &"not_passive_phase"
+	if _combat_over:
+		return &"combat_over"
+	if attacker == null or blocker == null:
+		return &"null_argument"
+	# The blocker must belong to an enemy side of the active attacker (any enemy team,
+	# not just a single passive side), and be one of that side's defenders.
+	if are_allies(blocker.owner_id, active_side):
+		return &"blocker_is_ally"
+	if not decks[blocker.owner_id].get_defenders().has(blocker):
+		return &"not_a_defender"
+	if blocker.is_dead:
+		return &"blocker_dead"
+	if _block_assignments.values().has(blocker):
+		return &"blocker_already_assigned"
+	if _find_attack_pair(attacker) == null:
+		return &"no_attack_pair"
+	return &""
 
 
 func _find_attack_pair(attacker: CardInstance) -> CombatPair:
