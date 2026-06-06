@@ -366,3 +366,97 @@ func test_lord_muerto_retira_el_aura_en_recompute() -> void:
 	lord.is_dead = true
 	lib.recompute_auras(session)
 	assert_eq(minion.current_attack, 2, "al morir el lord el recompute retira el aura")
+
+
+func _session_with_hp(hp0: int, hp1: int) -> Array:
+	# Devuelve [session, lib] con héroes de vida concreta, para OVERKILL.
+	var session := CombatSession.new()
+	var lib := AbilityLibrary.new(session)
+	var h0 := Combatant.new()
+	h0.max_health = 30
+	h0.current_health = hp0
+	var h1 := Combatant.new()
+	h1.max_health = 30
+	h1.current_health = hp1
+	var empty0: Array[CardData] = []
+	var empty1: Array[CardData] = []
+	session.setup(h0, empty0, h1, empty1, 1)
+	return [session, lib]
+
+
+func test_overkill_arrolla_el_exceso_al_heroe_del_dueno_de_la_victima() -> void:
+	var pair := _session_with_hp(30, 30)
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var attacker := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_OVERKILL]), 0)
+	var victim := _bare_inst(_card(CardData.PlayKind.UNIT, []), 1)
+	lib.ability_handler(attacker, CardInstance.Trigger.ON_DAMAGE_DEALT,
+		{"target": victim, "amount": 7, "lethal": true, "excess": 4})
+	assert_eq(session.heroes[1].current_health, 26, "el exceso (4) arrolla al héroe del lado de la víctima")
+
+
+func test_overkill_lee_el_factor_de_metadata() -> void:
+	var pair := _session_with_hp(30, 30)
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var attacker := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_OVERKILL], {"overkill_factor": 2}), 0)
+	var victim := _bare_inst(_card(CardData.PlayKind.UNIT, []), 1)
+	lib.ability_handler(attacker, CardInstance.Trigger.ON_DAMAGE_DEALT,
+		{"target": victim, "amount": 7, "lethal": true, "excess": 3})
+	assert_eq(session.heroes[1].current_health, 24, "exceso 3 x factor 2 = 6 al héroe (30 - 6)")
+
+
+func test_overkill_sin_lethal_no_hace_nada() -> void:
+	var pair := _session_with_hp(30, 30)
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var attacker := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_OVERKILL]), 0)
+	var victim := _bare_inst(_card(CardData.PlayKind.UNIT, []), 1)
+	lib.ability_handler(attacker, CardInstance.Trigger.ON_DAMAGE_DEALT,
+		{"target": victim, "amount": 2, "lethal": false, "excess": 0})
+	assert_eq(session.heroes[1].current_health, 30, "sin golpe letal no hay arrollamiento")
+
+
+func test_overkill_sin_sesion_es_no_op() -> void:
+	var attacker := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_OVERKILL]), 0)
+	var victim := _bare_inst(_card(CardData.PlayKind.UNIT, []), 1)
+	_lib.ability_handler(attacker, CardInstance.Trigger.ON_DAMAGE_DEALT,
+		{"target": victim, "amount": 7, "lethal": true, "excess": 4})
+	assert_true(true, "OVERKILL sin sesión es un no-op seguro")
+
+
+func test_spellburst_buffea_al_castear_el_dueno() -> void:
+	var pair := _session_with_lib()
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var burst := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_SPELLBURST]), 0)  # 2/3
+	session.decks[0].add_to_board(burst)
+	lib.ability_handler(null, CardInstance.Trigger.ON_CAST, {"card": null, "owner": 0})
+	assert_eq(burst.current_attack, 3, "SPELLBURST gana +1 de ataque al castear (default)")
+	assert_eq(burst.current_max_health, 4, "y +1 de vida máxima")
+
+
+func test_spellburst_lee_metadata_y_es_recurrente() -> void:
+	var pair := _session_with_lib()
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var burst := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_SPELLBURST], {"spellburst_attack": 2, "spellburst_health": 0}), 0)
+	session.decks[0].add_to_board(burst)
+	lib.ability_handler(null, CardInstance.Trigger.ON_CAST, {"card": null, "owner": 0})
+	lib.ability_handler(null, CardInstance.Trigger.ON_CAST, {"card": null, "owner": 0})
+	assert_eq(burst.current_attack, 6, "recurrente: +2 por cada uno de los dos casteos (2 + 4)")
+
+
+func test_spellburst_solo_el_tablero_del_lanzador() -> void:
+	var pair := _session_with_lib()
+	var session: CombatSession = pair[0]
+	var lib: AbilityLibrary = pair[1]
+	var burst := _bare_inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_SPELLBURST]), 1)
+	session.decks[1].add_to_board(burst)
+	lib.ability_handler(null, CardInstance.Trigger.ON_CAST, {"card": null, "owner": 0})
+	assert_eq(burst.current_attack, 2, "el casteo del lado 0 no toca el SPELLBURST del lado 1")
+
+
+func test_spellburst_sin_sesion_es_no_op() -> void:
+	_lib.ability_handler(null, CardInstance.Trigger.ON_CAST, {"card": null, "owner": 0})
+	assert_true(true, "SPELLBURST sin sesión es un no-op seguro")

@@ -40,6 +40,11 @@ extends RefCounted
 ##   SPELLPOWER - adds metadata["spell_power"] to its owner's spell damage (needs spell_power_fn wired)
 ##   LORD       - buffs other friendly creatures by metadata["aura_attack"]/["aura_health"]
 ##                (default 1/1) while alive (needs aura_fn wired)
+##   OVERKILL   - lethal combat damage with excess tramples metadata["overkill_factor"]
+##                (default 1) x the excess to the slain creature's controller's hero
+##   SPELLBURST - each time its owner casts a spell, gains metadata["spellburst_attack"]/
+##                ["spellburst_health"] (default 1/1) as a permanent buff (recurring;
+##                respects the permanent-buff cap). Reacts to the side-level ON_CAST
 ##
 ## When multiple restriction fns are needed (e.g. TAUNT + STEALTH), wire the composed
 ## callable instead of one fn alone:
@@ -59,6 +64,8 @@ const KEYWORD_ARMOR := "ARMOR"
 const KEYWORD_BATTLECRY := "BATTLECRY"
 const KEYWORD_SPELLPOWER := "SPELLPOWER"
 const KEYWORD_LORD := "LORD"
+const KEYWORD_OVERKILL := "OVERKILL"
+const KEYWORD_SPELLBURST := "SPELLBURST"
 
 ## Continuous-modifier source id the LORD aura recompute owns on every buffed creature.
 ## A single aggregated key (replaced each recompute) keeps the buff idempotent.
@@ -95,8 +102,13 @@ static func compose_restrictions(fns: Array) -> Callable:
 
 
 func ability_handler(inst: Variant, trigger: int, context: Dictionary) -> void:
-	## ability_fn entry point. Dispatches the supported keywords by trigger. Side-level
-	## triggers (ON_DRAW) carry a null instance and no keyword work, so they are ignored.
+	## ability_fn entry point. Dispatches the supported keywords by trigger. The
+	## side-level ON_CAST carries a null instance and scans the caster's board itself, so
+	## it is handled before the instance guard; the other side-level trigger (ON_DRAW)
+	## has no keyword work and falls through the guard as a no-op.
+	if trigger == CardInstance.Trigger.ON_CAST:
+		_apply_spellburst(context)
+		return
 	if not (inst is CardInstance):
 		return
 	var keywords: Array = _keywords_of(inst)
@@ -113,6 +125,8 @@ func ability_handler(inst: Variant, trigger: int, context: Dictionary) -> void:
 				_apply_lifesteal(inst, context)
 			if keywords.has(KEYWORD_FREEZE):
 				_apply_freeze(inst, context)
+			if keywords.has(KEYWORD_OVERKILL):
+				_apply_overkill(inst, context)
 		CardInstance.Trigger.ON_DAMAGE_TAKEN:
 			if keywords.has(KEYWORD_THORNS):
 				_apply_thorns(inst, context)
@@ -184,6 +198,43 @@ func _apply_battlecry(inst: CardInstance, context: Dictionary) -> void:
 		target.take_damage(_battlecry_damage(inst), inst)
 
 
+func _apply_overkill(inst: CardInstance, context: Dictionary) -> void:
+	## OVERKILL: lethal combat damage that exceeds the target's life tramples to the
+	## slain creature's controller's hero. `lethal`/`excess` come from the engine's
+	## ON_DAMAGE_DEALT context (excess is already 0 unless the hit killed the target).
+	## The victim travels in context["target"]; its owner_id names the hero to hit, so
+	## the excess always lands on the enemy that lost the creature. Needs the session to
+	## reach the hero observably; a collected session (dead weakref) is a safe no-op.
+	if not context.get("lethal", false):
+		return
+	var excess: int = int(context.get("excess", 0))
+	if excess <= 0:
+		return
+	var victim: Variant = context.get("target", null)
+	if not (victim is CardInstance):
+		return
+	var session: CombatSession = _session_ref.get_ref()
+	if session == null:
+		return
+	session.deal_damage_to_hero(victim.owner_id, excess * _overkill_factor(inst))
+
+
+func _apply_spellburst(context: Dictionary) -> void:
+	## SPELLBURST: on the caster's ON_CAST, every living SPELLBURST creature on the
+	## caster's board gains its permanent buff. Recurring (fires on each cast) and capped
+	## by apply_permanent_buff, so it never exceeds the game's permanent-buff limit. Reads
+	## the board off the session; a collected session (dead weakref) is a safe no-op.
+	var session: CombatSession = _session_ref.get_ref()
+	if session == null:
+		return
+	var owner: int = int(context.get("owner", -1))
+	if owner < 0 or owner >= session.side_count():
+		return
+	for inst in CardInstance.living(session.decks[owner].get_board()):
+		if _keywords_of(inst).has(KEYWORD_SPELLBURST):
+			inst.apply_permanent_buff(_spellburst_attack(inst), _spellburst_health(inst))
+
+
 func armor_damage(inst: Variant, amount: int, _source: Variant) -> int:
 	## incoming_damage_fn for ARMOR: reduce each incoming hit by metadata["armor"]
 	## (floored at 0). A creature without the ARMOR keyword (or armor 0) is unchanged, so
@@ -234,6 +285,22 @@ func recompute_auras(session: CombatSession) -> void:
 				inst.add_continuous_modifier(AURA_SOURCE_ID, attack_delta, health_delta)
 			else:
 				inst.remove_continuous_modifier(AURA_SOURCE_ID)
+
+
+func _overkill_factor(inst: CardInstance) -> int:
+	## Multiplier OVERKILL applies to the excess that tramples: metadata["overkill_factor"]
+	## (default 1 = the raw excess).
+	return int(inst.card_data.metadata.get("overkill_factor", 1))
+
+
+func _spellburst_attack(inst: CardInstance) -> int:
+	## Attack SPELLBURST grants per cast: metadata["spellburst_attack"] (default 1).
+	return int(inst.card_data.metadata.get("spellburst_attack", 1))
+
+
+func _spellburst_health(inst: CardInstance) -> int:
+	## Health SPELLBURST grants per cast: metadata["spellburst_health"] (default 1).
+	return int(inst.card_data.metadata.get("spellburst_health", 1))
 
 
 func _windfury_attacks(inst: CardInstance) -> int:
