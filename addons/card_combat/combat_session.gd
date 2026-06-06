@@ -1231,15 +1231,6 @@ func _auto_declare_blockers() -> void:
 			declare_blocker(attacker, blocks[attacker])
 
 
-func _snapshot_hand(deck: CombatDeck) -> Array[CardData]:
-	## Typed copy of a deck's hand, so the AI sees a stable list while we mutate
-	## the real hand by playing cards out of it.
-	var hand: Array[CardData] = []
-	for card in deck.get_hand():
-		hand.append(card)
-	return hand
-
-
 func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 	## Plays cards from `side`'s hand until the AI passes or the per-turn cap is
 	## hit. Shared by both sides' auto-play so spells and creatures resolve the
@@ -1291,10 +1282,13 @@ func _spell_needs_explicit_target(card: CardData) -> bool:
 
 
 func _playable_hand(deck: CombatDeck, skipped: Array[CardData]) -> Array[CardData]:
-	## Hand snapshot minus cards already skipped this turn (e.g. untargetable
-	## single-target spells), so the AI doesn't keep re-picking them.
+	## A fresh typed copy of the deck's hand minus cards already skipped this turn (e.g.
+	## untargetable single-target spells), so the AI doesn't keep re-picking them. The copy
+	## is the stable list handed to the AI; it never sees the live _hand we mutate by playing
+	## cards out of it. Iterates get_hand() directly (the live array, read-only here) instead
+	## of an intermediate snapshot, so building it costs a single allocation, not two.
 	var hand: Array[CardData] = []
-	for card in _snapshot_hand(deck):
+	for card in deck.get_hand():
 		if not skipped.has(card):
 			hand.append(card)
 	return hand
