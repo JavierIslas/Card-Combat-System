@@ -1811,6 +1811,29 @@ func test_redirect_for_restriction_mapea_a_un_target_legal() -> void:
 	assert_eq(_session._redirect_for_restriction(attacker, plain), plain, "sin hook la eleccion no se toca")
 
 
+func test_redirect_consulta_la_restriccion_una_sola_vez() -> void:
+	# #9: the auto-play redirect needs both the verdict and the required set. It must call
+	# the restriction hook (which flattens every enemy board) once, not twice as before.
+	_setup_basico()
+	_session.start()
+	var attacker := CardInstance.new()
+	attacker.setup(_creature(0, 2, 2), 0)
+	var taunt := CardInstance.new()
+	taunt.setup(_taunt_card(0, 1, 3), 1)
+	var plain := CardInstance.new()
+	plain.setup(_creature(0, 2, 2), 1)
+	_session.decks[1].add_to_board(taunt)
+	_session.decks[1].add_to_board(plain)
+	var calls: Array = [0]
+	_session.attack_restriction_fn = func(a: CardInstance, enemies: Array) -> Array:
+		calls[0] += 1
+		return _taunt_restriction(a, enemies)
+	# An illegal choice is the worst case: the verdict says "no", then the required set is
+	# needed to pick the fallback. Before the dedupe this consulted the hook twice.
+	assert_eq(_session._redirect_for_restriction(attacker, plain), taunt, "redirige al taunt")
+	assert_eq(calls[0], 1, "la restricción se consulta una sola vez en el redirect")
+
+
 func test_auto_resolve_con_taunt_corre_y_es_determinista() -> void:
 	# End-to-end: auto_resolve with the restriction set drives the redirect path and
 	# stays deterministic for a fixed seed.

@@ -619,9 +619,15 @@ func _attack_target_allowed(attacker: CardInstance, target: Variant) -> bool:
 	## Enforce targeting restrictions: a creature with can_be_attacked=false is never
 	## a valid target regardless of other rules; then the restriction hook (e.g. TAUNT)
 	## must be satisfied if it narrows the required set.
+	return _target_within_restriction(target, _required_attack_targets(attacker))
+
+
+func _target_within_restriction(target: Variant, required: Array) -> bool:
+	## Check `target` against an already-computed required set. Split out so a caller
+	## that needs both the verdict and the set (the auto-play redirect) flattens the
+	## boards and calls the restriction hook once instead of twice.
 	if target is CardInstance and not target.can_be_attacked:
 		return false
-	var required: Array = _required_attack_targets(attacker)
 	if required.is_empty():
 		return true
 	return target is CardInstance and required.has(target)
@@ -1269,9 +1275,9 @@ func _redirect_for_restriction(attacker: CardInstance, chosen: Variant) -> Varia
 	## Otherwise force the first required creature (TAUNT), or null (hero swing)
 	## when there is no required set. Keeps auto_resolve deterministic without
 	## teaching the AI about TAUNT or STEALTH.
-	if _attack_target_allowed(attacker, chosen):
-		return chosen
 	var required: Array = _required_attack_targets(attacker)
+	if _target_within_restriction(chosen, required):
+		return chosen
 	if not required.is_empty():
 		return required[0]
 	return null
