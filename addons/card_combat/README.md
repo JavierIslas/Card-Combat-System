@@ -40,11 +40,13 @@ packaging / future export) and can be mirrored to a standalone repo.
    `(inst: CardInstance, trigger: int, context: Dictionary)`. The handler reacts to
    the lifecycle triggers in `CardInstance.Trigger`:
    `ON_SETUP, ON_TURN_REFRESH, ON_DEATH, ON_REVEAL, ON_ATTACK, ON_BLOCK,
-   ON_DAMAGE_TAKEN, ON_DAMAGE_DEALT, ON_HEAL, ON_TURN_START, ON_TURN_END, ON_DRAW`.
+   ON_DAMAGE_TAKEN, ON_DAMAGE_DEALT, ON_HEAL, ON_TURN_START, ON_TURN_END, ON_DRAW,
+   ON_PLAY`.
    `context` carries trigger-specific primitives (e.g. `{"amount": n, "source": who}`
    for `ON_DAMAGE_TAKEN`, where `source` is the dealer — a `CardInstance` in combat,
    `null` for sourceless damage like spells or fatigue; `{"target": inst}` for
-   `ON_ATTACK`), `{}` when there is none.
+   `ON_ATTACK`, and the chosen target for `ON_PLAY` — the battlecry hook, fired on play
+   right after `ON_SETUP`), `{}` when there is none.
    `inst` is `null` for the side-level `ON_DRAW` (the drawn card travels in
    `context["card"]`), so a handler must tolerate `inst == null`.
    > **Breaking change since 1.x:** the handler took `(inst, trigger)`; it now takes
@@ -104,6 +106,33 @@ packaging / future export) and can be mirrored to a standalone repo.
    restriction, so a game that never sets it behaves exactly as before. Re-injected via
    the `deserialize` hooks like the other Callables. Agnostic: the engine never reads
    what makes a creature "taunt"; the hook decides.
+10. **`CombatSession.incoming_damage_fn: Callable`** — pre-damage interception, seeded
+    into every `CardInstance` (via the decks) on `setup()`. Signature:
+    `(inst, amount, source) -> int`. Runs **before** damage lands (combat AND spell
+    alike), so the game can reduce (armor), prevent (return `0`) or cap incoming damage.
+    Empty = damage unchanged. Re-injected via the `deserialize` hooks.
+11. **`CombatSession.cost_fn: Callable`** — effective card cost, seeded into both decks
+    on `setup()`. Signature: `(card: CardData, owner_id: int) -> int`. Honored by
+    affordability and mana spend (e.g. a board-aware discount). Empty = the card's own
+    `get_total_cost()`.
+12. **`CombatSession.spell_power_fn: Callable`** — spell-damage bonus of the caster.
+    Signature: `(owner_id: int) -> int`. Added to the value of the caster's damage
+    spells (built-in `DAMAGE` / `AOE_DAMAGE` and the `ENEMY_HERO` bolt) and travels in
+    the spell `context` as `"spell_power"`, so a custom `effect_fn` can read it too.
+    Empty = no bonus.
+13. **`CombatSession.aura_fn: Callable`** — aura recompute hook. Signature:
+    `(session: CombatSession) -> void`. The engine calls it whenever board membership
+    changes (a creature enters, is summoned, or dies), so the game can re-apply
+    `continuous_modifier`s idempotently (a "lord" buffing its neighbours). The engine
+    owns *when* to recompute; the hook owns *what* each aura does, reading the boards off
+    the session. Also callable directly via `recompute_auras()`. Empty = no auras.
+14. **`CombatSession.draw_for(side, count)` / `add_mana(side, amount)`** — ability-facing
+    APIs (methods, not Callables): let an `ability_fn` draw cards (firing `card_drawn` +
+    the side-level `ON_DRAW`, respecting fatigue/overdraw) or grant/spend mana (clamped to
+    `config.max_mana_cap`; a negative amount is overload) from inside a trigger.
+15. **`CombatAI.choose_play_target(card, own_board, enemy_board)`** — optional 6th AI
+    method (default `null`), queried in `auto_resolve` to pick the target of a creature's
+    `ON_PLAY` (battlecry) before it fires. Only consulted when an `ability_fn` is wired.
 
 ### Trigger dispatch order (`trigger_mode`)
 
@@ -168,8 +197,11 @@ core. A game wires it in explicitly (or ignores it and writes its own handler):
 
 ```gdscript
 var lib := AbilityLibrary.new(session)
-session.ability_fn = lib.ability_handler          # CHARGE / IMMUNITY / LIFESTEAL
-session.attack_restriction_fn = lib.taunt_restriction   # TAUNT
+session.ability_fn = lib.ability_handler              # most keywords (ON_* triggers)
+session.attack_restriction_fn = lib.taunt_restriction # TAUNT
+session.incoming_damage_fn = lib.armor_damage         # ARMOR
+session.spell_power_fn = lib.spell_power              # SPELLPOWER
+session.aura_fn = lib.recompute_auras                 # LORD
 ```
 
 Keywords are declared per card in `metadata["keywords"]` (an opaque `Array[String]`
@@ -182,12 +214,20 @@ the engine never reads):
 | `LIFESTEAL` | combat damage it deals heals its owner's hero by the same amount |
 | `TAUNT` | while alive, enemy attackers must target it (drives `attack_restriction_fn`) |
 | `THORNS` | when hit, deals `metadata["thorns"]` (default 1) back to the dealer (reads the `source` in `ON_DAMAGE_TAKEN`; sourceless damage like spells/fatigue reflects nothing) |
+| `STEALTH` | cannot be chosen as an attack target until it attacks (via `can_be_attacked`) |
+| `WINDFURY` | may attack `metadata["windfury_attacks"]` (default 2) times per turn (sets `attacks_per_turn`) |
+| `FREEZE` | freezes the creatures it damages for `metadata["freeze_turns"]` (default 1) turns — they skip their next attack |
+| `ARMOR` | reduces each incoming hit by `metadata["armor"]` (needs `incoming_damage_fn = lib.armor_damage`) |
+| `BATTLECRY` | on play, deals `metadata["battlecry_damage"]` (default 1) to the chosen `ON_PLAY` target |
+| `SPELLPOWER` | adds `metadata["spell_power"]` to its owner's spell damage (needs `spell_power_fn = lib.spell_power`) |
+| `LORD` | buffs other friendly creatures by `metadata["aura_attack"]`/`["aura_health"]` (needs `aura_fn = lib.recompute_auras`) |
 
 The library holds a **weak** reference to the session (LIFESTEAL heals through
-`session.heal_hero`), so it never forms a reference cycle with the session that owns
-its Callable. It is a convenience layer built entirely on the public engine surface
-(`ability_fn` triggers + `attack_restriction_fn`); everything it does, a game could
-also do by hand.
+`session.heal_hero`, LORD recomputes auras off the board), so it never forms a
+reference cycle with the session that owns its Callable. It is a convenience layer
+built entirely on the public engine surface (`ability_fn` triggers,
+`attack_restriction_fn`, and the opt-in `incoming_damage_fn` / `spell_power_fn` /
+`aura_fn` hooks); everything it does, a game could also do by hand.
 
 ### Extra card zones (generic)
 
