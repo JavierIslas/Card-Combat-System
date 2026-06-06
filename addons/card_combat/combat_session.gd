@@ -369,16 +369,20 @@ func _drain_triggers() -> void:
 	_trigger_queue.drain(_dispatch_trigger)
 
 
-func _settle_reactive_triggers() -> void:
+func _settle_reactive_triggers(entry_added: bool = false) -> void:
 	## Drain pending reactive triggers AND sweep the deaths they caused, so a kill landed
 	## by a reactive ability (battlecry, thorns, a turn trigger, a custom ON_CAST) is
 	## recorded and removed like a combat/spell death instead of leaving a zombie on the
 	## board. Used by the reactive trigger paths (ON_PLAY / ON_ATTACK / ON_BLOCK /
 	## ON_TURN_START / ON_TURN_END / ON_CAST); the combat and spell paths sweep themselves.
-	## _record_death is idempotent and _sweep_all_boards recomputes auras, so this is safe
-	## to call after any reactive fire. With no handler wired the callers skip it entirely.
+	## _record_death is idempotent, so this is safe to call after any reactive fire. With
+	## no handler wired the callers skip it entirely. Auras recompute only on a board
+	## membership change: a death the sweep removed, or `entry_added` for the ON_PLAY path
+	## (a creature just entered) — never after a no-op settle (e.g. ON_ATTACK that killed
+	## nothing), where the recompute would be wasted.
 	_drain_triggers()
-	_sweep_all_boards()
+	if _sweep_all_boards() or entry_added:
+		recompute_auras()
 
 
 func start() -> void:
@@ -417,9 +421,10 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 	# this avoids the per-play context alloc + fire in the agnostic/engine-only path.
 	if inst != null and _effective_ability_fn.is_valid():
 		inst._fire(CardInstance.Trigger.ON_PLAY, {"target": target})
-		# Settle ON_SETUP/ON_PLAY: drain (QUEUED) and sweep deaths a battlecry caused. The
-		# sweep also recomputes auras for the creature that just entered.
-		_settle_reactive_triggers()
+		# Settle ON_SETUP/ON_PLAY: drain (QUEUED) and sweep deaths a battlecry caused.
+		# entry_added=true recomputes auras for the creature that just entered, even if
+		# the battlecry killed nothing.
+		_settle_reactive_triggers(true)
 	elif inst != null:
 		# No handler: nothing to drain/sweep, but a new creature may still shift auras.
 		recompute_auras()
@@ -1331,8 +1336,9 @@ func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 			if played != null and _effective_ability_fn.is_valid():
 				var play_target: Variant = side_ai.choose_play_target(card_to_play, ally_boards(side), enemy_boards(side))
 				played._fire(CardInstance.Trigger.ON_PLAY, {"target": play_target})
-				# Settle ON_SETUP/ON_PLAY: drain (QUEUED) and sweep deaths a battlecry caused.
-				_settle_reactive_triggers()
+				# Settle ON_SETUP/ON_PLAY: drain + sweep; entry_added=true recomputes auras
+				# for the creature that just entered even if the battlecry killed nothing.
+				_settle_reactive_triggers(true)
 			elif played != null:
 				recompute_auras()
 			plays += 1
@@ -1661,7 +1667,8 @@ func _process_death_results(pairs_result: Array) -> void:
 	# thorns chain, or a kill landed during a QUEUED drain) surface like spell deaths:
 	# recorded AND removed, not silently dropped by a blind board cleanup. _record_death
 	# is idempotent, so the deaths recorded above are not doubled.
-	_sweep_all_boards()
+	if _sweep_all_boards():
+		recompute_auras()
 
 
 func _record_death(inst: CardInstance) -> void:
@@ -1723,7 +1730,8 @@ func _apply_effect_and_sweep(effect: SpellEffect, target: Variant, context: Dict
 	# trigger) before sweeping, so chained kills surface in the same sweep (QUEUED);
 	# no-op in INLINE.
 	_drain_triggers()
-	_sweep_all_boards()
+	if _sweep_all_boards():
+		recompute_auras()
 
 
 func _spell_power_for(side: int) -> int:
@@ -1813,7 +1821,8 @@ func _apply_chosen_creatures(effect: SpellEffect, target: Variant, context: Dict
 		if inst is CardInstance and not inst.is_dead:
 			effect.apply(inst, context)
 	_drain_triggers()
-	_sweep_all_boards()
+	if _sweep_all_boards():
+		recompute_auras()
 
 
 func _apply_summon_effect(effect: SpellEffect, side: int, context: Dictionary) -> void:
@@ -1890,11 +1899,12 @@ func heal_hero(side: int, amount: int) -> void:
 		_emit_combatant_healed(side, healed)
 
 
-func _check_board_deaths(deck: CombatDeck) -> void:
+func _check_board_deaths(deck: CombatDeck) -> bool:
 	## Spell-caused deaths must surface like combat deaths: record them (emits
 	## creature_died, appends CREATURE_DIED to event_log, tracks get_dead_creatures)
 	## before removing them from the board. Otherwise an AOE/single-target kill would
-	## be invisible to the event_log and break replay.
+	## be invisible to the event_log and break replay. Returns true if it removed
+	## anyone, so the caller knows whether board membership actually changed.
 	var dead: Array[CardInstance] = []
 	for inst in deck.get_board():
 		if inst.is_dead:
@@ -1902,16 +1912,21 @@ func _check_board_deaths(deck: CombatDeck) -> void:
 	for inst in dead:
 		_record_death(inst)
 		deck.remove_from_board(inst)
+	return not dead.is_empty()
 
 
-func _sweep_all_boards() -> void:
+func _sweep_all_boards() -> bool:
 	## Sweep every side's board for spell-caused deaths, generalizing the old
 	## two-deck sweep. A custom effect_fn can hit any side (allies included), so all
-	## boards must be checked, not just the caster's and the lone opponent's.
+	## boards must be checked, not just the caster's and the lone opponent's. Returns
+	## true if any death removed a creature; the caller recomputes auras only then,
+	## since auras key off board membership (the recompute is wasted when nothing left
+	## the board). Entry/summon membership changes are recomputed by their own paths.
+	var changed: bool = false
 	for s in side_count():
-		_check_board_deaths(decks[s])
-	# Board membership may have changed (deaths removed creatures): let auras recompute.
-	recompute_auras()
+		if _check_board_deaths(decks[s]):
+			changed = true
+	return changed
 
 
 func recompute_auras() -> void:

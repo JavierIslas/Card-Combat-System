@@ -392,6 +392,37 @@ func test_recompute_auras_publico_y_sin_hook() -> void:
 	assert_eq(calls[0], 1, "sin hook es no-op (no crashea)")
 
 
+func test_settle_reactivo_sin_muerte_no_recomputa_auras() -> void:
+	# #8: a reactive trigger that kills nothing (ON_ATTACK here) leaves board membership
+	# unchanged, so the settle must NOT recompute auras — the recompute would be wasted.
+	# An ability handler is wired so the settle path actually runs.
+	_session.ability_fn = func(_inst: Variant, _trigger: int, _ctx: Dictionary) -> void: pass
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	var attacker := CardInstance.new()
+	attacker.setup(_creature(0, 2, 2), 0)
+	attacker.can_attack_this_turn = true
+	_session.decks[0].add_to_board(attacker)
+	var calls: Array = [0]
+	_session.aura_fn = func(_s: CombatSession) -> void: calls[0] += 1
+	assert_true(_session.declare_attacker(attacker, null), "el ataque al héroe se declara")
+	assert_eq(calls[0], 0, "un settle sin muerte ni entrada no recomputa auras")
+
+
+func test_battlecry_sin_muerte_recomputa_por_entrada() -> void:
+	# #8: with an ability handler wired, playing a creature whose battlecry kills nothing
+	# still recomputes auras once — the creature entered (board membership changed).
+	_session.ability_fn = func(_inst: Variant, _trigger: int, _ctx: Dictionary) -> void: pass
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	var calls: Array = [0]
+	_session.aura_fn = func(_s: CombatSession) -> void: calls[0] += 1
+	var minion := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(minion)
+	assert_true(_session.play_card(minion), "la criatura se juega")
+	assert_eq(calls[0], 1, "la entrada recomputa auras una vez aunque el battlecry no mate")
+
+
 func test_spell_power_fn_potencia_el_bolt_al_heroe() -> void:
 	# El spell_power_fn suma daño al bolt ENEMY_HERO del lanzador.
 	_setup_basico()
