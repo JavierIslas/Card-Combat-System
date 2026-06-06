@@ -50,3 +50,8 @@ extends Resource
 ## skip the CombatEvent.new + append on every event of auto_resolve; the live signals
 ## still fire, but event_log stays empty (so replay-from-log is disabled by choice).
 @export var record_events: bool = true
+
+## Whether the session emits the action_rejected signal when a driver action is
+## rejected (invalid phase, insufficient mana, targeting violation, etc.). Useful
+## for UI debugging; set false to skip the signal in headless simulation.
+@export var emit_action_rejections: bool = true

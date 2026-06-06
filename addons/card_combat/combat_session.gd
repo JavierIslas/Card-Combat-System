@@ -25,6 +25,7 @@ signal creature_summoned(card: CardInstance, owner: int)
 signal combatant_damaged(side: int, amount: int)
 signal combatant_healed(side: int, amount: int)
 signal spell_fizzled(card: CardData)
+signal action_rejected(action: StringName, reason: StringName)
 
 # Safety guards (engine internals, not game balance): cap auto_resolve loop
 # iterations and the number of card plays resolved automatically per turn.
@@ -94,6 +95,9 @@ var config: CombatConfig = CombatConfig.new()
 ## per-event helpers test a plain bool instead of reaching through the config Resource on
 ## the hot path. When false, the _emit_* helpers skip the event_log append entirely.
 var _recording: bool = true
+
+## Cached mirror of config.emit_action_rejections, refreshed alongside _recording.
+var _emit_rejections: bool = true
 
 ## Ability handler. Injected by the game layer before setup() (the game layer
 ## injects its own ability handler). Empty = engine-agnostic.
@@ -208,6 +212,7 @@ func setup_sides(sides: Array, side_teams: Array[int] = [], ai_seed: int = -1) -
 	# Cache the recorder flag before building decks: the initial-hand draws emit
 	# card-level events through the _emit_* helpers, which read _recording.
 	_recording = config.record_events
+	_emit_rejections = config.emit_action_rejections
 
 	_init_side_arrays(n)
 	for side in n:
@@ -376,12 +381,14 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 	## consumed (mana and card stay), `spell_fizzled` is emitted and play_card returns
 	## false. The caller is responsible for picking a target and retrying.
 	if not _can_play_from_hand(card):
+		_maybe_reject(&"play_card", &"cannot_play_from_hand")
 		return false
 	if card.play_kind == CardData.PlayKind.EFFECT:
 		if _spell_needs_missing_target(card, target):
 			_emit_spell_fizzled(card)
 			return false
 		if not _consume_spell(card):
+			_maybe_reject(&"play_card", &"spell_consume_failed")
 			return false
 		_apply_spell_effects(card, active_side, target, target_side)
 		# ON_CAST fires after the spell resolves (its own ON_DAMAGE_TAKEN/ON_DEATH already
@@ -410,6 +417,7 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 	## casting prefer play_card(card, ..., target), which honors the card's
 	## declared spell_effects and target_type.
 	if not _can_play_from_hand(card):
+		_maybe_reject(&"play_spell", &"cannot_play_from_hand")
 		return false
 	# Same fizzle contract as play_card: a single-target effect with no living
 	# target is rejected before consuming, so the card and mana are not wasted.
@@ -417,6 +425,7 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 		_emit_spell_fizzled(card)
 		return false
 	if not _consume_spell(card):
+		_maybe_reject(&"play_spell", &"spell_consume_failed")
 		return false
 	var context: Dictionary = {"session": self, "owner_id": active_side, "spell_power": _spell_power_for(active_side)}
 	# An externally-built effect can kill (damage/AOE/custom effect_fn). Sweeping
@@ -482,27 +491,34 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	## A blocker declared in DEFENSE can later redirect this pair's damage. Returns
 	## true if the attacker was declared; false if any precondition rejected it.
 	if not CombatState.is_active_action_phase(phase):
+		_maybe_reject(&"declare_attacker", &"not_active_phase")
 		return false
 	if _combat_over:
+		_maybe_reject(&"declare_attacker", &"combat_over")
 		return false
 	if attacker == null:
+		_maybe_reject(&"declare_attacker", &"attacker_null")
 		return false
 	if not decks[active_side].get_board().has(attacker):
+		_maybe_reject(&"declare_attacker", &"attacker_not_on_board")
 		return false
 	# Reject summoning-sick creatures and attackers that already used up their swings
 	# this turn. attacks_per_turn defaults to 1 (classic single attack); a multi-attack
 	# creature may declare again until times_attacked reaches it.
 	if not attacker.can_attack_this_turn or attacker.times_attacked >= attacker.attacks_per_turn:
+		_maybe_reject(&"declare_attacker", &"cannot_attack")
 		return false
 	var ts: int = -1
 	if not (target is CardInstance):
 		# Hero attack: resolve and validate the target side (must be a living enemy).
 		ts = target_side if target_side >= 0 else _default_enemy_side(active_side)
 		if ts < 0 or are_allies(ts, active_side):
+			_maybe_reject(&"declare_attacker", &"invalid_target_side")
 			return false
 	# Targeting restriction (e.g. TAUNT): when the hook restricts this attacker to a
 	# set of creatures, a hero swing or a non-listed creature is illegal.
 	if not _attack_target_allowed(attacker, target):
+		_maybe_reject(&"declare_attacker", &"target_not_allowed")
 		return false
 	var pair = CombatPair.new(attacker, target)
 	pair.target_side = ts
@@ -525,24 +541,32 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 	## target. A blocker can only be assigned once per turn. Returns true if the
 	## block was assigned; false if any precondition rejected it.
 	if not CombatState.is_passive_action_phase(phase):
+		_maybe_reject(&"declare_blocker", &"not_passive_phase")
 		return false
 	if _combat_over:
+		_maybe_reject(&"declare_blocker", &"combat_over")
 		return false
 	if attacker == null or blocker == null:
+		_maybe_reject(&"declare_blocker", &"null_argument")
 		return false
 	# The blocker must belong to an enemy side of the active attacker (any enemy
 	# team, not just a single passive side), and be one of that side's defenders.
 	var blocker_side: int = blocker.owner_id
 	if are_allies(blocker_side, active_side):
+		_maybe_reject(&"declare_blocker", &"blocker_is_ally")
 		return false
 	if not decks[blocker_side].get_defenders().has(blocker):
+		_maybe_reject(&"declare_blocker", &"not_a_defender")
 		return false
 	if blocker.is_dead:
+		_maybe_reject(&"declare_blocker", &"blocker_dead")
 		return false
 	if _block_assignments.values().has(blocker):
+		_maybe_reject(&"declare_blocker", &"blocker_already_assigned")
 		return false
 	var pair: CombatPair = _find_attack_pair(attacker)
 	if pair == null:
+		_maybe_reject(&"declare_blocker", &"no_attack_pair")
 		return false
 	pair.defender = blocker
 	_block_assignments[attacker] = blocker
@@ -626,7 +650,10 @@ func apply_command(cmd: CombatCommand) -> bool:
 	## success the command is appended to command_log. Rejects without mutating when a
 	## precondition fails, so a bad/illegal command from a client is a no-op.
 	if cmd == null or _combat_over:
+		_maybe_reject(&"apply_command", &"invalid_or_combat_over")
 		return false
+	# _route_command and the action methods it delegates to emit their own, more
+	# specific action_rejected on failure; a generic reject here would double-emit.
 	if not _route_command(cmd):
 		return false
 	command_log.append(cmd)
@@ -642,23 +669,26 @@ func _route_command(cmd: CombatCommand) -> bool:
 		CombatCommand.CommandType.DECLARE_BLOCKER:
 			return _cmd_declare_blocker(cmd)
 		CombatCommand.CommandType.END_MAIN:
-			return _cmd_end_phase(cmd.side, active_side, CombatState.Phase.MAIN, end_main_phase)
+			return _cmd_end_phase(cmd.side, active_side, CombatState.Phase.MAIN, end_main_phase, &"end_main")
 		CombatCommand.CommandType.END_ATTACK:
-			return _cmd_end_phase(cmd.side, active_side, CombatState.Phase.ATTACK, end_attack_phase)
+			return _cmd_end_phase(cmd.side, active_side, CombatState.Phase.ATTACK, end_attack_phase, &"end_attack")
 		CombatCommand.CommandType.END_DEFENSE:
 			# Ending defense is any passive side's call (defense is a global phase).
 			return _cmd_end_defense(cmd)
 		CombatCommand.CommandType.ADVANCE:
 			return _cmd_advance()
+	_maybe_reject(&"apply_command", &"unknown_command_type")
 	return false
 
 
 func _cmd_play_card(cmd: CombatCommand) -> bool:
 	if cmd.side != active_side or phase != CombatState.Phase.MAIN:
+		_maybe_reject(&"play_card", &"wrong_side_or_phase")
 		return false
 	var hand: Array[CardData] = decks[cmd.side].get_hand()
 	var hi: int = int(cmd.payload.get("hand_index", -1))
 	if hi < 0 or hi >= hand.size():
+		_maybe_reject(&"play_card", &"invalid_hand_index")
 		return false
 	return play_card(
 		hand[hi],
@@ -676,6 +706,7 @@ func _cmd_declare_attacker(cmd: CombatCommand) -> bool:
 	# of the preconditions (phase, board membership, summoning sickness) are the
 	# action method's job, so we route and report its bool directly.
 	if cmd.side != active_side:
+		_maybe_reject(&"declare_attacker", &"wrong_side")
 		return false
 	var attacker: CardInstance = _board_at(cmd.side, int(cmd.payload.get("attacker_index", -1)))
 	# A creature target ({target_side,target_index}) takes precedence; otherwise
@@ -688,6 +719,7 @@ func _cmd_declare_blocker(cmd: CombatCommand) -> bool:
 	# attacker (any enemy team). Phase, defender membership and double-block are the
 	# action method's job, so we route and report its bool directly.
 	if are_allies(cmd.side, active_side):
+		_maybe_reject(&"declare_blocker", &"blocker_is_ally")
 		return false
 	var attacker: CardInstance = _board_at(active_side, int(cmd.payload.get("attacker_index", -1)))
 	var blocker: CardInstance = _board_at(cmd.side, int(cmd.payload.get("blocker_index", -1)))
@@ -697,16 +729,18 @@ func _cmd_declare_blocker(cmd: CombatCommand) -> bool:
 func _cmd_end_defense(cmd: CombatCommand) -> bool:
 	## Any passive side can end the (global) defense phase.
 	if cmd.side == active_side or phase != CombatState.Phase.DEFENSE:
+		_maybe_reject(&"end_defense", &"active_side_or_wrong_phase")
 		return false
 	var before: CombatState.Phase = phase
 	end_defense_phase()
 	return phase != before
 
 
-func _cmd_end_phase(cmd_side: int, expected_side: int, required_phase: CombatState.Phase, ender: Callable) -> bool:
+func _cmd_end_phase(cmd_side: int, expected_side: int, required_phase: CombatState.Phase, ender: Callable, action: StringName) -> bool:
 	## Phase-end commands report success by whether the phase actually changed (the
 	## end_* methods are void and may also settle victory / auto-chain).
 	if cmd_side != expected_side or phase != required_phase:
+		_maybe_reject(action, &"wrong_side_or_phase")
 		return false
 	var before: CombatState.Phase = phase
 	ender.call()
@@ -1005,6 +1039,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	var _schema: int = int(data.get("schema_version", 0))
 	session.config = hooks.get("config", CombatConfig.new())
 	session._recording = session.config.record_events
+	session._emit_rejections = session.config.emit_action_rejections
 	session.ability_fn = hooks.get("ability_fn", Callable())
 	session.damage_fn = hooks.get("damage_fn", Callable())
 	session.exhaust_fn = hooks.get("exhaust_fn", Callable())
@@ -1324,6 +1359,13 @@ func _transition_to(new_phase: CombatState.Phase) -> void:
 # --- Signal + event-log emitters (single source for each combat event) ---
 # Each helper emits the signal AND appends a structured CombatEvent, so existing
 # listeners keep working while event_log offers a replay-friendly stream.
+
+func _maybe_reject(action: StringName, reason: StringName) -> void:
+	## Emit action_rejected when the config flag is on. Called before returning false
+	## from public driver methods so a UI can surface why an action was rejected.
+	if _emit_rejections:
+		action_rejected.emit(action, reason)
+
 
 func _emit_phase_changed(old_phase: int, new_phase: int) -> void:
 	phase_changed.emit(old_phase, new_phase)

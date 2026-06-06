@@ -121,3 +121,72 @@ func test_advance_via_command_desde_begin() -> void:
 	var ok := _session.apply_command(CombatCommand.new(CombatCommand.CommandType.ADVANCE, 0, {}))
 	assert_true(ok, "ADVANCE desde BEGIN cambia de fase")
 	assert_eq(_session.phase, CombatState.Phase.MAIN, "BEGIN -> (PREPARATION auto) -> MAIN")
+
+
+# --- action_rejected signal ---
+
+func _collect_rejections(session: CombatSession) -> Array:
+	var rejections: Array = []
+	session.action_rejected.connect(func(a: StringName, r: StringName) -> void: rejections.append([a, r]))
+	return rejections
+
+
+func test_play_card_no_mana_emits_action_rejected() -> void:
+	var session := CombatSession.new()
+	var expensive: Array[CardData] = []
+	var c := CardData.new()
+	c.cost = 10
+	c.play_kind = CardData.PlayKind.UNIT
+	expensive.append(c)
+	session.setup(_hero(30), expensive, _hero(30), [], 1)
+	session.start()
+	var rejections: Array = _collect_rejections(session)
+	session.play_card(c)
+	assert_gt(rejections.size(), 0, "play_card rejected with no mana emits action_rejected")
+	assert_eq(rejections[0][0], &"play_card", "action is play_card")
+
+
+func test_declare_attacker_rejected_emits_action_rejected() -> void:
+	var session := CombatSession.new()
+	session.setup(_hero(30), [], _hero(30), [], 1)
+	session.start()
+	# A fresh CardInstance is on nobody's board, so declare_attacker is rejected
+	# regardless of the current phase. The rejection must be tagged declare_attacker.
+	var rejections: Array = _collect_rejections(session)
+	session.declare_attacker(CardInstance.new())
+	assert_eq(rejections.size(), 1, "rejected declare_attacker emits exactly one rejection")
+	assert_eq(rejections[0][0], &"declare_attacker", "action is declare_attacker")
+
+
+func test_apply_command_invalid_emits_action_rejected() -> void:
+	var session := CombatSession.new()
+	session.setup(_hero(30), [], _hero(30), [], 1)
+	session.start()
+	var rejections: Array = _collect_rejections(session)
+	# Null command
+	session.apply_command(null)
+	assert_gt(rejections.size(), 0, "null command emits action_rejected")
+	assert_eq(rejections[0][0], &"apply_command", "action is apply_command")
+
+
+func test_routed_command_failure_emits_single_rejection() -> void:
+	## Regression: a command routed to an action method that already rejects must not
+	## also emit a generic route_failed. A failing PLAY_CARD (empty hand / wrong phase)
+	## must produce exactly one action_rejected, tagged with the semantic action.
+	var session := CombatSession.new()
+	session.setup(_hero(30), [], _hero(30), [], 1)
+	session.start()
+	var rejections: Array = _collect_rejections(session)
+	session.apply_command(CombatCommand.new(CombatCommand.CommandType.PLAY_CARD, 0, {"hand_index": 0}))
+	assert_eq(rejections.size(), 1, "routed failure emits exactly one rejection (no double-emit)")
+	assert_eq(rejections[0][0], &"play_card", "rejection is tagged with the semantic action, not apply_command")
+
+
+func test_config_can_disable_rejections() -> void:
+	var session := CombatSession.new()
+	session.config.emit_action_rejections = false
+	session.setup(_hero(30), [], _hero(30), [], 1)
+	session.start()
+	var rejections: Array = _collect_rejections(session)
+	session.apply_command(null)
+	assert_eq(rejections.size(), 0, "disabled rejections emit nothing")
