@@ -486,3 +486,37 @@ func test_incoming_damage_fn_recibe_la_fuente() -> void:
 		return amount
 	inst.take_damage(4, source)
 	assert_eq(seen_source[0], source, "el hook recibe la fuente del daño")
+
+
+func test_temp_buff_negativo_letal_mata() -> void:
+	# Un debuff temporal que deja la vida en <=0 mata la criatura (mismo contrato que
+	# take_damage): dispara ON_DEATH y card_died, en vez de dejarla viva con vida 0.
+	var deaths: Array = [0]
+	var inst := _make_instance(2, 2)
+	inst.ability_fn = func(_i: CardInstance, trigger: int, _ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DEATH:
+			deaths[0] += 1
+	inst.apply_temp_buff(0, -2)
+	assert_true(inst.is_dead, "el debuff letal mata la criatura")
+	assert_eq(deaths[0], 1, "disparó ON_DEATH una vez")
+
+
+func test_continuous_modifier_negativo_letal_mata() -> void:
+	# Un modificador continuo que baja la vida a <=0 también mata.
+	var inst := _make_instance(2, 3)
+	inst.add_continuous_modifier("debuff", 0, -3)
+	assert_true(inst.is_dead, "el modificador continuo letal mata la criatura")
+
+
+func test_permanent_buff_negativo_letal_mata() -> void:
+	var inst := _make_instance(2, 2)
+	inst.apply_permanent_buff(0, -2)
+	assert_true(inst.is_dead, "la mejora permanente letal mata la criatura")
+
+
+func test_debuff_no_letal_no_mata() -> void:
+	# Regresión: un debuff que deja vida > 0 no mata.
+	var inst := _make_instance(2, 5)
+	inst.apply_temp_buff(0, -3)
+	assert_false(inst.is_dead, "un debuff no letal deja viva la criatura")
+	assert_eq(inst.current_health, 2, "la vida baja a 2 (5 - 3)")

@@ -258,6 +258,7 @@ func apply_permanent_buff(attack_delta: int, health_delta: int, max_buffs: int =
 	current_attack += attack_delta
 	current_health += health_delta
 	current_max_health += health_delta
+	_check_death_from_stat_change()
 	return true
 
 
@@ -269,6 +270,7 @@ func apply_temp_buff(attack_delta: int, health_delta: int) -> void:
 	current_attack += attack_delta
 	current_health += health_delta
 	current_max_health += health_delta
+	_check_death_from_stat_change()
 
 
 func add_continuous_modifier(source_id: String, attack_delta: int, health_delta: int) -> void:
@@ -284,6 +286,7 @@ func add_continuous_modifier(source_id: String, attack_delta: int, health_delta:
 	current_attack += attack_delta
 	current_health += health_delta
 	current_max_health += health_delta
+	_check_death_from_stat_change()
 
 
 func remove_continuous_modifier(source_id: String) -> bool:
@@ -346,6 +349,16 @@ func refresh_for_turn() -> void:
 	can_attack_this_turn = false
 
 	_fire(Trigger.ON_TURN_REFRESH)
+
+
+func _check_death_from_stat_change() -> void:
+	## A stat change that lowers current health to <= 0 (a -X/-Y debuff, a negative
+	## continuous modifier) kills the creature, same contract as take_damage. Only the
+	## delta-applying methods call it; roll-backs (_expire_temp_buffs,
+	## remove_continuous_modifier) recompute stats and must not kill on a transient dip.
+	## Idempotent: a creature already dead is not re-killed.
+	if current_health <= 0 and not is_dead:
+		_die()
 
 
 func _die() -> void:
