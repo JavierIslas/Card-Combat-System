@@ -90,6 +90,11 @@ var command_log: Array[CombatCommand] = []
 ## Balance parameters. Reassign before setup() to customize.
 var config: CombatConfig = CombatConfig.new()
 
+## Cached mirror of config.record_events, refreshed in setup_sides()/deserialize so the
+## per-event helpers test a plain bool instead of reaching through the config Resource on
+## the hot path. When false, the _emit_* helpers skip the event_log append entirely.
+var _recording: bool = true
+
 ## Ability handler. Injected by the game layer before setup() (the game layer
 ## injects its own ability handler). Empty = engine-agnostic.
 var ability_fn: Callable = Callable()
@@ -200,6 +205,9 @@ func setup_sides(sides: Array, side_teams: Array[int] = [], ai_seed: int = -1) -
 	event_log.clear()
 	command_log.clear()
 	_combat_over = false
+	# Cache the recorder flag before building decks: the initial-hand draws emit
+	# card-level events through the _emit_* helpers, which read _recording.
+	_recording = config.record_events
 
 	_init_side_arrays(n)
 	for side in n:
@@ -989,6 +997,7 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	# branch here; today every field tolerates absence via get(.., default).
 	var _schema: int = int(data.get("schema_version", 0))
 	session.config = hooks.get("config", CombatConfig.new())
+	session._recording = session.config.record_events
 	session.ability_fn = hooks.get("ability_fn", Callable())
 	session.damage_fn = hooks.get("damage_fn", Callable())
 	session.exhaust_fn = hooks.get("exhaust_fn", Callable())
@@ -1307,6 +1316,8 @@ func _transition_to(new_phase: CombatState.Phase) -> void:
 
 func _emit_phase_changed(old_phase: int, new_phase: int) -> void:
 	phase_changed.emit(old_phase, new_phase)
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.PHASE_CHANGED, {
 		"old_phase": old_phase, "new_phase": new_phase,
 	}))
@@ -1314,6 +1325,8 @@ func _emit_phase_changed(old_phase: int, new_phase: int) -> void:
 
 func _emit_combatant_damaged(side: int, amount: int) -> void:
 	combatant_damaged.emit(side, amount)
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBATANT_DAMAGED, {
 		"side": side, "amount": amount,
 	}))
@@ -1321,6 +1334,8 @@ func _emit_combatant_damaged(side: int, amount: int) -> void:
 
 func _emit_combatant_healed(side: int, amount: int) -> void:
 	combatant_healed.emit(side, amount)
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBATANT_HEALED, {
 		"side": side, "amount": amount,
 	}))
@@ -1338,6 +1353,8 @@ func _inst_card_id(inst: CardInstance) -> String:
 
 func _emit_creature_died(card: CardInstance, owner: int) -> void:
 	creature_died.emit(card, owner)
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.CREATURE_DIED, {
 		"owner": owner, "card_id": _inst_card_id(card),
 	}))
@@ -1345,6 +1362,8 @@ func _emit_creature_died(card: CardInstance, owner: int) -> void:
 
 func _emit_creature_summoned(card: CardInstance, owner: int) -> void:
 	creature_summoned.emit(card, owner)
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.CREATURE_SUMMONED, {
 		"owner": owner, "card_id": _inst_card_id(card),
 	}))
@@ -1352,11 +1371,15 @@ func _emit_creature_summoned(card: CardInstance, owner: int) -> void:
 
 func _emit_combat_ended(winner: int) -> void:
 	combat_ended.emit(winner)
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.COMBAT_ENDED, {"winner_side": winner}))
 
 
 func _emit_spell_fizzled(card: CardData) -> void:
 	spell_fizzled.emit(card)
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.SPELL_FIZZLED, {"card_id": _card_id_of(card)}))
 
 
@@ -1365,22 +1388,32 @@ func _emit_spell_fizzled(card: CardData) -> void:
 # event_log is a complete, replay-friendly stream.
 
 func _emit_card_drawn(card: CardData, owner: int) -> void:
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_DRAWN, {"owner": owner, "card_id": _card_id_of(card)}))
 
 
 func _emit_card_played(inst: CardInstance, owner: int) -> void:
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.CARD_PLAYED, {"owner": owner, "card_id": _inst_card_id(inst)}))
 
 
 func _emit_mana_changed(owner: int, new_mana: int) -> void:
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.MANA_CHANGED, {"owner": owner, "new_mana": new_mana}))
 
 
 func _emit_max_mana_changed(owner: int, new_max: int) -> void:
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.MAX_MANA_CHANGED, {"owner": owner, "new_max": new_max}))
 
 
 func _emit_deck_exhausted(owner: int) -> void:
+	if not _recording:
+		return
 	event_log.append(CombatEvent.new(CombatEvent.EventType.DECK_EXHAUSTED, {"owner": owner}))
 
 

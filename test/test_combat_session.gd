@@ -1704,3 +1704,43 @@ func test_auto_resolve_con_taunt_corre_y_es_determinista() -> void:
 	s2.auto_resolve()
 	assert_gt(s1.get_result()["turn_number"], 1, "el combate con taunt realmente avanzó")
 	assert_eq(s1.get_result(), s2.get_result(), "auto_resolve con taunt es determinista")
+
+
+# --- Recorder opt-in (config.record_events): apaga el event_log sin alterar el combate ---
+
+func test_record_events_false_deja_log_vacio() -> void:
+	# Con el recorder apagado el combate corre completo pero no acumula CombatEvents
+	# (se ahorra CombatEvent.new + append en balancing masivo).
+	_session.config.record_events = false
+	_session.setup(_hero(10), _starter(), _hero(10), _starter(), 9)
+	_session.auto_resolve()
+	assert_eq(_session.event_log.size(), 0, "record_events=false no deja eventos en el log")
+
+
+func test_record_events_false_no_cambia_el_resultado() -> void:
+	# El recorder es pura observabilidad: apagarlo no altera el combate. Mismo seed
+	# con y sin log => resultado idéntico (solo difiere el event_log).
+	var con_log := CombatSession.new()
+	con_log.setup(_hero(10), _starter(), _hero(10), _starter(), 21)
+	con_log.auto_resolve()
+	var sin_log := CombatSession.new()
+	sin_log.config.record_events = false
+	sin_log.setup(_hero(10), _starter(), _hero(10), _starter(), 21)
+	sin_log.auto_resolve()
+	assert_gt(con_log.event_log.size(), 0, "la corrida con log sí registra eventos")
+	assert_eq(sin_log.get_result(), con_log.get_result(), "el resultado es idéntico con o sin log")
+
+
+func test_record_events_se_recomputa_tras_deserialize() -> void:
+	# _recording se deriva de config.record_events tanto en setup como en deserialize,
+	# así una sesión reanudada con el recorder apagado sigue sin loguear.
+	var origen := CombatSession.new()
+	origen.setup(_hero(10), _starter(), _hero(10), _starter(), 4)
+	origen.start()
+	var data := origen.serialize()
+	var cfg := CombatConfig.new()
+	cfg.record_events = false
+	var resumed := CombatSession.deserialize(data, {"config": cfg})
+	var antes := resumed.event_log.size()
+	resumed.auto_resolve()
+	assert_eq(resumed.event_log.size(), antes, "tras deserialize con record_events=false no se agregan eventos")

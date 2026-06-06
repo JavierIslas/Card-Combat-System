@@ -23,3 +23,10 @@ func test_config_es_resource_autorable() -> void:
 	# CombatConfig extiende Resource para poder autorar presets de balance como .tres.
 	var cfg := CombatConfig.new()
 	assert_true(cfg is Resource, "CombatConfig es un Resource")
+
+
+func test_record_events_default_true() -> void:
+	# El recorder de event_log está ON por defecto: el comportamiento previo (loguear
+	# cada combate) es byte-idéntico. Un juego de balancing lo apaga explícitamente.
+	var cfg := CombatConfig.new()
+	assert_eq(cfg.record_events, true, "record_events arranca en true (comportamiento previo)")

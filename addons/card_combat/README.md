@@ -386,6 +386,15 @@ into the log, so the log **alone** is a full replay/spectator stream; the deck
 signals stay intact for live listeners. Consume the log when you want the whole
 run as data; use the signals when you want live object references.
 
+**Opt-out for balancing (`config.record_events`).** Recording the `event_log` costs a
+`CombatEvent.new` + append on every event, which is pure overhead when you run thousands
+of headless `auto_resolve()` combats for balancing and never read the log. Set
+`config.record_events = false` (default `true`) before `setup()` to skip those appends:
+the live **signals still fire**, but `event_log` stays empty (so replay-from-log is off
+by choice, and a serialized session carries an empty log). It is pure observability —
+the combat result is byte-identical either way. On a creature-only workload this measured
+~30% faster; with spells/AI in the mix the relative saving is smaller but real.
+
 Signal catalog per class:
 
 | Class | Signal | When |

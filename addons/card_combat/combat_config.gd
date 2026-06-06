@@ -44,3 +44,9 @@ extends Resource
 ## Cap on cards in each side's hand. Drawing with a full hand burns the card to the
 ## graveyard (see discard_fn). -1 = unlimited (engine-agnostic).
 @export var max_hand_size: int = -1
+
+## Whether the session records its CombatEvent stream into event_log. true (default)
+## reproduces the previous behavior exactly. Set it to false in mass balancing runs to
+## skip the CombatEvent.new + append on every event of auto_resolve; the live signals
+## still fire, but event_log stays empty (so replay-from-log is disabled by choice).
+@export var record_events: bool = true
