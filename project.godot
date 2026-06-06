@@ -14,6 +14,22 @@ config/name="Combat Card System"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 
+[debug]
+
+; GDScript warnings as errors. Godot 4.6 migrated the old enable/exclude_addons
+; keys to directory_rules: level 1 = "warn" for res://addons (so the engine under
+; addons/card_combat is covered, which the default would skip), and
+; treat_warnings_as_errors then promotes those to errors — same intent as the prior
+; exclude_addons=false setup. NOTE: the Godot headless runtime does NOT surface
+; analyzer warnings, so this is enforced in the EDITOR (Errors panel) only; the
+; active CI half is the compile gate (addons/card_combat/tools/check_scripts.gd).
+; The rule also covers addons/gut, so GUT warnings may surface as editor errors
+; (harmless to headless runs).
+gdscript/warnings/directory_rules={
+"res://addons": 1
+}
+gdscript/warnings/treat_warnings_as_errors=true
+
 [physics]
 
 3d/physics_engine="Jolt Physics"
@@ -23,15 +39,3 @@ config/icon="res://icon.svg"
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-
-[debug]
-
-; GDScript warnings as errors. exclude_addons=false so the engine under
-; addons/card_combat is covered (default true would skip it). NOTE: the Godot
-; headless runtime does NOT surface analyzer warnings, so this is enforced in the
-; EDITOR (Errors panel) only; the active CI half is the compile gate
-; (addons/card_combat/tools/check_scripts.gd). exclude_addons=false also covers
-; addons/gut, so GUT warnings may surface as editor errors (harmless to headless runs).
-gdscript/warnings/enable=true
-gdscript/warnings/exclude_addons=false
-gdscript/warnings/treat_warnings_as_errors=true
