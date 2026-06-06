@@ -1,0 +1,26 @@
+# gdtoolkit (gdlint) config for the Card Combat Engine.
+#
+# This is a CI gate COMPLEMENTARY to the headless compile gate
+# (addons/card_combat/tools/check_scripts.gd): the compile gate catches hard parse
+# /type errors, gdlint catches correctness/design/naming smells the analyzer's
+# editor-only warnings do not reach in headless. It does NOT replace the editor's
+# analyzer warnings (unused local var / shadowed / unsafe cast stay editor-only).
+#
+# Calibration: the size/order/length rules below are disabled or widened on purpose
+# because the engine's layout is deliberate and documented (see .claude/architecture.md):
+# CombatSession/CombatDeck are intentionally cohesive monoliths (a reverted-refactor
+# rule), and the repo has no fixed line-width convention. The CORRECTNESS rules stay
+# ON: unused-argument, expression-not-assigned, comparison-with-itself, duplicated-load,
+# unnecessary-pass, trailing-whitespace, mixed-tabs-and-spaces, plus all naming rules.
+
+disable:
+  - class-definitions-order   # the engine groups members by cohesion, not by category
+  - max-public-methods        # CombatSession/CombatDeck are cohesive by design (documented)
+  - max-file-lines            # CombatSession ~1795 lines: cohesion defended in architecture.md
+  - max-line-length           # the repo has no fixed width convention (lines up to ~183)
+
+max-returns: 10               # spell_effect.apply dispatches by match (one return per type)
+
+# Allow a leading underscore on function-scope locals (e.g. `_schema` = intentionally
+# scoped/legacy marker), mirroring the class-variable-name rule which already permits it.
+function-variable-name: _?[a-z][a-z0-9]*(_[a-z0-9]+)*

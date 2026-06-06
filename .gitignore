@@ -41,6 +41,9 @@ desktop.ini
 *.swo
 *~
 
+# Dev tooling venv (gdtoolkit / gdlint — local, regenerable)
+.venv-tooling/
+
 # IDE
 .vscode/
 .idea/
