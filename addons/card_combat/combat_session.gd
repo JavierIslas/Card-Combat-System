@@ -1343,18 +1343,9 @@ func _ai_spell_target(card: CardData, side: int, side_ai: CombatAI) -> Variant:
 	## Consult the AI for a spell that needs explicit targets (single PLAYER_CREATURE
 	## or multi CHOSEN_CREATURES). The AI returns a CardInstance or an Array depending
 	## on the spell; other spells resolve relative to the caster and need no target.
-	if not _spell_needs_explicit_target(card):
+	if not card.needs_explicit_target():
 		return null
 	return side_ai.choose_spell_target(card, ally_boards(side), enemy_boards(side))
-
-
-func _spell_needs_explicit_target(card: CardData) -> bool:
-	for effect in card.spell_effects:
-		if effect.target_type == SpellEffect.TargetType.PLAYER_CREATURE:
-			return true
-		if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
-			return true
-	return false
 
 
 func _playable_hand(deck: CombatDeck, skipped: Array[CardData]) -> Array[CardData]:

@@ -50,3 +50,34 @@ func test_play_kind_persistent_round_trip() -> void:
 	assert_not_null(card, "PERSISTENT es un play_kind válido")
 	assert_eq(card.play_kind, CardData.PlayKind.PERSISTENT, "se parsea como PERSISTENT")
 	assert_eq(card.serialize()["play_kind"], "PERSISTENT", "round-trips a PERSISTENT")
+
+
+func _spell_card(type: SpellEffect.EffectType, target: SpellEffect.TargetType, count: int = 1) -> CardData:
+	var card := CardData.new()
+	card.play_kind = CardData.PlayKind.EFFECT
+	var e := SpellEffect.new()
+	e.effect_type = type
+	e.target_type = target
+	e.target_count = count
+	var effects: Array[SpellEffect] = [e]
+	card.spell_effects = effects
+	return card
+
+
+func test_needs_explicit_target() -> void:
+	assert_true(_spell_card(SpellEffect.EffectType.DAMAGE, SpellEffect.TargetType.PLAYER_CREATURE).needs_explicit_target(), "PLAYER_CREATURE necesita target")
+	assert_true(_spell_card(SpellEffect.EffectType.DAMAGE, SpellEffect.TargetType.CHOSEN_CREATURES).needs_explicit_target(), "CHOSEN_CREATURES necesita target")
+	assert_false(_spell_card(SpellEffect.EffectType.DAMAGE, SpellEffect.TargetType.ENEMY_HERO).needs_explicit_target(), "ENEMY_HERO no necesita target")
+	assert_false(CardData.new().needs_explicit_target(), "una carta sin efectos no necesita target")
+
+
+func test_chosen_target_count() -> void:
+	assert_eq(_spell_card(SpellEffect.EffectType.DAMAGE, SpellEffect.TargetType.CHOSEN_CREATURES, 3).chosen_target_count(), 3, "devuelve target_count de CHOSEN_CREATURES")
+	assert_eq(_spell_card(SpellEffect.EffectType.DAMAGE, SpellEffect.TargetType.PLAYER_CREATURE).chosen_target_count(), 0, "0 sin efecto CHOSEN_CREATURES")
+
+
+func test_targets_enemies() -> void:
+	assert_true(_spell_card(SpellEffect.EffectType.DAMAGE, SpellEffect.TargetType.ENEMY_HERO).targets_enemies(), "un hechizo de daño apunta a enemigos")
+	assert_true(_spell_card(SpellEffect.EffectType.AOE_DAMAGE, SpellEffect.TargetType.ENEMY_CREATURES).targets_enemies(), "AOE_DAMAGE apunta a enemigos")
+	assert_false(_spell_card(SpellEffect.EffectType.HEAL, SpellEffect.TargetType.PLAYER_CREATURE).targets_enemies(), "un heal apunta a aliados")
+	assert_true(CardData.new().targets_enemies(), "sin efectos, por defecto apunta a enemigos")

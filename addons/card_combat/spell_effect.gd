@@ -55,6 +55,19 @@ var id_fn: Callable = Callable()
 var effect_fn: Callable = Callable()
 
 
+func is_damage() -> bool:
+	## Whether this effect deals damage (DAMAGE or AOE_DAMAGE). Single source for the
+	## "is this a damaging effect" check the AIs use to decide enemy vs ally targeting.
+	return effect_type == EffectType.DAMAGE or effect_type == EffectType.AOE_DAMAGE
+
+
+func needs_explicit_target() -> bool:
+	## Whether this effect needs a caller-supplied target: a single creature
+	## (PLAYER_CREATURE) or a chosen list (CHOSEN_CREATURES). Whole-side and hero
+	## effects resolve relative to the caster and need none.
+	return target_type == TargetType.PLAYER_CREATURE or target_type == TargetType.CHOSEN_CREATURES
+
+
 func serialize() -> Dictionary:
 	## Data-only snapshot of the effect. The injected Callables (id_fn, effect_fn)
 	## are NOT serialized: the game layer re-injects them on deserialize, same as

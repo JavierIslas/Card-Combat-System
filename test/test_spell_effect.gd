@@ -261,3 +261,23 @@ func test_buff_de_hechizo_sobre_array_es_temporal() -> void:
 	assert_eq(a.current_attack, 3, "buff aplicado al array")
 	a.refresh_for_turn()
 	assert_eq(a.current_attack, 1, "el buff de array tambien expira")
+
+
+func test_is_damage() -> void:
+	var e := SpellEffect.new()
+	e.effect_type = SpellEffect.EffectType.DAMAGE
+	assert_true(e.is_damage(), "DAMAGE es daño")
+	e.effect_type = SpellEffect.EffectType.AOE_DAMAGE
+	assert_true(e.is_damage(), "AOE_DAMAGE es daño")
+	e.effect_type = SpellEffect.EffectType.HEAL
+	assert_false(e.is_damage(), "HEAL no es daño")
+
+
+func test_needs_explicit_target() -> void:
+	var e := SpellEffect.new()
+	e.target_type = SpellEffect.TargetType.PLAYER_CREATURE
+	assert_true(e.needs_explicit_target(), "PLAYER_CREATURE necesita target")
+	e.target_type = SpellEffect.TargetType.CHOSEN_CREATURES
+	assert_true(e.needs_explicit_target(), "CHOSEN_CREATURES necesita target")
+	e.target_type = SpellEffect.TargetType.ENEMY_CREATURES
+	assert_false(e.needs_explicit_target(), "ENEMY_CREATURES no necesita target explícito")

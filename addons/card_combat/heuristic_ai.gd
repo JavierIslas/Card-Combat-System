@@ -95,7 +95,7 @@ func choose_spell_target(spell: CardData, own_board: Array[CardInstance], enemy_
 		return _first_living(enemy_board)
 	if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
 		return _pick_chosen(effect, own_board, enemy_board)
-	if _is_damage(effect):
+	if effect.is_damage():
 		return _pick_damage_target(effect.value, enemy_board)
 	return _pick_support_target(effect, own_board)
 
@@ -104,7 +104,7 @@ func _pick_chosen(effect: SpellEffect, own_board: Array[CardInstance], enemy_boa
 	## Deterministic bounded multi-target: damage picks the weakest enemies (best kill
 	## value); support picks the most-damaged ally (heal) or strongest ally (buff).
 	## Returns up to target_count; the engine fizzles/skips if too few are available.
-	var damage: bool = _is_damage(effect)
+	var damage: bool = effect.is_damage()
 	var heal: bool = effect.effect_type == SpellEffect.EffectType.HEAL
 	var candidates: Array[CardInstance] = CardInstance.living(enemy_board if damage else own_board)
 	if damage:
@@ -193,10 +193,6 @@ func _pick_support_target(effect: SpellEffect, own_board: Array[CardInstance]) -
 
 func _missing_health(inst: CardInstance) -> int:
 	return inst.current_max_health - inst.current_health
-
-
-func _is_damage(effect: SpellEffect) -> bool:
-	return effect.effect_type == SpellEffect.EffectType.DAMAGE or effect.effect_type == SpellEffect.EffectType.AOE_DAMAGE
 
 
 func _first_effect(spell: CardData) -> SpellEffect:

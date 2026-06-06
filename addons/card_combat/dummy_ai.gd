@@ -78,25 +78,17 @@ func choose_spell_target(spell: CardData, own_board: Array[CardInstance], enemy_
 	# Reference AI: pick the board that matches the spell's first effect (a damaging
 	# spell wants an enemy, a heal/buff an ally), then a random living creature from
 	# it. Avoids the old behavior of damaging its own creatures. Null if none alive.
-	var board := enemy_board if _targets_enemies(spell) else own_board
+	var board := enemy_board if spell.targets_enemies() else own_board
 	var candidates: Array[CardInstance] = CardInstance.living(board)
 	if candidates.is_empty():
 		return null
 	# CHOSEN_CREATURES: return up to target_count distinct living creatures (the
 	# engine fizzles/skips if fewer than target_count are returned). Single-target
 	# spells return one creature, unchanged.
-	var n: int = _chosen_count(spell)
+	var n: int = spell.chosen_target_count()
 	if n > 0:
 		return _pick_random_distinct(candidates, n)
 	return candidates[_rng.randi() % candidates.size()]
-
-
-func _chosen_count(spell: CardData) -> int:
-	## target_count if the spell carries a CHOSEN_CREATURES effect, else 0 (single).
-	for effect in spell.spell_effects:
-		if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
-			return maxi(effect.target_count, 1)
-	return 0
 
 
 func _pick_random_distinct(candidates: Array[CardInstance], n: int) -> Array[CardInstance]:
@@ -107,15 +99,6 @@ func _pick_random_distinct(candidates: Array[CardInstance], n: int) -> Array[Car
 		out.append(pool[i])
 		pool.remove_at(i)
 	return out
-
-
-func _targets_enemies(spell: CardData) -> bool:
-	# A DAMAGE/AOE_DAMAGE spell wants an enemy; HEAL/BUFF_ATTACK an ally. Defaults to
-	# enemy when the spell declares no effects.
-	if spell.spell_effects.is_empty():
-		return true
-	var type: SpellEffect.EffectType = spell.spell_effects[0].effect_type
-	return type == SpellEffect.EffectType.DAMAGE or type == SpellEffect.EffectType.AOE_DAMAGE
 
 
 func choose_blockers(attackers: Array[CardInstance], own_board: Array[CardInstance]) -> Dictionary:

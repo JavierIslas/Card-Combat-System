@@ -41,6 +41,35 @@ func get_total_cost() -> int:
 	return cost
 
 
+func needs_explicit_target() -> bool:
+	## Whether casting this card requires a caller-supplied target: true if any of its
+	## effects needs one (PLAYER_CREATURE / CHOSEN_CREATURES). Single source shared by the
+	## session's fizzle/targeting checks and the AIs.
+	for effect in spell_effects:
+		if effect.needs_explicit_target():
+			return true
+	return false
+
+
+func chosen_target_count() -> int:
+	## How many creatures a CHOSEN_CREATURES effect on this card targets (its
+	## target_count, floored at 1), or 0 if the card has no such effect. Lets a driver/AI
+	## size a multi-target pick without reaching into spell_effects.
+	for effect in spell_effects:
+		if effect.target_type == SpellEffect.TargetType.CHOSEN_CREATURES:
+			return maxi(effect.target_count, 1)
+	return 0
+
+
+func targets_enemies() -> bool:
+	## Whether this card's first effect aims at enemies (a damaging effect) rather than
+	## allies (heal/buff). Defaults to true when the card declares no effects, matching the
+	## reference AIs' fallback.
+	if spell_effects.is_empty():
+		return true
+	return spell_effects[0].is_damage()
+
+
 func can_afford(player_mana: int) -> bool:
 	return player_mana >= get_total_cost()
 
