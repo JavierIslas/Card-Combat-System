@@ -22,6 +22,11 @@ extends RefCounted
 ## Each entry: {"inst": CardInstance|null, "trigger": int, "context": Dictionary}.
 ## inst is null for side-level triggers (e.g. ON_DRAW), mirroring ability_fn.
 var _queue: Array = []
+## Read cursor into _queue: entries before it are already fired. drain() advances it
+## instead of pop_front()-ing each entry (which shifts the whole array on every pop,
+## making a drain of N triggers O(n^2)); the buffer is cleared once at the end of the
+## outer drain, so a long chain drains in O(n). All reads (is_empty/size) net it out.
+var _head: int = 0
 ## Guards against a reentrant drain() started from within a handler: the outer
 ## loop owns the iteration, so a nested drain is a no-op and the chained triggers
 ## it enqueued are picked up by the loop already running.
@@ -33,21 +38,28 @@ func enqueue(inst: Variant, trigger: int, context: Dictionary) -> void:
 
 
 func is_empty() -> bool:
-	return _queue.is_empty()
+	return _head >= _queue.size()
 
 
 func size() -> int:
-	return _queue.size()
+	return _queue.size() - _head
 
 
 func drain(handler: Callable) -> void:
 	## Fire every pending trigger in FIFO order, including triggers enqueued by a
-	## handler mid-drain (chained). Reentrant calls return immediately so the order
-	## stays a single flat FIFO. The handler takes (inst, trigger, context).
+	## handler mid-drain (chained, appended past the cursor and picked up here).
+	## Reentrant calls return immediately so the order stays a single flat FIFO. The
+	## handler takes (inst, trigger, context).
 	if _draining:
 		return
 	_draining = true
-	while not _queue.is_empty():
-		var entry: Dictionary = _queue.pop_front()
+	# Re-check size() each iteration so chained enqueues during the drain are processed.
+	while _head < _queue.size():
+		var entry: Dictionary = _queue[_head]
+		_head += 1
 		handler.call(entry["inst"], entry["trigger"], entry["context"])
+	# Drain finished: free the buffer and rewind the cursor so it never grows unbounded
+	# across drains and a fresh queue reads empty.
+	_queue.clear()
+	_head = 0
 	_draining = false
