@@ -384,6 +384,9 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 		if not _consume_spell(card):
 			return false
 		_apply_spell_effects(card, active_side, target, target_side)
+		# ON_CAST fires after the spell resolves (its own ON_DAMAGE_TAKEN/ON_DEATH already
+		# ran inside the effect), so "whenever you cast a spell" reacts to a settled board.
+		_fire_cast_trigger(card, active_side)
 		_drain_triggers()
 		return true
 	var inst: CardInstance = decks[active_side].play_creature(card, as_hidden, declared_attack, declared_health)
@@ -421,6 +424,10 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 	# matching the play_card path; otherwise an ad-hoc kill would leave a zombie on
 	# the board and break the event_log / get_dead_creatures invariant.
 	_apply_effect_and_sweep(effect, target, context)
+	# Ad-hoc casting fires ON_CAST too, so spell-synergy reacts uniformly regardless of
+	# which casting entry point the driver used.
+	_fire_cast_trigger(card, active_side)
+	_drain_triggers()
 	return true
 
 
@@ -1257,6 +1264,10 @@ func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 			else:
 				deck.play_spell(card_to_play)
 				_apply_spell_effects(card_to_play, side, target)
+				# Same ON_CAST as the driver path, so headless auto-play exercises
+				# spell-synergy identically.
+				_fire_cast_trigger(card_to_play, side)
+				_drain_triggers()
 				plays += 1
 		else:
 			var played: CardInstance = deck.play_creature(card_to_play)
@@ -1504,6 +1515,18 @@ func _resolve_active_attacks() -> void:
 		_process_death_results(pairs_result)
 
 
+func _fire_cast_trigger(card: CardData, side: int) -> void:
+	## Side-level ON_CAST: fired once when `side` casts a spell (EFFECT card), AFTER its
+	## effects resolve, so a handler reacts to "you cast a spell". Like ON_DRAW the cast
+	## card has no board instance, so inst is null and the card travels in context; a
+	## handler must tolerate inst == null. Routed through the effective sink so QUEUED
+	## defers it like every other trigger; skipped entirely with no handler wired (a pure
+	## no-op, same gate as ON_PLAY/ON_ATTACK). The caller drains afterwards.
+	if not _effective_ability_fn.is_valid():
+		return
+	_effective_ability_fn.call(null, CardInstance.Trigger.ON_CAST, {"card": card, "owner": side})
+
+
 func _fire_turn_trigger(side: int, trigger: CardInstance.Trigger) -> void:
 	## Fire a per-side turn trigger (ON_TURN_START / ON_TURN_END) on every living
 	## creature of `side`. Reuses CardInstance.living so dead creatures are skipped.
@@ -1527,9 +1550,22 @@ func _fire_damage_dealt(pairs_result: Array) -> void:
 		var attacker: CardInstance = pr["attacker"]
 		var defender: Variant = pr["defender"]
 		if pr["attacker_damage_dealt"] > 0:
-			attacker._fire(CardInstance.Trigger.ON_DAMAGE_DEALT, {"target": defender, "amount": pr["attacker_damage_dealt"]})
+			attacker._fire(CardInstance.Trigger.ON_DAMAGE_DEALT, _damage_dealt_context(
+				defender, pr["attacker_damage_dealt"], pr["defender_died"], pr["defender_health_before"]))
 		if defender != null and pr["defender_damage_dealt"] > 0:
-			defender._fire(CardInstance.Trigger.ON_DAMAGE_DEALT, {"target": attacker, "amount": pr["defender_damage_dealt"]})
+			defender._fire(CardInstance.Trigger.ON_DAMAGE_DEALT, _damage_dealt_context(
+				attacker, pr["defender_damage_dealt"], pr["attacker_died"], pr["attacker_health_before"]))
+
+
+func _damage_dealt_context(target: Variant, amount: int, target_died: bool, target_health_before: int) -> Dictionary:
+	## Build the ON_DAMAGE_DEALT context. Besides target/amount it carries `lethal`
+	## (did this hit kill the creature target) and `excess` (overkill: damage past the
+	## target's life total, only when lethal — so a non-lethal or mitigated hit reports
+	## 0). A hero swing (target == null) is never lethal/excess here: heroes are not
+	## creatures and their death is settled separately, so both report their neutral 0.
+	var lethal: bool = target is CardInstance and target_died
+	var excess: int = maxi(amount - target_health_before, 0) if lethal else 0
+	return {"target": target, "amount": amount, "lethal": lethal, "excess": excess}
 
 
 func _enter_end() -> void:

@@ -1125,6 +1125,99 @@ func test_resolucion_dispara_on_damage_dealt_a_ambos() -> void:
 	assert_true(amounts.has(3) and amounts.has(2), "el daño infligido por cada uno entra al context")
 
 
+func test_on_damage_dealt_marca_lethal_y_excess_en_overkill() -> void:
+	# Un 7/7 mata a un 1/2 con 5 de exceso; el otro lado no muere (no lethal, excess 0).
+	var hits := _collect_triggers(CardInstance.Trigger.ON_DAMAGE_DEALT)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.with_hooks(_session.ability_fn, -1)
+	atk.setup(_creature(0, 7, 7), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var blk := CardInstance.with_hooks(_session.ability_fn, -1)
+	blk.setup(_creature(0, 1, 2), 1)
+	_session.decks[1].add_to_board(blk)
+	_session.declare_attacker(atk, blk)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()  # -> RESOLVE
+	# Solo el atacante infligió daño con vida > 0 (el bloqueador 1/2 murió antes de
+	# alcanzar a registrar su golpe? no: el daño es simultáneo, ambos pegan). Aislamos
+	# el golpe letal del atacante sobre el bloqueador.
+	var lethal_hit: Dictionary = {}
+	for h in hits:
+		if h["ctx"]["target"] == blk:
+			lethal_hit = h["ctx"]
+	assert_eq(lethal_hit.get("lethal"), true, "el golpe que mata al 1/2 reporta lethal")
+	assert_eq(lethal_hit.get("excess"), 5, "exceso = 7 de daño - 2 de vida")
+
+
+func test_on_damage_dealt_sin_overkill_reporta_excess_cero() -> void:
+	# Un 2/9 le pega a un 2/9: nadie muere -> lethal false, excess 0 en ambos.
+	var hits := _collect_triggers(CardInstance.Trigger.ON_DAMAGE_DEALT)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.with_hooks(_session.ability_fn, -1)
+	atk.setup(_creature(0, 2, 9), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	var blk := CardInstance.with_hooks(_session.ability_fn, -1)
+	blk.setup(_creature(0, 2, 9), 1)
+	_session.decks[1].add_to_board(blk)
+	_session.declare_attacker(atk, blk)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()  # -> RESOLVE
+	assert_eq(hits.size(), 2, "ambos pegan sin matar")
+	for h in hits:
+		assert_eq(h["ctx"]["lethal"], false, "ningún golpe es letal")
+		assert_eq(h["ctx"]["excess"], 0, "sin overkill el exceso es 0")
+
+
+func test_on_damage_dealt_a_la_cara_no_es_lethal_ni_excess() -> void:
+	# Un swing a la cara (target null) nunca reporta lethal/excess (el héroe no es criatura).
+	var hits := _collect_triggers(CardInstance.Trigger.ON_DAMAGE_DEALT)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var atk := CardInstance.with_hooks(_session.ability_fn, -1)
+	atk.setup(_creature(0, 4, 4), 0)
+	atk.can_attack_this_turn = true
+	_session.decks[0].add_to_board(atk)
+	_session.declare_attacker(atk, null)
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()  # -> RESOLVE
+	assert_eq(hits.size(), 1, "un golpe a la cara")
+	assert_eq(hits[0]["ctx"]["target"], null, "target null = héroe")
+	assert_eq(hits[0]["ctx"]["lethal"], false, "golpe a la cara no es lethal aquí")
+	assert_eq(hits[0]["ctx"]["excess"], 0, "golpe a la cara no reporta excess")
+
+
+func test_play_card_hechizo_dispara_on_cast_side_level() -> void:
+	# ON_CAST se dispara una vez al lanzar un hechizo, con inst null y {card, owner}.
+	var hits := _collect_triggers(CardInstance.Trigger.ON_CAST)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var spell := _spell(0, SpellEffect.EffectType.DAMAGE, 6, SpellEffect.TargetType.ENEMY_HERO)
+	_session.decks[0]._hand.append(spell)
+	assert_true(_session.play_card(spell), "el hechizo se juega")
+	assert_eq(hits.size(), 1, "ON_CAST se dispara una vez por hechizo")
+	assert_eq(hits[0]["inst"], null, "ON_CAST es side-level: instancia null")
+	assert_eq(hits[0]["ctx"]["card"], spell, "la carta lanzada viaja en el context")
+	assert_eq(hits[0]["ctx"]["owner"], 0, "el lado lanzador viaja en el context")
+
+
+func test_jugar_una_criatura_no_dispara_on_cast() -> void:
+	# ON_CAST es solo para hechizos (EFFECT); una criatura no lo dispara.
+	var hits := _collect_triggers(CardInstance.Trigger.ON_CAST)
+	_session.setup(_hero(30), _empty(), _hero(30), _empty(), 1)
+	_session.start()
+	var minion := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(minion)
+	assert_true(_session.play_card(minion), "la criatura se juega")
+	assert_eq(hits.size(), 0, "una criatura no es un casteo: sin ON_CAST")
+
+
 func test_on_turn_start_y_end_disparan_en_criaturas_del_lado_activo() -> void:
 	var starts: Array = []
 	var ends: Array = []

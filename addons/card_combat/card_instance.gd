@@ -25,13 +25,19 @@ signal card_revealed(card: CardInstance)
 ## Instance-bound triggers fire on a concrete CardInstance: ON_SETUP,
 ## ON_TURN_REFRESH, ON_DEATH, ON_REVEAL, ON_ATTACK, ON_BLOCK, ON_DAMAGE_TAKEN,
 ## ON_DAMAGE_DEALT, ON_HEAL, ON_TURN_START, ON_TURN_END, ON_PLAY. The side-level
-## ON_DRAW fires with a null instance (the drawn card is still CardData in hand), so a
-## handler must tolerate inst == null and read context["card"] instead.
+## ON_DRAW and ON_CAST fire with a null instance (the card has no board instance: the
+## drawn card is still in hand, the cast spell is on its way to the graveyard), so a
+## handler must tolerate inst == null and read context["card"] / context["owner"].
 ##
 ## ON_PLAY fires once, after ON_SETUP, when a creature is actually played onto the
 ## board (not on summon-bypass paths unless the engine fires it), carrying the chosen
-## target in context["target"] (a battlecry's target, or null). It is kept last so the
-## enum values of the earlier triggers are unchanged for any persisted ordering.
+## target in context["target"] (a battlecry's target, or null).
+##
+## ON_CAST is a side-level trigger fired once per spell (EFFECT card) cast, AFTER the
+## spell's effects resolve, with inst == null and context {"card", "owner"}. It is the
+## hook a game uses for spell-synergy ("whenever you cast a spell …"); the engine never
+## reads what the spell does. Both ON_PLAY and ON_CAST are kept last so the enum values
+## of the earlier triggers are unchanged for any persisted ordering.
 enum Trigger {
 	ON_SETUP,
 	ON_TURN_REFRESH,
@@ -46,6 +52,7 @@ enum Trigger {
 	ON_TURN_END,
 	ON_DRAW,
 	ON_PLAY,
+	ON_CAST,
 }
 
 var card_data: CardData = null

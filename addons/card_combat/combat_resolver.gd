@@ -34,6 +34,9 @@ func resolve_combat(pairs: Array) -> Dictionary:
 		if d == null:
 			# Direct attack to hero: the dealt damage lives in this pair's
 			# attacker_damage_dealt, which the session aggregates per target_side.
+			# health_before is captured pre-application (this loop runs before phase 2)
+			# so the session can derive overkill/lethal for ON_DAMAGE_DEALT; a hero swing
+			# has no creature defender, so its defender_health_before is 0.
 			pairs_result.append({
 				"attacker": a,
 				"defender": null,
@@ -41,6 +44,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 				"defender_died": false,
 				"attacker_damage_dealt": a_dmg,
 				"defender_damage_dealt": 0,
+				"attacker_health_before": a.current_health,
+				"defender_health_before": 0,
 			})
 		else:
 			var d_dmg := calculate_damage(d, a)
@@ -48,6 +53,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 			# dealt it, so ON_DAMAGE_TAKEN can name who hit (reflect / thorns).
 			pending_damage.append([d, a_dmg, a])
 			pending_damage.append([a, d_dmg, d])
+			# Snapshot both combatants' health BEFORE phase 2 applies any damage, so the
+			# session can compute excess (overkill) past each target's life total.
 			pairs_result.append({
 				"attacker": a,
 				"defender": d,
@@ -55,6 +62,8 @@ func resolve_combat(pairs: Array) -> Dictionary:
 				"defender_died": false,
 				"attacker_damage_dealt": a_dmg,
 				"defender_damage_dealt": d_dmg,
+				"attacker_health_before": a.current_health,
+				"defender_health_before": d.current_health,
 			})
 
 	# Phase 2: Apply all damage simultaneously
