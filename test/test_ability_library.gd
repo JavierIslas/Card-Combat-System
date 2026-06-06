@@ -460,3 +460,33 @@ func test_spellburst_solo_el_tablero_del_lanzador() -> void:
 func test_spellburst_sin_sesion_es_no_op() -> void:
 	_lib.ability_handler(null, CardInstance.Trigger.ON_CAST, {"card": null, "owner": 0})
 	assert_true(true, "SPELLBURST sin sesión es un no-op seguro")
+
+
+# --- wire_all ---
+
+func test_wire_all_cablea_las_cinco_hooks() -> void:
+	var session := CombatSession.new()
+	var lib := AbilityLibrary.new(session)
+	lib.wire_all()
+	assert_eq(session.ability_fn, lib.ability_handler, "ability_fn cableada")
+	assert_eq(session.attack_restriction_fn, lib.taunt_restriction, "attack_restriction_fn cableada")
+	assert_eq(session.incoming_damage_fn, lib.armor_damage, "incoming_damage_fn cableada")
+	assert_eq(session.spell_power_fn, lib.spell_power, "spell_power_fn cableada")
+	assert_eq(session.aura_fn, lib.recompute_auras, "aura_fn cableada")
+
+
+func test_wire_all_es_idempotente() -> void:
+	var session := CombatSession.new()
+	var lib := AbilityLibrary.new(session)
+	lib.wire_all()
+	lib.wire_all()
+	assert_eq(session.ability_fn, lib.ability_handler, "segunda llamada no rompe ability_fn")
+	assert_eq(session.attack_restriction_fn, lib.taunt_restriction, "segunda llamada no rompe attack_restriction_fn")
+
+
+func test_wire_all_sin_sesion_es_no_op() -> void:
+	## The library only holds a weakref to the session; if it is gone, wire_all must
+	## not crash (it simply wires nothing).
+	var lib := AbilityLibrary.new(null)
+	lib.wire_all()
+	assert_true(true, "wire_all sin sesión es un no-op seguro")

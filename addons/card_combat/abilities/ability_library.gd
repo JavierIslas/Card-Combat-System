@@ -328,6 +328,22 @@ func _immunity_hits(inst: CardInstance) -> int:
 	return int(inst.card_data.metadata.get("immunity_hits", 1))
 
 
+func wire_all() -> void:
+	## Convenience method that wires all library hooks into the session passed to the
+	## constructor at once. Reduces 5 lines of manual wiring to a single call. Safe to
+	## call multiple times (idempotent). No-op if the session has been freed. Only wires
+	## hooks the library owns; STEALTH uses can_be_attacked (flag-based) and does not
+	## need an attack_restriction_fn.
+	var session: CombatSession = _session_ref.get_ref()
+	if session == null:
+		return
+	session.ability_fn = ability_handler
+	session.attack_restriction_fn = taunt_restriction
+	session.incoming_damage_fn = armor_damage
+	session.spell_power_fn = spell_power
+	session.aura_fn = recompute_auras
+
+
 func _keywords_of(inst: CardInstance) -> Array:
 	## The opaque keyword list a card declares in metadata. Empty when absent or wrong-typed.
 	if inst.card_data == null:
