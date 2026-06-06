@@ -369,6 +369,18 @@ func _drain_triggers() -> void:
 	_trigger_queue.drain(_dispatch_trigger)
 
 
+func _settle_reactive_triggers() -> void:
+	## Drain pending reactive triggers AND sweep the deaths they caused, so a kill landed
+	## by a reactive ability (battlecry, thorns, a turn trigger, a custom ON_CAST) is
+	## recorded and removed like a combat/spell death instead of leaving a zombie on the
+	## board. Used by the reactive trigger paths (ON_PLAY / ON_ATTACK / ON_BLOCK /
+	## ON_TURN_START / ON_TURN_END / ON_CAST); the combat and spell paths sweep themselves.
+	## _record_death is idempotent and _sweep_all_boards recomputes auras, so this is safe
+	## to call after any reactive fire. With no handler wired the callers skip it entirely.
+	_drain_triggers()
+	_sweep_all_boards()
+
+
 func start() -> void:
 	_transition_to(CombatState.Phase.PREPARATION)
 
@@ -394,7 +406,9 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 		# ON_CAST fires after the spell resolves (its own ON_DAMAGE_TAKEN/ON_DEATH already
 		# ran inside the effect), so "whenever you cast a spell" reacts to a settled board.
 		_fire_cast_trigger(card, active_side)
-		_drain_triggers()
+		# Settle ON_CAST: drain (QUEUED) and sweep any death a custom ON_CAST caused.
+		if _effective_ability_fn.is_valid():
+			_settle_reactive_triggers()
 		return true
 	var inst: CardInstance = decks[active_side].play_creature(card, as_hidden, declared_attack, declared_health)
 	# ON_PLAY (battlecry): fires after ON_SETUP, carrying the chosen target (the same
@@ -403,10 +417,11 @@ func play_card(card: CardData, as_hidden: bool = false, declared_attack: int = 0
 	# this avoids the per-play context alloc + fire in the agnostic/engine-only path.
 	if inst != null and _effective_ability_fn.is_valid():
 		inst._fire(CardInstance.Trigger.ON_PLAY, {"target": target})
-	# Fire the deferred ON_SETUP / ON_PLAY (QUEUED) before handing control back.
-	_drain_triggers()
-	# A new creature on the board may change auras (its own, or a lord buffing it).
-	if inst != null:
+		# Settle ON_SETUP/ON_PLAY: drain (QUEUED) and sweep deaths a battlecry caused. The
+		# sweep also recomputes auras for the creature that just entered.
+		_settle_reactive_triggers()
+	elif inst != null:
+		# No handler: nothing to drain/sweep, but a new creature may still shift auras.
 		recompute_auras()
 	return inst != null
 
@@ -436,7 +451,9 @@ func play_spell(card: CardData, effect: SpellEffect, target: Variant = null) -> 
 	# Ad-hoc casting fires ON_CAST too, so spell-synergy reacts uniformly regardless of
 	# which casting entry point the driver used.
 	_fire_cast_trigger(card, active_side)
-	_drain_triggers()
+	# Settle ON_CAST: drain (QUEUED) and sweep any death a custom ON_CAST caused.
+	if _effective_ability_fn.is_valid():
+		_settle_reactive_triggers()
 	return true
 
 
@@ -530,7 +547,7 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	# pure no-op, and the queue stays empty so the drain is too (same gate as ON_PLAY).
 	if _effective_ability_fn.is_valid():
 		attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
-		_drain_triggers()
+		_settle_reactive_triggers()
 	return true
 
 
@@ -573,7 +590,7 @@ func declare_blocker(attacker: CardInstance, blocker: CardInstance) -> bool:
 	# Same no-handler gate as ON_ATTACK: skip the alloc + fire + drain when nothing listens.
 	if _effective_ability_fn.is_valid():
 		blocker._fire(CardInstance.Trigger.ON_BLOCK, {"attacker": attacker})
-		_drain_triggers()
+		_settle_reactive_triggers()
 	return true
 
 
@@ -1302,7 +1319,9 @@ func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 				# Same ON_CAST as the driver path, so headless auto-play exercises
 				# spell-synergy identically.
 				_fire_cast_trigger(card_to_play, side)
-				_drain_triggers()
+				# Settle ON_CAST: drain (QUEUED) and sweep any death it caused.
+				if _effective_ability_fn.is_valid():
+					_settle_reactive_triggers()
 				plays += 1
 		else:
 			var played: CardInstance = deck.play_creature(card_to_play)
@@ -1312,7 +1331,9 @@ func _play_hand(deck: CombatDeck, side: int, side_ai: CombatAI) -> void:
 			if played != null and _effective_ability_fn.is_valid():
 				var play_target: Variant = side_ai.choose_play_target(card_to_play, ally_boards(side), enemy_boards(side))
 				played._fire(CardInstance.Trigger.ON_PLAY, {"target": play_target})
-			if played != null:
+				# Settle ON_SETUP/ON_PLAY: drain (QUEUED) and sweep deaths a battlecry caused.
+				_settle_reactive_triggers()
+			elif played != null:
 				recompute_auras()
 			plays += 1
 		card_to_play = side_ai.choose_card_to_play(_playable_hand(deck, skipped), deck.mana)
@@ -1493,9 +1514,11 @@ func _enter_preparation() -> void:
 	deck.draw_card()
 	deck.refresh_creatures_for_turn()
 	_fire_turn_trigger(active_side, CardInstance.Trigger.ON_TURN_START)
-	# Fire the deferred prep triggers (ON_DRAW / ON_TURN_REFRESH / ON_TURN_START) in
-	# FIFO order before MAIN (QUEUED); no-op in INLINE.
-	_drain_triggers()
+	# Settle the deferred prep triggers (ON_DRAW / ON_TURN_REFRESH / ON_TURN_START) in
+	# FIFO order before MAIN (QUEUED), then sweep any death they caused so a lethal turn
+	# trigger is recorded/removed like a combat death. No handler = nothing to settle.
+	if _effective_ability_fn.is_valid():
+		_settle_reactive_triggers()
 
 	# Clear the active side's attack state from its previous turn.
 	_attack_pairs[active_side].clear()
@@ -1526,7 +1549,9 @@ func _enter_resolve() -> void:
 
 	# End-of-turn triggers for the active side's surviving creatures, before the swap.
 	_fire_turn_trigger(active_side, CardInstance.Trigger.ON_TURN_END)
-	_drain_triggers()
+	# Settle ON_TURN_END: drain (QUEUED) and sweep any death it caused before the swap.
+	if _effective_ability_fn.is_valid():
+		_settle_reactive_triggers()
 
 	# Hand the turn to the next living side (interleaved by team).
 	active_side = _next_living_side()

@@ -1837,3 +1837,84 @@ func test_record_events_se_recomputa_tras_deserialize() -> void:
 	var antes := resumed.event_log.size()
 	resumed.auto_resolve()
 	assert_eq(resumed.event_log.size(), antes, "tras deserialize con record_events=false no se agregan eventos")
+
+
+func _count_events(session: CombatSession, type: CombatEvent.EventType) -> int:
+	var n: int = 0
+	for ev in session.event_log:
+		if ev.type == type:
+			n += 1
+	return n
+
+
+func test_play_card_battlecry_letal_se_barre() -> void:
+	# Regresión: una battlecry letal disparada vía play_card debe registrar y barrer la
+	# muerte como cualquier otra (get_dead_creatures + CREATURE_DIED + fuera del tablero),
+	# no dejar un zombie en el tablero hasta el próximo barrido.
+	_session.ability_fn = func(inst: Variant, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_PLAY and inst is CardInstance:
+			var tgt: Variant = ctx.get("target", null)
+			if tgt is CardInstance:
+				tgt.take_damage(3)
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	var victim := CardInstance.new()
+	victim.setup(_creature(0, 1, 2), 1)
+	_session.decks[1].add_to_board(victim)
+	var battlecry := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(battlecry)
+	_session.play_card(battlecry, false, 0, 0, victim)
+	assert_true(victim.is_dead, "la battlecry mató al objetivo (2 - 3)")
+	assert_true(_session.get_dead_creatures(1).has(victim), "la muerte por battlecry se rastrea")
+	assert_false(_session.decks[1].get_board().has(victim), "el zombie se removió del tablero")
+	assert_eq(_count_events(_session, CombatEvent.EventType.CREATURE_DIED), 1, "emitió un CREATURE_DIED")
+
+
+func test_on_turn_start_letal_se_barre() -> void:
+	# Una habilidad que mata en ON_TURN_START debe barrerse al entrar en preparación.
+	# Tras cerrar las fases del lado 0, el turno pasa al lado 1: ON_TURN_START dispara
+	# sobre sus criaturas, así que la víctima y el disparador viven en el lado 1.
+	var armed: Array = [false]
+	var victim := CardInstance.new()
+	_session.ability_fn = func(inst: Variant, trigger: int, _ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_TURN_START and inst is CardInstance and armed[0]:
+			victim.take_damage(99)
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	victim.setup(_creature(0, 1, 3), 1)
+	_session.decks[1].add_to_board(victim)
+	# Combatiente vivo del lado 1 para que ON_TURN_START tenga sobre quién disparar.
+	var trigger_src := CardInstance.new()
+	trigger_src.ability_fn = _session.ability_fn
+	trigger_src.setup(_creature(0, 1, 3), 1)
+	_session.decks[1].add_to_board(trigger_src)
+	armed[0] = true
+	# Avanza hasta que el turno pase al lado 1 y entre en su preparación (ON_TURN_START).
+	_session.end_main_phase()
+	_session.end_attack_phase()
+	_session.end_defense_phase()
+	assert_true(victim.is_dead, "ON_TURN_START mató a la criatura")
+	assert_true(_session.get_dead_creatures(1).has(victim), "la muerte por turn trigger se rastrea")
+	assert_false(_session.decks[1].get_board().has(victim), "el zombie se removió del tablero")
+
+
+func test_battlecry_letal_se_barre_en_queued() -> void:
+	# Mismo invariante con triggers diferidos: una battlecry letal en modo QUEUED se
+	# resuelve y barre antes de devolver el control.
+	_session.trigger_mode = CombatSession.TriggerMode.QUEUED
+	_session.ability_fn = func(inst: Variant, trigger: int, ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_PLAY and inst is CardInstance:
+			var tgt: Variant = ctx.get("target", null)
+			if tgt is CardInstance:
+				tgt.take_damage(3)
+	_session.setup(_hero(), _empty(), _hero(), _empty(), 1)
+	_session.start()
+	var victim := CardInstance.new()
+	victim.setup(_creature(0, 1, 2), 1)
+	_session.decks[1].add_to_board(victim)
+	var battlecry := _creature(0, 2, 2)
+	_session.decks[0]._hand.append(battlecry)
+	_session.play_card(battlecry, false, 0, 0, victim)
+	assert_true(victim.is_dead, "la battlecry mató al objetivo en QUEUED")
+	assert_true(_session.get_dead_creatures(1).has(victim), "la muerte diferida se rastrea")
+	assert_false(_session.decks[1].get_board().has(victim), "el zombie se removió del tablero")
