@@ -262,10 +262,7 @@ func apply_permanent_buff(attack_delta: int, health_delta: int, max_buffs: int =
 	permanent_buff_count += 1
 	_buff_attack_total += attack_delta
 	_buff_health_total += health_delta
-	current_attack += attack_delta
-	current_health += health_delta
-	current_max_health += health_delta
-	_check_death_from_stat_change()
+	_apply_stat_delta(attack_delta, health_delta)
 	return true
 
 
@@ -274,10 +271,7 @@ func apply_temp_buff(attack_delta: int, health_delta: int) -> void:
 	## so they can expire on the next turn refresh and survive a reveal meanwhile.
 	_temp_attack_total += attack_delta
 	_temp_health_total += health_delta
-	current_attack += attack_delta
-	current_health += health_delta
-	current_max_health += health_delta
-	_check_death_from_stat_change()
+	_apply_stat_delta(attack_delta, health_delta)
 
 
 func add_continuous_modifier(source_id: String, attack_delta: int, health_delta: int) -> void:
@@ -290,10 +284,7 @@ func add_continuous_modifier(source_id: String, attack_delta: int, health_delta:
 	_continuous_modifiers[source_id] = {"attack": attack_delta, "health": health_delta}
 	_continuous_attack_total += attack_delta
 	_continuous_health_total += health_delta
-	current_attack += attack_delta
-	current_health += health_delta
-	current_max_health += health_delta
-	_check_death_from_stat_change()
+	_apply_stat_delta(attack_delta, health_delta)
 
 
 func remove_continuous_modifier(source_id: String) -> bool:
@@ -356,6 +347,18 @@ func refresh_for_turn() -> void:
 	can_attack_this_turn = false
 
 	_fire(Trigger.ON_TURN_REFRESH)
+
+
+func _apply_stat_delta(attack_delta: int, health_delta: int) -> void:
+	## Apply a stat delta to the live stats (attack + current/max health) and check for
+	## death. Shared by the buff-applying methods (apply_permanent_buff, apply_temp_buff,
+	## add_continuous_modifier); each keeps its own per-layer total tracking and cap. The
+	## roll-back paths (_expire_temp_buffs, remove_continuous_modifier) recompute instead
+	## and must NOT route through here (they must not kill on a transient dip).
+	current_attack += attack_delta
+	current_health += health_delta
+	current_max_health += health_delta
+	_check_death_from_stat_change()
 
 
 func _check_death_from_stat_change() -> void:
