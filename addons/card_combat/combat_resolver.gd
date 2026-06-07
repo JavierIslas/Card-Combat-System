@@ -28,7 +28,7 @@ func resolve_combat(pairs: Array) -> Dictionary:
 
 	for pair in pairs:
 		var a: CardInstance = pair.attacker
-		var d = pair.defender
+		var d: Variant = pair.defender
 		var a_dmg := calculate_damage(a, d)
 
 		if d == null:
