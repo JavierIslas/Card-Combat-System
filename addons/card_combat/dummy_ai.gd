@@ -67,11 +67,14 @@ func choose_attackers(board: Array[CardInstance], _enemy_heroes: Array[Combatant
 
 
 func choose_attack_target(_attacker: CardInstance, enemy_board: Array[CardInstance], _enemy_heroes: Array[Combatant] = []) -> Variant:
-	if enemy_board.is_empty():
+	# Only living creatures are valid targets, matching choose_spell_target /
+	# choose_blockers and HeuristicAI: enemy_board may carry dead instances.
+	var candidates: Array[CardInstance] = CardInstance.living(enemy_board)
+	if candidates.is_empty():
 		return null
 	if _rng.randf() < HERO_ACTION_CHANCE:
 		return null  # attack hero
-	return enemy_board[_rng.randi() % enemy_board.size()]
+	return candidates[_rng.randi() % candidates.size()]
 
 
 func choose_spell_target(spell: CardData, own_board: Array[CardInstance], enemy_board: Array[CardInstance]) -> Variant:
