@@ -827,6 +827,13 @@ func get_dead_creatures(side: int) -> Array:
 	return _dead_creatures[side]
 
 
+func get_declared_attackers(side: int) -> Array[CardInstance]:
+	var result: Array[CardInstance] = []
+	for pair in _attack_pairs[side]:
+		result.append(pair.attacker)
+	return result
+
+
 # --- Side / team topology (single source for "who is enemy / ally") ----------
 # These resolve relationships by `teams`, not by liveness, so they stay valid
 # before combat and during board-only scenarios. Turn rotation / victory layer

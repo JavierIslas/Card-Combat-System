@@ -619,6 +619,20 @@ func test_declare_attacker_devuelve_true_en_exito() -> void:
 	assert_true(_session.declare_attacker(inst, null), "una declaracion valida devuelve true")
 
 
+func test_get_declared_attackers_refleja_declaraciones() -> void:
+	_setup_basico()
+	_session.start()
+	assert_eq(_session.get_declared_attackers(0).size(), 0, "vacio antes de declarar")
+	var inst := CardInstance.new()
+	inst.setup(_creature(0, 2, 2), 0)
+	inst.can_attack_this_turn = true
+	_session.decks[0].add_to_board(inst)
+	_session.declare_attacker(inst, null)
+	var attackers := _session.get_declared_attackers(0)
+	assert_eq(attackers.size(), 1, "un atacante declarado")
+	assert_eq(attackers[0], inst, "es la instancia correcta")
+
+
 func test_declare_attacker_devuelve_false_por_rechazo() -> void:
 	# Contrato de retorno: doble declaracion y mareo devuelven false.
 	_setup_basico()
