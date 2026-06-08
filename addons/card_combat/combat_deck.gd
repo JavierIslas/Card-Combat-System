@@ -125,6 +125,19 @@ func draw_card() -> CardData:
 	return card
 
 
+func discard_card(card: CardData) -> bool:
+	## Move a card from the hand to the graveyard. Returns false if the card is
+	## not in hand, so callers can tell a real discard from a no-op. Fires
+	## discard_fn like the overdraw path, since both routes reach the graveyard.
+	if not _hand.has(card):
+		return false
+	_hand.erase(card)
+	_graveyard.append(card)
+	if discard_fn.is_valid():
+		discard_fn.call(card, owner_id)
+	return true
+
+
 func is_hand_full() -> bool:
 	return max_hand_size >= 0 and _hand.size() >= max_hand_size
 

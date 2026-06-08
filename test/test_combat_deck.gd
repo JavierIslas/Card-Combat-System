@@ -92,6 +92,35 @@ func test_draw_card_con_mano_llena_quema_al_cementerio() -> void:
 	assert_eq(_deck.get_graveyard().size(), 1, "la carta robada de más se quema al cementerio")
 
 
+func test_discard_card_mueve_de_la_mano_al_cementerio() -> void:
+	_deck.setup(_cards(2), 0)
+	var card := _deck.draw_card()
+	var ok := _deck.discard_card(card)
+	assert_true(ok, "descarta una carta presente en la mano")
+	assert_eq(_deck.hand_size, 0, "la carta sale de la mano")
+	assert_eq(_deck.get_graveyard().size(), 1, "y llega al cementerio")
+
+
+func test_discard_card_ausente_es_no_op() -> void:
+	_deck.setup(_cards(1), 0)
+	var foreign := _make_card(1, 1, 1)
+	var ok := _deck.discard_card(foreign)
+	assert_false(ok, "descartar una carta ausente retorna false")
+	assert_eq(_deck.get_graveyard().size(), 0, "no toca el cementerio")
+
+
+func test_discard_card_invoca_discard_fn() -> void:
+	_deck.setup(_cards(2), 0)
+	var seen := {"card": null, "owner": -1}
+	_deck.discard_fn = func(c: CardData, owner: int) -> void:
+		seen["card"] = c
+		seen["owner"] = owner
+	var card := _deck.draw_card()
+	_deck.discard_card(card)
+	assert_eq(seen["card"], card, "discard_fn recibe la carta descartada")
+	assert_eq(seen["owner"], 0, "y el owner del mazo")
+
+
 func test_overdraw_invoca_discard_fn() -> void:
 	_deck.setup(_cards(5), 4)
 	_deck.max_hand_size = 1
