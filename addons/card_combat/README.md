@@ -98,10 +98,11 @@ packaging / future export) and can be mirrored to a standalone repo.
        # game-defined semantics, reading effect.value / context as needed
        return {"success": true, "drained": effect.value}
    ```
-8. **`CombatSession.discard_fn: Callable`** — overdraw hook, seeded into both decks
-   on `setup()`. Signature: `(card: CardData, owner_id: int)`. Called when a card is
-   drawn with a full hand (`config.max_hand_size`) and burned to the graveyard.
-   Empty = the card is burned silently.
+8. **`CombatSession.discard_fn: Callable`** — discard hook, seeded into both decks
+   on `setup()`. Signature: `(card: CardData, owner_id: int)`. Called whenever a card
+   reaches the graveyard without being played: overdraw (a card drawn with a full
+   hand, `config.max_hand_size`) or a deliberate `CombatDeck.discard_card(card)`.
+   Empty = the card is discarded silently.
 9. **`CombatSession.attack_restriction_fn: Callable`** — attack-targeting restriction
    (e.g. TAUNT). Signature: `(attacker: CardInstance, enemy_creatures: Array) ->
    Array`. Returns the subset of living enemy creatures the attacker is **restricted**
@@ -254,6 +255,17 @@ deck.zone_names()                      # names of the zones in use
 Extra zones are part of `serialize()`/`deserialize()`, so they survive
 save/resume. Moving a card across zones is the game's job (the engine has no
 rules about what exile or an extra deck *mean*).
+
+To send a card from the hand to the graveyard on purpose (a *discard* ability),
+use the public deck API instead of touching the zones directly:
+
+```gdscript
+deck.discard_card(card)   # hand -> graveyard; false if the card is not in hand.
+                          # Fires discard_fn, just like an overdraw burn.
+```
+
+Which card to discard (random, leftmost, player-chosen) is the game's policy —
+the engine only moves the one you hand it.
 
 ## Turn model (N sides + teams, symmetric, PvP-ready)
 

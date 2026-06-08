@@ -470,7 +470,7 @@ var accepted: bool = session.apply_command(cmd)
 | `ability_fn` | `(inst, trigger, ctx) -> void` | Ability semantics |
 | `damage_fn` | `(attacker, defender) -> int` | Custom damage formula |
 | `exhaust_fn` | `(owner_id) -> void` | Fatigue when deck is empty |
-| `discard_fn` | `(card, owner_id) -> void` | Overdraw (hand full) |
+| `discard_fn` | `(card, owner_id) -> void` | Overdraw (hand full) or `deck.discard_card()` |
 | `attack_restriction_fn` | `(attacker, enemies) -> Array` | Force targeting (TAUNT) |
 | `incoming_damage_fn` | `(inst, amount, source) -> int` | Armor / prevention |
 | `cost_fn` | `(card, owner_id) -> int` | Dynamic mana cost |
