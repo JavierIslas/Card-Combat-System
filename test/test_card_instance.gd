@@ -520,3 +520,19 @@ func test_debuff_no_letal_no_mata() -> void:
 	inst.apply_temp_buff(0, -3)
 	assert_false(inst.is_dead, "un debuff no letal deja viva la criatura")
 	assert_eq(inst.current_health, 2, "la vida baja a 2 (5 - 3)")
+
+
+func test_take_damage_con_vida_cero_no_anuncia_dano() -> void:
+	# Reentrant-death window: ON_DAMAGE_TAKEN fires before _die() marks is_dead, so a
+	# reflect ability can hit an instance whose health already reached 0. That hit
+	# moves no health and must announce nothing (mirror of heal's healed > 0 gate);
+	# otherwise two mutual reflectors ping-pong 0-damage events forever.
+	var inst := _make_instance(2, 3)
+	var fired: Array = []
+	inst.ability_fn = func(_i: Variant, trigger: int, _ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			fired.append(trigger)
+	inst.card_damaged.connect(func(_c: CardInstance, _a: int) -> void: fired.append(-1))
+	inst.current_health = 0
+	assert_eq(inst.take_damage(5), 0, "con la vida ya en 0 el golpe no resta nada")
+	assert_eq(fired.size(), 0, "sin vida que mover no dispara ON_DAMAGE_TAKEN ni card_damaged")

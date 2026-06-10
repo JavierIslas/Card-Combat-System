@@ -490,3 +490,21 @@ func test_wire_all_sin_sesion_es_no_op() -> void:
 	var lib := AbilityLibrary.new(null)
 	lib.wire_all()
 	assert_true(true, "wire_all sin sesión es un no-op seguro")
+
+
+func test_thorns_mutuo_entre_moribundas_no_recursiona() -> void:
+	## Two THORNS creatures reflecting at each other: when one reaches 0 health its
+	## ON_DAMAGE_TAKEN fires before is_dead is set, so the reflect chain used to
+	## ping-pong 0-damage hits between the two dying creatures until the interpreter
+	## stack blew up. The 0-actual gate in take_damage cuts the chain; this guards it.
+	var calls: Array = [0]
+	var a := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_THORNS]))
+	var b := _inst(_card(CardData.PlayKind.UNIT, [AbilityLibrary.KEYWORD_THORNS]))
+	var counting := func(inst: Variant, trigger: int, ctx: Dictionary) -> void:
+		calls[0] += 1
+		_lib.ability_handler(inst, trigger, ctx)
+	a.ability_fn = counting
+	b.ability_fn = counting
+	b.take_damage(2, a)
+	assert_true(b.is_dead, "el duelo de reflejos termina (la criatura golpeada muere)")
+	assert_lt(calls[0], 50, "la cadena de reflejos es finita, sin ping-pong infinito")

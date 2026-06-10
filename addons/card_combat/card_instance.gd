@@ -228,6 +228,14 @@ func take_damage(amount: int, source: Variant = null) -> int:
 		return 0
 
 	var actual := mini(amount, current_health)
+	if actual <= 0:
+		# Health is already 0: this instance is mid-death — its ON_DAMAGE_TAKEN fired
+		# before _die() set is_dead, and a reentrant hit (e.g. two THORNS creatures
+		# reflecting at each other) moved no health. Announcing a 0-damage event here
+		# lets such a reflect chain ping-pong forever between two dying creatures
+		# (real interpreter stack blowup), so skip the event entirely — mirroring how
+		# heal() only fires ON_HEAL when healed > 0.
+		return 0
 	current_health -= actual
 	damage_taken_this_turn += actual
 	card_damaged.emit(self, actual)

@@ -175,6 +175,10 @@ func _apply_thorns(inst: CardInstance, context: Dictionary) -> void:
 	## Reflect damage back at the dealer. `source` is the dealer carried in the
 	## ON_DAMAGE_TAKEN context: a living CardInstance in combat, or null for sourceless
 	## damage (spell / fatigue), which reflects nothing. A dead source is left alone.
+	# Only a real hit reflects: a 0-amount event means no health moved (fully
+	# absorbed), and reflecting it would spawn damage out of nothing.
+	if int(context.get("amount", 0)) <= 0:
+		return
 	var source: Variant = context.get("source", null)
 	if source is CardInstance and not source.is_dead:
 		source.take_damage(_thorns_damage(inst), inst)
