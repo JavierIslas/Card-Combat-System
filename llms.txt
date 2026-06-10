@@ -1,0 +1,186 @@
+# Card Combat Engine
+
+A headless, domain-agnostic turn-based card combat engine for **Godot 4.6 /
+GDScript**. Handles the *logic* of a card battle — turn FSM, mana, draw,
+attack/defense/block, damage resolution, and pluggable AI — and exposes every
+game-specific rule as an injectable `Callable`.
+
+> **Core idea:** the engine is a pure logic layer. It knows nothing about your
+> GDD, rarities, or abilities. You inject the specifics; it runs the match.
+
+## Overview
+
+Card Combat Engine fills the gap between Godot's presentation-layer card addons
+(drag, animate, layout) and a working rule set. It provides the *brain*, not the
+visuals.
+
+**What it does:** turn FSM (`BEGIN → PREPARATION → MAIN → ATTACK → DEFENSE →
+RESOLVE → END`), mana ramp, hand/board/graveyard zones, creature combat,
+spell resolution, a structured event log, full serialization for save/resume and
+server-authoritative netcode.
+
+**What it doesn't do:** rendering, UI, card loaders, rarities, named abilities,
+or game-specific balance. All of that is injected from your game layer.
+
+**Determinism:** `CombatSession.setup(..., ai_seed)` seeds shuffles and the AI.
+Same seed + same starting decks = bit-for-bit identical combat — ideal for
+replays and authoritative networking.
+
+**Topology:** supports 1v1, 2v2, and N-sided FFA via `setup_sides(sides, teams)`.
+
+## Documentation
+
+- [Addon README](addons/card_combat/README.md) — full class reference, all
+  injection points, signal catalog, serialization protocol, AI contract, replay
+  pattern, and observability guide.
+- [Integration Guide](addons/card_combat/docs/integration_guide.md) — 12-step
+  walkthrough: minimum setup → AbilityLibrary → custom abilities → human input →
+  custom AI → save/resume → multi-side → networking.
+- [Tutorial](addons/card_combat/docs/tutorial.md) — build *Tiny Clash* from zero:
+  headless first, then keyword abilities, custom abilities, live signals, and a
+  human-driven turn.
+- [Examples](addons/card_combat/examples/) — `demo.tscn` (DummyAI vs DummyAI,
+  full log), `custom_ai.gd` (AI contract skeleton), `ability_demo.gd`
+  (AbilityLibrary wiring).
+
+## Architecture
+
+Three ideas carry the whole engine:
+
+1. **The engine is agnostic.** It understands decks, mana, a turn FSM,
+   attacking, blocking and damage — nothing about your game's rarities,
+   elements, or named abilities.
+2. **You inject the specifics.** Game rules enter through `Callable` hooks set
+   on `CombatSession` before `setup()`, and through the opaque
+   `CardData.metadata: Dictionary`. The engine never reads `metadata`; your code
+   does.
+3. **You drive the FSM.** For AI-vs-AI call `auto_resolve()`. For a human player
+   react to the `phase_changed` signal and call the action methods
+   (`play_card`, `declare_attacker`, `declare_blocker`, …).
+
+**`CombatSession`** is the single coordinator: FSM, mana, draw, damage
+resolution, event log, command log, and serialization all live there by design
+(extracted only when the extraction adds value — see the addon README for the
+reasoning).
+
+**`CardData.play_kind`** controls engine behavior: `UNIT` (persists on board,
+combats), `EFFECT` (resolves spell effects, goes to graveyard), `PERSISTENT`
+(persists on board, triggers auras, does not combat). It is a dispatch enum,
+not a game taxonomy — game taxonomies (Weapon, Terrain, Rarity) belong in
+`metadata`.
+
+## Key files
+
+| File | Role |
+|------|------|
+| `addons/card_combat/combat_session.gd` | Main coordinator — FSM, actions, serialization |
+| `addons/card_combat/combat_deck.gd` | Card zones (hand / draw pile / board / graveyard / mana / extra) |
+| `addons/card_combat/card_data.gd` | Card core (id, cost, stats, `play_kind`, `metadata`) |
+| `addons/card_combat/card_instance.gd` | In-play card (health, modifiers, triggers) |
+| `addons/card_combat/combatant.gd` | Hero / participant (health, damage, heal, signals) |
+| `addons/card_combat/combat_ai.gd` | AI contract (5 methods every AI must implement) |
+| `addons/card_combat/dummy_ai.gd` | Reference AI (seeded random) |
+| `addons/card_combat/heuristic_ai.gd` | Stronger AI (greedy curve-filling, value trades) |
+| `addons/card_combat/spell_effect.gd` | Spell effect descriptor (DAMAGE/HEAL/BUFF/AOE/SUMMON/custom) |
+| `addons/card_combat/combat_config.gd` | Balance parameters (mana caps, hand/board limits) |
+| `addons/card_combat/combat_trigger_queue.gd` | Deferred trigger FIFO (QUEUED trigger mode) |
+| `addons/card_combat/hidden_card_stats.gd` | Declared vs hidden stats for bluffing |
+| `addons/card_combat/abilities/ability_library.gd` | Opt-in keyword ability handler |
+| `test/` | GUT 9.6 test suite — 381 cases across 20 files |
+| `addons/card_combat/examples/demo.tscn` | Runnable smoke-check demo |
+| `addons/card_combat/benchmark/combat_benchmark.gd` | Performance / leak measurement |
+
+## Injection points
+
+All hooks are `Callable` properties set on `CombatSession` **before** `setup()`.
+Every hook is optional — omit any you don't need.
+
+| Property | Signature | Purpose |
+|----------|-----------|---------|
+| `ability_fn` | `(inst: CardInstance, trigger: StringName, ctx: Dictionary)` | Ability trigger dispatch (called by the engine for every card event) |
+| `damage_fn` | `(attacker: CardInstance, defender: CardInstance) -> int` | Combat damage formula override |
+| `exhaust_fn` | `(owner_id: int)` | Called when a side's draw pile empties (fatigue) |
+| `discard_fn` | `(card: CardInstance, owner_id: int)` | Called when a card is discarded |
+| `attack_restriction_fn` | `(attacker: CardInstance, enemies: Array) -> Array` | Filter valid attack targets (TAUNT redirect) |
+| `incoming_damage_fn` | `(inst: CardInstance, amount: int, source) -> int` | Pre-damage interception (armor, prevention) |
+| `cost_fn` | `(card: CardData, owner_id: int) -> int` | Dynamic card cost override |
+| `spell_power_fn` | `(owner_id: int) -> int` | Spell damage bonus |
+| `aura_fn` | `(session: CombatSession)` | Called to recompute continuous modifiers (auras) |
+
+## AbilityLibrary keywords
+
+`AbilityLibrary` is an **opt-in** module that provides 14 ready-made ability
+keywords. Wire it once and declare abilities in `CardData.metadata["keywords"]`:
+
+```gdscript
+var session := CombatSession.new()
+var lib := AbilityLibrary.new(session)
+lib.wire_all()   # sets ability_fn, attack_restriction_fn, incoming_damage_fn,
+                 # spell_power_fn, and aura_fn on the session
+```
+
+| Keyword | Behavior | Metadata key (if tunable) |
+|---------|----------|---------------------------|
+| `CHARGE` | Can attack the turn it enters play | — |
+| `IMMUNITY` | Absorbs N hits completely | `immunity_hits` (default 1, -1 = infinite) |
+| `LIFESTEAL` | Combat damage heals the owner's hero | — |
+| `TAUNT` | Enemies must attack this creature while alive | — |
+| `THORNS` | Returns N damage to the attacker on hit | `thorns` (default 1) |
+| `STEALTH` | Cannot be attacked until it attacks | — |
+| `WINDFURY` | Can attack N times per turn | `windfury_attacks` (default 2) |
+| `FREEZE` | Freezes damaged creatures for N turns | `freeze_turns` (default 1) |
+| `ARMOR` | Reduces each incoming hit by N | `armor` (needs `incoming_damage_fn`) |
+| `BATTLECRY` | On play: deals N damage to a chosen target | `battlecry_damage` (default 1) |
+| `SPELLPOWER` | Adds N to the owner's spell damage | `spell_power` (needs `spell_power_fn`) |
+| `LORD` | Aura: boosts other friendly creatures +N/+M | `aura_attack`, `aura_health` (default 1) |
+| `OVERKILL` | Excess lethal damage transfers to the enemy hero | `overkill_factor` (default 1) |
+| `SPELLBURST` | Gains +N/+M permanent when owner casts a spell | `spellburst_attack`, `spellburst_health` |
+
+## Quick start
+
+```gdscript
+# Minimum 1v1 (AI vs AI, headless)
+var session := CombatSession.new()
+session.setup(hero0, deck0, hero1, deck1)
+session.start()
+session.auto_resolve()
+var result := session.get_result()   # {winner_side, turn_number, hp}
+
+# With AbilityLibrary
+var lib := AbilityLibrary.new(session)
+lib.wire_all()
+session.ability_fn = lib.handle   # already set by wire_all; shown for clarity
+
+# Human-driven turn (react to signals)
+session.phase_changed.connect(func(old, new): _on_phase(new))
+session.start()
+
+func _on_phase(phase: int) -> void:
+    if phase == CombatState.MAIN and session.current_side == PLAYER_SIDE:
+        session.play_card(hand_card)
+        session.end_main_phase()
+```
+
+Full working example: `addons/card_combat/examples/demo.tscn`.
+
+## Testing
+
+```bash
+godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit
+```
+
+381 test cases (GUT 9.6) across: FSM, mana ramp, serialization/resume,
+determinism, AI contract, all AbilityLibrary keywords, trigger queue (INLINE vs
+QUEUED), multi-sided topology, command replay, and leak detection.
+
+CI runs three gates on every push: compile check, unit tests, and an ObjectDB
+leak gate.
+
+## License
+
+Dual-licensed:
+
+- **AGPL v3.0** — free for open-source projects. Network use (server-side)
+  requires releasing your product's source under the AGPL.
+- **Commercial** — closed-source and server-side use without AGPL obligations.
+  Contact **islasjavieralf@gmail.com**.
