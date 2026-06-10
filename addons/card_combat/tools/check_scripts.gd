@@ -41,6 +41,12 @@ func _initialize() -> void:
 	var files: PackedStringArray = []
 	_collect_gd(ENGINE_ROOT, files)
 	files.sort()
+	# Zero scripts means the gate did not actually check anything (missing/renamed
+	# ENGINE_ROOT) — that is a failure, never a green run.
+	if files.is_empty():
+		printerr("=== COMPILE GATE FAILED: no scripts found under %s ===" % ENGINE_ROOT)
+		quit(1)
+		return
 	print("=== Engine compile gate (%d scripts) ===" % files.size())
 
 	var bin: String = OS.get_executable_path()
