@@ -86,7 +86,7 @@ not a game taxonomy — game taxonomies (Weapon, Terrain, Rarity) belong in
 | `addons/card_combat/combat_trigger_queue.gd` | Deferred trigger FIFO (QUEUED trigger mode) |
 | `addons/card_combat/hidden_card_stats.gd` | Declared vs hidden stats for bluffing |
 | `addons/card_combat/abilities/ability_library.gd` | Opt-in keyword ability handler |
-| `test/` | GUT 9.6 test suite — 381 cases across 20 files |
+| `test/` | GUT 9.6 test suite — 418 cases across 20 files |
 | `addons/card_combat/examples/demo.tscn` | Runnable smoke-check demo |
 | `addons/card_combat/benchmark/combat_benchmark.gd` | Performance / leak measurement |
 
@@ -97,15 +97,21 @@ Every hook is optional — omit any you don't need.
 
 | Property | Signature | Purpose |
 |----------|-----------|---------|
-| `ability_fn` | `(inst: CardInstance, trigger: StringName, ctx: Dictionary)` | Ability trigger dispatch (called by the engine for every card event) |
+| `ability_fn` | `(inst: CardInstance, trigger: int, ctx: Dictionary)` | Ability trigger dispatch (called by the engine for every card event; `trigger` is a `CardInstance.Trigger` enum value, `inst` is `null` for the side-level `ON_DRAW`/`ON_CAST`) |
 | `damage_fn` | `(attacker: CardInstance, defender: CardInstance) -> int` | Combat damage formula override |
 | `exhaust_fn` | `(owner_id: int)` | Called when a side's draw pile empties (fatigue) |
-| `discard_fn` | `(card: CardInstance, owner_id: int)` | Called when a card is discarded |
+| `discard_fn` | `(card: CardData, owner_id: int)` | Called when a card is discarded |
 | `attack_restriction_fn` | `(attacker: CardInstance, enemies: Array) -> Array` | Filter valid attack targets (TAUNT redirect) |
 | `incoming_damage_fn` | `(inst: CardInstance, amount: int, source) -> int` | Pre-damage interception (armor, prevention) |
 | `cost_fn` | `(card: CardData, owner_id: int) -> int` | Dynamic card cost override |
 | `spell_power_fn` | `(owner_id: int) -> int` | Spell damage bonus |
 | `aura_fn` | `(session: CombatSession)` | Called to recompute continuous modifiers (auras) |
+
+Two `CombatConfig` flags complete the observability surface: `record_events`
+(default `true`; set `false` in mass balancing runs to skip the `event_log`
+appends — live signals still fire) and `emit_action_rejections` (default `true`;
+gates the `action_rejected(action, reason)` signal a UI can listen to for
+machine-readable feedback on why a driver action was refused).
 
 ## AbilityLibrary keywords
 
@@ -142,21 +148,19 @@ lib.wire_all()   # sets ability_fn, attack_restriction_fn, incoming_damage_fn,
 # Minimum 1v1 (AI vs AI, headless)
 var session := CombatSession.new()
 session.setup(hero0, deck0, hero1, deck1)
-session.start()
-session.auto_resolve()
-var result := session.get_result()   # {winner_side, turn_number, hp}
+session.auto_resolve()   # drives the whole combat (calls start() itself)
+var result := session.get_result()   # {winner_side, winner_team, turn_number, hp}
 
-# With AbilityLibrary
+# With AbilityLibrary (wire BEFORE setup so initial draws see the handler)
 var lib := AbilityLibrary.new(session)
-lib.wire_all()
-session.ability_fn = lib.handle   # already set by wire_all; shown for clarity
+lib.wire_all()   # sets session.ability_fn = lib.ability_handler, plus the other 4 hooks
 
 # Human-driven turn (react to signals)
 session.phase_changed.connect(func(old, new): _on_phase(new))
 session.start()
 
 func _on_phase(phase: int) -> void:
-    if phase == CombatState.MAIN and session.current_side == PLAYER_SIDE:
+    if phase == CombatState.Phase.MAIN and session.active_side == PLAYER_SIDE:
         session.play_card(hand_card)
         session.end_main_phase()
 ```
@@ -169,7 +173,7 @@ Full working example: `addons/card_combat/examples/demo.tscn`.
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit
 ```
 
-381 test cases (GUT 9.6) across: FSM, mana ramp, serialization/resume,
+418 test cases (GUT 9.6) across: FSM, mana ramp, serialization/resume,
 determinism, AI contract, all AbilityLibrary keywords, trigger queue (INLINE vs
 QUEUED), multi-sided topology, command replay, and leak detection.
 
