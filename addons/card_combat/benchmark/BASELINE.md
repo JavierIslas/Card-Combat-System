@@ -21,24 +21,50 @@ below) before and after a change.
 | | |
 |---|---|
 | CPU | 11th Gen Intel Core i5-1135G7 @ 2.40GHz (8 threads) |
-| OS | Linux 6.8.0-117-generic |
+| OS | Linux 6.8.0-124-generic |
 | Godot | 4.6.stable.official (89cea1439) |
-| Date | 2026-06-04 |
-| Commit | c6a541a |
+| Date | 2026-06-10 |
+| Commit | a88e445 |
 | Command | `godot --headless --path . --script addons/card_combat/benchmark/combat_benchmark.gd -- 300` |
 
 ## Results (median of 3 runs, 300 combats/scenario)
 
 | Scenario | µs/combat (median) | Observed spread |
 |---|---|---|
-| 1v1 DummyAI | 6258 | 6221–6265 (~0.7%) |
-| 1v1 HeuristicAI | 6472 | 6387–6555 (~2.6%) |
-| 2v2 teams | 12098 | 12022–12274 (~2.1%) |
-| FFA 3 sides | 10136 | 9991–10181 (~1.9%) |
+| 1v1 DummyAI | 2257 | 2254–2259 (~0.2%) |
+| 1v1 HeuristicAI | 2359 | 2346–2368 (~1.0%) |
+| 2v2 teams | 4291 | 4285–4328 (~1.0%) |
+| FFA 3 sides | 3616 | 3609–3618 (~0.2%) |
+| 1v1 abilities | 4328 | 4326–4475 (~3.4%) |
+| 1v1 abilities QUEUED | 4959 | 4794–5042 (~5.0%) |
+| 1v1 DummyAI no-log | 1617 | 1611–1777 (~10.2%) |
 
-Inter-run variance stayed under ~3%, so a real regression should stand clearly
-above the noise. Leak delta was 0 in every run; the detector self-test passed
-(+100 objects for the artificial cycle).
+Leak delta was 0 in every scenario of every run; the detector self-test passed
+(+100 objects for the artificial cycle). Zero engine errors (the previous
+"Stack underflow" storm in the abilities scenario was a real engine-code bug —
+an infinite mutual-THORNS reflect chain — fixed in commit a88e445 and guarded
+by `test_thorns_mutuo_entre_moribundas_no_recursiona`).
+
+### What each group covers
+
+- **The four historical scenarios** (DummyAI / HeuristicAI / 2v2 / FFA-3) run the
+  agnostic engine with no hooks: FSM, mana, draw, combat resolution, built-in
+  spells, multi-side topology. Note: they are ~2.7x faster than the 2026-06-04
+  baseline (commit c6a541a) because the engine optimization batch merged after
+  that baseline (8473fb4) landed in between — the old numbers were stale, not
+  the machine different.
+- **1v1 abilities** wires the full `AbilityLibrary` (`wire_all()`: ability_fn +
+  taunt restriction + armor + spell power + auras) over decks carrying all 14
+  keywords, so the per-trigger dispatch path, the auto-play TAUNT redirect and
+  the library↔session weakref graph are timed and leak-gated. INLINE dispatch.
+- **1v1 abilities QUEUED** is the same build with `trigger_mode = QUEUED`,
+  covering the deferred-trigger queue (enqueue + drain). Caveat: INLINE and
+  QUEUED resolve chained reactions in a different order, so the two scenarios
+  play *different matches* from the same seeds — the ~15% delta is indicative of
+  queue overhead, not a same-match A/B.
+- **1v1 DummyAI no-log** is the historical DummyAI scenario with
+  `config.record_events = false`: the measured ~28% saving quantifies the
+  event-log recording cost for mass balancing runs.
 
 ## Regenerate
 

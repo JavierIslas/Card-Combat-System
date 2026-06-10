@@ -78,6 +78,9 @@ func _scenarios() -> Array:
 		{"name": "1v1 HeuristicAI", "build": _run_1v1_heuristic},
 		{"name": "2v2 teams", "build": _run_2v2},
 		{"name": "FFA 3 sides", "build": _run_ffa3},
+		{"name": "1v1 abilities", "build": _run_1v1_abilities},
+		{"name": "1v1 abilities QUEUED", "build": _run_1v1_abilities_queued},
+		{"name": "1v1 DummyAI no-log", "build": _run_1v1_no_log},
 	]
 
 
@@ -107,7 +110,7 @@ func _bench(name: String, build: Callable, runs: int) -> Dictionary:
 
 func _print_result(r: Dictionary) -> void:
 	var leak_mark: String = "OK" if r["leak_delta"] <= LEAK_TOLERANCE else "LEAK(+%d)" % r["leak_delta"]
-	print("  %-18s  %8.1f µs/combat  %7d µs total  leak=%s" % [
+	print("  %-20s  %8.1f µs/combat  %7d µs total  leak=%s" % [
 		r["name"], r["per_combat_usec"], r["total_usec"], leak_mark,
 	])
 
@@ -169,6 +172,39 @@ func _run_ffa3(i: int) -> void:
 	s.auto_resolve()
 
 
+func _run_1v1_abilities(i: int) -> void:
+	## Trigger-path coverage: every AbilityLibrary hook wired (ability_fn, taunt
+	## restriction, armor, spell power, auras) over a deck carrying all 14 keywords,
+	## so the per-trigger dispatch and the library<->session weakref graph are both
+	## timed and leak-gated. INLINE dispatch (the default).
+	var s := CombatSession.new()
+	var lib := AbilityLibrary.new(s)
+	lib.wire_all()
+	s.setup(_hero(), _deck_abilities(), _hero(), _deck_abilities(), i)
+	s.auto_resolve()
+
+
+func _run_1v1_abilities_queued(i: int) -> void:
+	## Same combat as "1v1 abilities" but with the deferred trigger queue, so the
+	## QUEUED overhead (enqueue + drain at safe points) is measured against the
+	## INLINE scenario directly. Set before setup(): the effective sink is computed there.
+	var s := CombatSession.new()
+	var lib := AbilityLibrary.new(s)
+	lib.wire_all()
+	s.trigger_mode = CombatSession.TriggerMode.QUEUED
+	s.setup(_hero(), _deck_abilities(), _hero(), _deck_abilities(), i)
+	s.auto_resolve()
+
+
+func _run_1v1_no_log(i: int) -> void:
+	## The balancing configuration: same combat as "1v1 DummyAI" with event_log
+	## recording off, quantifying what config.record_events = false saves.
+	var s := CombatSession.new()
+	s.config.record_events = false
+	s.setup(_hero(), _deck(), _hero(), _deck(), i)
+	s.auto_resolve()
+
+
 # --- Fixtures ----------------------------------------------------------------
 
 func _sides(n: int) -> Array:
@@ -202,6 +238,37 @@ func _deck() -> Array[CardData]:
 	cards.append(_spell("mend", 2, SpellEffect.EffectType.HEAL, 5, SpellEffect.TargetType.PLAYER_HERO))
 	cards.append(_summon("call", 3, "Wolf", 2, 2, 2))
 	return cards
+
+
+func _deck_abilities() -> Array[CardData]:
+	## The keyword counterpart of _deck(): a similar curve whose creatures spread all
+	## 14 AbilityLibrary keywords, so the abilities scenarios exercise every wired hook
+	## (per-trigger dispatch, TAUNT restriction + auto-play redirect, ARMOR interception,
+	## SPELLPOWER, LORD auras) while the spell set keeps ON_CAST / SPELLBURST busy.
+	var cards: Array[CardData] = []
+	cards.append(_keyword_creature("grunt", 1, 2, 1, ["CHARGE", "BATTLECRY"]))
+	cards.append(_keyword_creature("scout", 1, 1, 2, ["STEALTH", "SPELLBURST"]))
+	cards.append(_keyword_creature("mystic", 2, 1, 3, ["SPELLPOWER", "IMMUNITY"], {"spell_power": 1}))
+	cards.append(_keyword_creature("knight", 2, 2, 3, ["TAUNT", "ARMOR"], {"armor": 1}))
+	cards.append(_keyword_creature("berserker", 3, 3, 2, ["WINDFURY", "FREEZE"]))
+	cards.append(_keyword_creature("ogre", 3, 4, 4, ["LIFESTEAL", "OVERKILL"]))
+	cards.append(_keyword_creature("golem", 4, 4, 6, ["LORD", "THORNS"]))
+	cards.append(_spell("bolt", 1, SpellEffect.EffectType.DAMAGE, 3, SpellEffect.TargetType.ENEMY_HERO))
+	cards.append(_spell("blast", 3, SpellEffect.EffectType.AOE_DAMAGE, 2, SpellEffect.TargetType.ENEMY_CREATURES))
+	cards.append(_spell("rally", 2, SpellEffect.EffectType.BUFF_ATTACK, 1, SpellEffect.TargetType.PLAYER_CREATURES))
+	cards.append(_spell("mend", 2, SpellEffect.EffectType.HEAL, 5, SpellEffect.TargetType.PLAYER_HERO))
+	cards.append(_summon("call", 3, "Wolf", 2, 2, 2))
+	return cards
+
+
+func _keyword_creature(id: String, cost: int, attack: int, health: int, keywords: Array, extra: Dictionary = {}) -> CardData:
+	## A _creature carrying AbilityLibrary keywords (plus their tunable metadata keys,
+	## e.g. {"armor": 1}) in the opaque CardData.metadata the library reads.
+	var c := _creature(id, cost, attack, health)
+	var meta: Dictionary = {"keywords": keywords}
+	meta.merge(extra)
+	c.metadata = meta
+	return c
 
 
 func _creature(id: String, cost: int, attack: int, health: int) -> CardData:
