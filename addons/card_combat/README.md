@@ -158,6 +158,13 @@ combat with no chained triggers (or no `ability_fn`) is byte-identical either wa
 `trigger_mode` round-trips through `serialize()`/`deserialize()` (a legacy save with
 no field resumes as `INLINE`).
 
+**Depth limit of INLINE.** Because INLINE resolves chains depth-first through real
+recursion, an extremely long single chain (hundreds of back-to-back reactions —
+e.g. two mutual reflectors with huge health pools trading 1-damage hits) can
+exceed the GDScript interpreter's call-stack limit (~1024 frames, several frames
+per reaction). If your game can produce chains beyond ~150 reactions, use
+`QUEUED`: it resolves the same chain iteratively at constant stack depth.
+
 ### Permanent buffs (generic)
 
 `CardInstance.apply_permanent_buff(attack_delta, health_delta, max_buffs := -1)`
@@ -415,6 +422,15 @@ by choice, and a serialized session carries an empty log). It is pure observabil
 the combat result is byte-identical either way. On a creature-only workload this measured
 ~30% faster; with spells/AI in the mix the relative saving is smaller but real.
 
+**Rejection feedback (`action_rejected` / `config.emit_action_rejections`).** Every public
+driver action (`play_card`, `declare_attacker`, `declare_blocker`, `apply_command`, ...)
+that returns `false` first emits `action_rejected(action: StringName, reason: StringName)`
+with a machine-readable reason (`&"cannot_attack"`, `&"invalid_hand_index"`, ...), so a UI
+can explain *why* an input was refused instead of failing silently. Gated by
+`config.emit_action_rejections` (default `true`); set it to `false` in headless mass
+simulation to skip the emission. It is a live signal only — rejections are intentionally
+not recorded into `event_log` (they are input noise, not combat history).
+
 Signal catalog per class:
 
 | Class | Signal | When |
@@ -426,6 +442,7 @@ Signal catalog per class:
 | `CombatSession` | `combatant_damaged(side, amount)` | the hero of `side` takes damage |
 | `CombatSession` | `combatant_healed(side, amount)` | the hero of `side` is healed (actual amount restored) |
 | `CombatSession` | `spell_fizzled(card)` | a single-target spell was cast with no valid target (not consumed) |
+| `CombatSession` | `action_rejected(action, reason)` | a driver action was refused, with a machine-readable reason (gated by `config.emit_action_rejections`) |
 | `CombatDeck` | `card_drawn(card)` | a card is drawn from the deck |
 | `CombatDeck` | `deck_exhausted` | failed draw on empty deck (see `exhaust_fn` hook) |
 | `CombatDeck` | `card_played(instance)` | a creature enters the board |

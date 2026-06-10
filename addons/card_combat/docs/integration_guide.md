@@ -176,6 +176,7 @@ session.creature_died.connect(_on_creature_died)
 session.creature_summoned.connect(_on_creature_summoned)
 session.combat_ended.connect(_on_combat_ended)
 session.spell_fizzled.connect(_on_spell_fizzled)
+session.action_rejected.connect(_on_action_rejected)
 
 func _on_phase_changed(old_phase: int, new_phase: int) -> void:
     print("%s -> %s" % [CombatState.phase_name(old_phase), CombatState.phase_name(new_phase)])
@@ -186,6 +187,13 @@ func _on_hero_damaged(side: int, amount: int) -> void:
 func _on_creature_died(card: CardInstance, owner: int) -> void:
     # Animate death, update board layout
     pass
+
+func _on_action_rejected(action: StringName, reason: StringName) -> void:
+    # Every driver method that returns false fires this first with a
+    # machine-readable reason (&"cannot_attack", &"invalid_hand_index", ...),
+    # so the UI can tell the player WHY instead of ignoring the click.
+    # Gated by config.emit_action_rejections (default true).
+    toast.show("%s rejected: %s" % [action, reason])
 ```
 
 ### Deck-level signals
@@ -374,14 +382,15 @@ Tweak before `setup()`:
 
 ```gdscript
 session.config.starting_max_mana = 1          # default 2
-session.config.mana_ramp_per_turn = 1         # default 1
+session.config.mana_ramp_per_turn = 1         # default 2
 session.config.max_mana_cap = 10              # default 10
 session.config.initial_hand_size = 4          # default 3
-session.config.stalemate_turn_limit = 50      # default 60
+session.config.stalemate_turn_limit = 40      # default 50
 session.config.max_board_size = 5             # default -1 (unlimited)
 session.config.max_hand_size = 8              # default -1 (unlimited)
 session.config.max_permanent_buffs_per_card = 3  # default -1 (unlimited)
 session.config.record_events = false          # disable event_log for mass simulation
+session.config.emit_action_rejections = false # silence action_rejected in headless sims
 ```
 
 ---
@@ -393,9 +402,8 @@ session.config.record_events = false          # disable event_log for mass simul
 var save_data: Dictionary = session.serialize()
 # Store save_data to disk / cloud
 
-# Resume
-var session := CombatSession.new()
-session.deserialize(save_data, {
+# Resume — deserialize is STATIC and returns the rebuilt session.
+var session := CombatSession.deserialize(save_data, {
     "ability_fn": my_ability_handler,
     "damage_fn": Callable(),
     "exhaust_fn": Callable(),
@@ -479,3 +487,13 @@ var accepted: bool = session.apply_command(cmd)
 | `effect_fn` (per SpellEffect) | `(effect, target, ctx) -> Dict` | Custom spell resolution |
 
 All are `Callable()` by default (no-op). Set them before `setup()`.
+
+Two `CombatConfig` flags shape observability (both default `true`):
+`record_events` (set `false` to skip `event_log` recording in mass simulation;
+live signals still fire) and `emit_action_rejections` (set `false` to silence
+the `action_rejected(action, reason)` signal — see §4).
+
+For a one-off effect outside a card's authored `spell_effects`, the session also
+exposes `play_spell(card, effect, target)`: it consumes `card` from the active
+hand and resolves the externally-built `SpellEffect` through the same
+fizzle / sweep / `ON_CAST` pipeline as `play_card`.
