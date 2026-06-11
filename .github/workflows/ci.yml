@@ -1,9 +1,10 @@
 name: CI
 
-# Runs the three manifest gates on every push to main and every PR:
+# Runs the four manifest gates on every push to main and every PR:
 #   1. compile gate  — every engine .gd parses/type-checks (tools/check_scripts.gd)
-#   2. unit tests    — the GUT suite under test/
+#   2. unit tests    — the GUT suite under test/ (0 tests or a skipped script fails)
 #   3. leak gate     — benchmark's portable ObjectDB-leak detector
+#   4. lint gate     — gdlint over addons/card_combat (.gdlintrc config)
 # The benchmark's µs figures are hardware-specific and NOT asserted here; only its
 # leak detector (exit 1 on a reference cycle) is portable, so CI runs it with a
 # small combat count for speed.
@@ -56,8 +57,34 @@ jobs:
       - name: Compile gate
         run: godot --headless --path . --script addons/card_combat/tools/check_scripts.gd
 
+      # GUT's exit code alone cannot be trusted: it exits 0 both when it collects
+      # ZERO tests ("Nothing was run") and when a test script fails to parse (it
+      # skips the whole file and reports the remaining tests green). Both verified
+      # empirically on GUT 9.6. So the step also fails on an empty run and on any
+      # skipped/unloadable test script — 0 tests is never a pass (repo rule).
       - name: Unit tests (GUT)
-        run: godot --headless --path . -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit
+        run: |
+          set -euo pipefail
+          godot --headless --path . -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit 2>&1 | tee /tmp/gut.log
+          tests="$(awk '/^Tests/ {print $2; exit}' /tmp/gut.log)"
+          if [ -z "${tests}" ] || [ "${tests}" -eq 0 ]; then
+            echo "::error::GUT collected 0 tests — test collection is broken"
+            exit 1
+          fi
+          if grep -qE "Failed to load script|SCRIPT ERROR" /tmp/gut.log; then
+            echo "::error::GUT skipped at least one test script that failed to load/parse"
+            exit 1
+          fi
+          echo "GUT ran ${tests} tests"
 
       - name: Leak gate (benchmark)
         run: godot --headless --path . --script addons/card_combat/benchmark/combat_benchmark.gd -- 40
+
+      # Complementary lint gate (manifest `lint` command): gdlint catches the
+      # correctness/naming smells the headless compile gate cannot see. Config in
+      # .gdlintrc at the repo root.
+      - name: Lint gate (gdlint)
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet "gdtoolkit==4.*"
+          gdlint addons/card_combat

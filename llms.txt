@@ -177,8 +177,9 @@ godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -
 determinism, AI contract, all AbilityLibrary keywords, trigger queue (INLINE vs
 QUEUED), multi-sided topology, command replay, and leak detection.
 
-CI runs three gates on every push: compile check, unit tests, and an ObjectDB
-leak gate.
+CI runs four gates on every push: compile check, unit tests (failing if zero
+tests are collected or any test script is skipped), an ObjectDB leak gate, and
+gdlint.
 
 ## License
 
