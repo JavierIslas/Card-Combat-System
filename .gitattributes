@@ -9,6 +9,7 @@ addons/card_combat/tools/ export-ignore
 addons/card_combat/README.md export-ignore
 .github/workflows/ export-ignore
 test/ export-ignore
+addons/gut/ export-ignore
 
 # Archivos de root: la distribución oficial se arma con pack.sh.
 # El "Download ZIP" desde GitHub no debe entregar un paquete usable.
