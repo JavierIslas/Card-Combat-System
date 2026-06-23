@@ -94,6 +94,13 @@ headless (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 - **Leak gate** — the benchmark's portable ObjectDB-leak detector (fails on a
   reference cycle). Its µs figures are hardware-specific and not asserted in CI.
 
+## Showcase
+
+[**Espíritus Ancestrales**](https://dimcairion.itch.io/espritus-ancestrales) —
+a turn-based bluffing card game built on this engine, including its hidden-card
+mechanic (declare your creature's stats and abilities face-down, and bluff)
+powered by `HiddenCardStats`. Playable demo on itch.io.
+
 ## License
 
 Card Combat Engine is **dual-licensed**:
@@ -103,6 +110,7 @@ Card Combat Engine is **dual-licensed**:
   part of a product, that product's source must be released under the AGPL too.
 - **Commercial license** (see [`LICENSE_COMMERCIAL.md`](LICENSE_COMMERCIAL.md)) —
   exempts you from the AGPL obligations for closed-source projects, including
-  server-side play.
+  server-side play. [**Buy it on itch.io**](https://dimcairion.itch.io/card-combat-engine).
 
-For a commercial license: **islasjavieralf@gmail.com**.
+For a commercial license: [itch.io](https://dimcairion.itch.io/card-combat-engine)
+or **islasjavieralf@gmail.com** for custom terms.

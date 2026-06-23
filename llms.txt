@@ -28,6 +28,10 @@ replays and authoritative networking.
 
 **Topology:** supports 1v1, 2v2, and N-sided FFA via `setup_sides(sides, teams)`.
 
+**Used by:** [Espíritus Ancestrales](https://dimcairion.itch.io/espritus-ancestrales),
+a turn-based bluffing card game (playable demo), which uses the engine's
+`HiddenCardStats` declare-and-bluff mechanic.
+
 ## Documentation
 
 - [Addon README](addons/card_combat/README.md) — full class reference, all
@@ -188,4 +192,5 @@ Dual-licensed:
 - **AGPL v3.0** — free for open-source projects. Network use (server-side)
   requires releasing your product's source under the AGPL.
 - **Commercial** — closed-source and server-side use without AGPL obligations.
-  Contact **islasjavieralf@gmail.com**.
+  Buy on itch.io: https://dimcairion.itch.io/card-combat-engine
+  (or contact **islasjavieralf@gmail.com** for custom terms).
