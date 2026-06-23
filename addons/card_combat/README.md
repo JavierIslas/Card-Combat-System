@@ -55,8 +55,6 @@ packaging / future export) and can be mirrored to a standalone repo.
    `context["card"]`) and `ON_CAST` (fired once per spell cast, *after* its effects
    resolve, with `context = {"card", "owner"}` — the spell-synergy hook, "whenever you
    cast a spell …"), so a handler must tolerate `inst == null`.
-   > **Breaking change since 1.x:** the handler took `(inst, trigger)`; it now takes
-   > a third `context` argument. Update existing handlers accordingly.
 2. **`SpellEffect.id_fn: Callable`** — resolves the id of a summoned creature
    (`id_fn.call(summon_name, index, summon_count)`). Empty = no summoning that
    depends on the game catalog.
