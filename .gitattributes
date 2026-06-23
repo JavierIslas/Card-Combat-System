@@ -20,4 +20,5 @@ llms.txt export-ignore
 pack.sh export-ignore
 project.godot export-ignore
 icon.png export-ignore
+icon.svg export-ignore
 icon.png.import export-ignore
