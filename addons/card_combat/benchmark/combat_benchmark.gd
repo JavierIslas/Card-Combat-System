@@ -78,6 +78,7 @@ func _scenarios() -> Array:
 		{"name": "1v1 HeuristicAI", "build": _run_1v1_heuristic},
 		{"name": "2v2 teams", "build": _run_2v2},
 		{"name": "FFA 3 sides", "build": _run_ffa3},
+		{"name": "1v1 tick DummyAI", "build": _run_1v1_tick_dummy},
 		{"name": "1v1 abilities", "build": _run_1v1_abilities},
 		{"name": "1v1 abilities QUEUED", "build": _run_1v1_abilities_queued},
 		{"name": "1v1 DummyAI no-log", "build": _run_1v1_no_log},
@@ -149,6 +150,14 @@ func _run_1v1_dummy(i: int) -> void:
 	var s := CombatSession.new()
 	s.setup(_hero(), _deck(), _hero(), _deck(), i)
 	s.auto_resolve()
+
+
+func _run_1v1_tick_dummy(i: int) -> void:
+	# Tick paradigm: same seeded 1v1 as the DummyAI scenario, driven by the
+	# simultaneous tick loop instead of the alternating-turn FSM.
+	var s := TickCombatSession.new()
+	s.setup(_hero(), _deck(), _hero(), _deck(), i)
+	s.run_until_end()
 
 
 func _run_1v1_heuristic(i: int) -> void:
