@@ -87,6 +87,31 @@ func run_tick() -> bool:
 	return true
 
 
+func recovery_remaining(side: int) -> int:
+	## Ticks left before `side` may act again (0 = ready). 0 for an invalid
+	## side, mirroring the base ability-facing mutators.
+	_ensure_tick_arrays()
+	if side < 0 or side >= _recovery_ticks.size():
+		return 0
+	return _recovery_ticks[side]
+
+
+func _recovery_of(card: CardData, owner_id: int) -> int:
+	## Ticks the side waits after playing `card`, per the injected hook. Empty
+	## Callable = 0 for every card: recovery is opt-in exactly like cost_fn,
+	## and the engine never reads card.metadata on its own.
+	if not recovery_fn.is_valid():
+		return 0
+	return maxi(int(recovery_fn.call(card, owner_id)), 0)
+
+
+func _apply_recovery(owner_id: int, card: CardData) -> void:
+	## Arm recovery after a successful play. Takes the max, not the sum: a card
+	## played while still winding down extends to its own window, never stacks.
+	_ensure_tick_arrays()
+	_recovery_ticks[owner_id] = maxi(_recovery_ticks[owner_id], _recovery_of(card, owner_id))
+
+
 func _ensure_tick_arrays() -> void:
 	## Size the per-side tick state lazily so setup()/setup_sides()/
 	## deserialize() all land here without overriding any base setup path.

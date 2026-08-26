@@ -144,3 +144,65 @@ func test_ready_sides_devuelve_todos_los_lados_vivos() -> void:
 	assert_eq(_session.ready_sides(), [0, 1] as Array[int], "sin recovery ambos lados están ready")
 	_session.heroes[1].take_damage(10)
 	assert_eq(_session.ready_sides(), [0] as Array[int], "un héroe muerto sale de la lista")
+
+
+func _seed_recovery(side: int, ticks: int) -> void:
+	_session._ensure_tick_arrays()
+	_session._recovery_ticks[side] = ticks
+
+
+func test_recovery_excluye_al_lado_de_ready_sides() -> void:
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_seed_recovery(0, 1)
+	assert_eq(_session.ready_sides(), [1] as Array[int], "un lado en recovery no está ready")
+	assert_eq(_session.recovery_remaining(0), 1, "el contador es observable")
+	assert_eq(_session.recovery_remaining(1), 0, "el lado 1 nunca entró en recovery")
+
+
+func test_recovery_decrementa_uno_por_tick_y_vuelve_a_ready() -> void:
+	# recovery N salta exactamente N ticks: readiness se evalúa ANTES del
+	# decremento del upkeep, así 2 = no actúa en 2 ticks y vuelve al tercero.
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_seed_recovery(0, 2)
+	_session.run_tick()
+	assert_eq(_session.recovery_remaining(0), 1, "tick 1: 2 -> 1")
+	assert_false(_session.ready_sides().has(0), "todavía en recovery")
+	_session.run_tick()
+	assert_eq(_session.recovery_remaining(0), 0, "tick 2: 1 -> 0")
+	assert_true(_session.ready_sides().has(0), "al tercer tick vuelve a estar ready")
+
+
+func test_recovery_fn_vacia_es_cero_para_toda_carta() -> void:
+	# Opt-in como cost_fn: sin Callable inyectado, ninguna carta impone recovery.
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var card := _creature(1, 2, 2)
+	card.metadata["recovery"] = 3
+	assert_eq(_session._recovery_of(card, 0), 0, "sin hook el motor nunca lee metadata")
+
+
+func test_recovery_fn_define_los_ticks_de_la_carta() -> void:
+	# El hook decide qué significa recovery (típicamente un campo opaco de
+	# metadata del juego); el motor solo ve un entero >= 0.
+	_session.recovery_fn = func(card: CardData, _owner: int) -> int:
+		return int(card.metadata.get("recovery", 0))
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var card := _creature(1, 2, 2)
+	card.metadata["recovery"] = 3
+	assert_eq(_session._recovery_of(card, 0), 3, "el hook dicta los ticks")
+	var corta := _creature(1, 2, 2)
+	corta.metadata["recovery"] = 0
+	assert_eq(_session._recovery_of(corta, 0), 0, "cero = sin recovery")
+
+
+func test_recovery_toma_el_maximo_no_suma() -> void:
+	# Re-jugar mientras se recupera extiende a la ventana propia, no apila.
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_session.recovery_fn = func(card: CardData, _owner: int) -> int:
+		return int(card.metadata.get("recovery", 0))
+	var lenta := _creature(1, 2, 2)
+	lenta.metadata["recovery"] = 3
+	var media := _creature(1, 2, 2)
+	media.metadata["recovery"] = 2
+	_session._apply_recovery(0, lenta)
+	_session._apply_recovery(0, media)
+	assert_eq(_session.recovery_remaining(0), 3, "max(3, 2) = 3, no 5")
