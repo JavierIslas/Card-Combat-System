@@ -97,7 +97,8 @@ func run_tick() -> bool:
 	# exactly N ticks (played on tick T with N=2: skips T+1 and T+2, acts on T+3).
 	var ready: Array[int] = ready_sides()
 	_upkeep_tick()
-	_execute_play_intents(_collect_intents(ready))
+	var played: Array[int] = _execute_play_intents(_collect_intents(ready))
+	_resolve_tick_batch(_collect_attack_pairs(ready, played))
 	_close_tick()
 	return true
 
@@ -214,6 +215,110 @@ func _execute_play_intents(intents: Array) -> Array[int]:
 		_apply_recovery(side, intent.card)
 		played.append(side)
 	return played
+
+
+func _tick_required_targets(attacker: CardInstance) -> Array:
+	## Side-parameterized mirror of _required_attack_targets: the base version
+	## flattens the ACTIVE side's enemies, which the tick paradigm never sets.
+	## Here the restriction set comes from the attacker's own enemies.
+	if not attack_restriction_fn.is_valid():
+		return []
+	return attack_restriction_fn.call(attacker, CardInstance.living(enemy_boards(attacker.owner_id)))
+
+
+func _tick_redirect_for_restriction(attacker: CardInstance, chosen: Variant) -> Variant:
+	## Mirror of _redirect_for_restriction over _tick_required_targets: map the
+	## AI's choice to a legal one (keep it, force the first required creature,
+	## or fall to a hero swing) without teaching the AI about TAUNT/STEALTH.
+	var required: Array = _tick_required_targets(attacker)
+	if _target_within_restriction(chosen, required):
+		return chosen
+	if not required.is_empty():
+		return required[0]
+	return null
+
+
+func _tick_attack_allowed(attacker: CardInstance, target: Variant) -> bool:
+	## Side-parameterized mirror of _attacker_declaration_rejection's per-side
+	## rules, minus the phase gate (the tick loop only asks for ready sides).
+	## Reads the attacker's OWN board/enemies instead of active_side's.
+	if attacker == null:
+		return false
+	if not decks[attacker.owner_id].get_board().has(attacker):
+		return false
+	if not attacker.can_attack_this_turn or attacker.times_attacked >= attacker.attacks_per_turn:
+		return false
+	if not (target is CardInstance):
+		if _default_enemy_side(attacker.owner_id) < 0:
+			return false
+	return _target_within_restriction(target, _tick_required_targets(attacker))
+
+
+func _collect_attack_pairs(ready: Array[int], played: Array[int]) -> Array:
+	## Every ready side that did not play a card swings with its creatures.
+	## Mirrors the auto-play attacker flow (choose_attackers ->
+	## choose_attack_target -> restriction redirect) per side, against each
+	## attacker's own enemies. Pairs from ALL sides land in ONE array so the
+	## batch resolves them simultaneously.
+	var pairs: Array = []
+	for side in ready:
+		if played.has(side) or _is_side_out(side):
+			continue
+		var side_ai: CombatAI = ais[side]
+		var enemy_heroes: Array[Combatant] = _living_enemy_heroes(side)
+		var enemy_board: Array = enemy_boards(side)
+		for attacker in side_ai.choose_attackers(decks[side].get_board(), enemy_heroes):
+			var chosen: Variant = side_ai.choose_attack_target(attacker, enemy_board, enemy_heroes)
+			var target: Variant = _tick_redirect_for_restriction(attacker, chosen)
+			if not _tick_attack_allowed(attacker, target):
+				continue
+			var ts: int = -1
+			if not (target is CardInstance):
+				ts = _default_enemy_side(side)
+			var pair := CombatPair.new(attacker, target)
+			pair.target_side = ts
+			attacker.has_attacked_this_turn = true
+			attacker.times_attacked += 1
+			pairs.append(pair)
+			# Same per-declaration settle as declare_attacker: an ON_ATTACK
+			# reaction resolves before the next pair is declared.
+			if _effective_ability_fn.is_valid():
+				attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
+				_settle_reactive_triggers()
+	# Whiff filter: an attacker (or directed target) killed by an earlier
+	# declaration's reactive trigger drops out of the batch, deterministically.
+	var live_pairs: Array = []
+	for pair in pairs:
+		var attacker_live: bool = not pair.attacker.is_dead \
+			and decks[pair.attacker.owner_id].get_board().has(pair.attacker)
+		var target_live: bool = pair.defender == null \
+			or (not pair.defender.is_dead and decks[pair.defender.owner_id].get_board().has(pair.defender))
+		if attacker_live and target_live:
+			live_pairs.append(pair)
+	return live_pairs
+
+
+func _resolve_tick_batch(pairs: Array) -> void:
+	## Generalization of _resolve_active_attacks over the combined pairs of
+	## EVERY side: ONE resolver call applies all combat damage simultaneously
+	## (mutual trades across sides compute before anything applies), hero
+	## damage aggregates per target_side in declaration order, then the shared
+	## death pipeline (ON_DAMAGE_DEALT -> drain -> deaths).
+	if pairs.is_empty():
+		return
+	var result: Dictionary = _resolver.resolve_combat(pairs)
+	var pairs_result: Array = result["pairs_result"]
+	var hero_damage_by_side: Dictionary = {}
+	for i in pairs.size():
+		if pairs[i].defender == null:
+			var s: int = pairs[i].target_side
+			hero_damage_by_side[s] = hero_damage_by_side.get(s, 0) + pairs_result[i]["attacker_damage_dealt"]
+	for s in hero_damage_by_side:
+		deal_damage_to_hero(s, hero_damage_by_side[s])
+	if not pairs_result.is_empty():
+		_fire_damage_dealt(pairs_result)
+		_drain_triggers()
+		_process_death_results(pairs_result)
 
 
 func _living_sides() -> Array[int]:

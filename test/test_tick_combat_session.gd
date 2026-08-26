@@ -51,6 +51,11 @@ func _deck(n: int = 8) -> Array[CardData]:
 func _board_creature(side: int, card: CardData) -> CardInstance:
 	var inst := CardInstance.new()
 	inst.setup(card, side)
+	# Los hooks viven por instancia (los siembra el deck al crear por
+	# play_creature); una criatura sembrada cruda debe recibir el handler de
+	# la sesión para que sus triggers disparen como una jugada real.
+	if _session.ability_fn.is_valid():
+		inst.ability_fn = _session.ability_fn
 	_session.decks[side].add_to_board(inst)
 	return inst
 
@@ -230,7 +235,10 @@ class _ScriptedAI:
 	extends CombatAI
 	var next_card: CardData = null
 	var spell_target: Variant = null
+	var swing: bool = false          # choose_attackers devuelve el tablero entero
+	var attack_target: Variant = null  # objetivo dirigido; null = swing al héroe
 	var card_calls: int = 0
+	var attackers_calls: int = 0
 
 	func choose_card_to_play(_hand: Array[CardData], _mana: int) -> CardData:
 		card_calls += 1
@@ -239,6 +247,17 @@ class _ScriptedAI:
 	func choose_spell_target(_spell: CardData, _own_board: Array[CardInstance],
 			_enemy_board: Array[CardInstance]) -> Variant:
 		return spell_target
+
+	func choose_attackers(board: Array[CardInstance],
+			_enemy_heroes: Array[Combatant] = []) -> Array[CardInstance]:
+		attackers_calls += 1
+		if not swing:
+			return []
+		return board
+
+	func choose_attack_target(_attacker: CardInstance, _enemy_board: Array[CardInstance],
+			_enemy_heroes: Array[Combatant] = []) -> Variant:
+		return attack_target
 
 
 func _spell(cost: int, type: SpellEffect.EffectType, value: int, target: SpellEffect.TargetType) -> CardData:
@@ -388,3 +407,161 @@ func test_jugar_carta_con_recovery_arma_el_contador_y_bloquea() -> void:
 	assert_eq(ai0.card_calls, 1, "en recovery la IA no se consulta")
 	assert_eq(_session.recovery_remaining(0), 0, "el upkeep decrementó")
 	assert_eq(_session.decks[0].mana, 4, "la economía del lado siguió viva")
+
+
+func test_ambos_heroes_mueren_en_el_mismo_tick() -> void:
+	# EL caso discriminante del paradigma: dos swings a héroe que resuelven en
+	# UN batch => ambos héroes caen a 0 en el tick 1 => tablas. En el secuencial
+	# esto es imposible: el primer swing mata al héroe rival, _check_victory
+	# corta el combate y el otro héroe sobrevive.
+	var ai0 := _ScriptedAI.new()
+	var ai1 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(3), _deck(4), _hero(3), _deck(4), 1)
+	_board_creature(0, _creature(1, 3, 3))
+	_board_creature(1, _creature(1, 3, 3))
+	ai0.swing = true
+	ai1.swing = true
+	assert_true(_session.run_tick(), "el tick ejecuta")
+	assert_eq(_session.tick_number, 1, "un solo tick corrió")
+	assert_eq(_session.heroes[0].current_health, 0, "héroe 0 murió en este tick")
+	assert_eq(_session.heroes[1].current_health, 0, "héroe 1 murió en el MISMO tick")
+	assert_eq(_session.winner_team, -1, "ambos equipos cayeron: tablas")
+	assert_eq(_session.phase, CombatState.Phase.END, "la victoria se settleó al cierre")
+	assert_eq(ai0.card_calls, 1, "cada lado fue consultado UNA vez (paso = atacar)")
+	assert_eq(ai1.card_calls, 1, "el lado 1 decidió contra el mismo snapshot pre-tick")
+
+
+func test_trade_mutuo_entre_lados_muere_en_el_mismo_tick() -> void:
+	# Dos criaturas enemigas se declaran mutuamente en el mismo batch: el
+	# resolver calcula TODO antes de aplicar, así ambas caen (trade real).
+	var ai0 := _ScriptedAI.new()
+	var ai1 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var a := _board_creature(0, _creature(1, 3, 3))
+	var b := _board_creature(1, _creature(1, 3, 3))
+	ai0.swing = true
+	ai0.attack_target = b
+	ai1.swing = true
+	ai1.attack_target = a
+	_session.run_tick()
+	assert_true(a.is_dead, "la criatura del lado 0 murió")
+	assert_true(b.is_dead, "la criatura del lado 1 murió en el MISMO batch")
+
+
+func test_danio_a_heroe_se_agrega_por_target_side_en_un_solo_evento() -> void:
+	# Dos swings 2/2 al mismo héroe => UN evento COMBATANT_DAMAGED de 4,
+	# igual que la agregación de _resolve_active_attacks en el secuencial.
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_board_creature(0, _creature(1, 2, 2))
+	_board_creature(0, _creature(1, 2, 2))
+	ai0.swing = true
+	_session.run_tick()
+	var hits: Array = []
+	for ev in _session.event_log:
+		if ev.type == CombatEvent.EventType.COMBATANT_DAMAGED:
+			hits.append([ev.payload["side"], ev.payload["amount"]])
+	assert_eq(hits, [[1, 4]], "un único evento agregado por lado objetivo")
+	assert_eq(_session.heroes[1].current_health, 6, "el héroe 1 recibió 4")
+
+
+func test_pase_de_ia_convierte_en_ataque() -> void:
+	# null en choose_card_to_play = "agredir": la acción del tick es el swing.
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_board_creature(0, _creature(1, 3, 3))
+	ai0.swing = true
+	_session.run_tick()
+	assert_eq(ai0.attackers_calls, 1, "el paso consultó los atacantes")
+	assert_eq(_session.heroes[1].current_health, 7, "el swing conectó (10 - 3)")
+
+
+func test_carta_jugada_excluye_de_atacar_ese_tick() -> void:
+	# Una acción por tick: el lado que jugó carta NO también ataca.
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_board_creature(0, _creature(1, 3, 3))
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	_session.run_tick()
+	assert_eq(ai0.attackers_calls, 0, "quien jugó carta no ataca ese tick")
+	assert_eq(_session.heroes[1].current_health, 10, "el héroe 1 no recibió daño")
+
+
+func test_atacante_muerto_por_reaccion_se_descarta_del_batch() -> void:
+	# La reacción ON_ATTACK de una criatura declarada DESPUÉS mata a otra
+	# declarada antes: el whiff filter la saca del batch (su daño no cae).
+	# El contenedor mutable es el patrón de capture de los tests existentes
+	# (ability_fn se siembra antes del setup, la criatura existe recién después).
+	var victima: Array = []
+	_session.ability_fn = func(inst: CardInstance, trigger: int, _ctx: Dictionary) -> void:
+		if trigger == CardInstance.Trigger.ON_ATTACK and inst != null \
+				and inst.card_data.attack >= 3 and not victima.is_empty():
+			(victima[0] as CardInstance).take_damage(5)
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	victima.append(_board_creature(0, _creature(1, 2, 2)))
+	_board_creature(0, _creature(1, 3, 3))  # declarada después; su reacción mata
+	ai0.swing = true
+	_session.run_tick()
+	assert_true((victima[0] as CardInstance).is_dead, "la reacción la mató antes del batch")
+	assert_eq(_session.heroes[1].current_health, 7, "solo el 3/3 conectó (10 - 3), no 5")
+
+
+func test_taunt_redirige_la_seleccion_en_autobatch() -> void:
+	# El hook de restricción evalúa contra los enemigos del ATACANTE (no del
+	# active_side): la IA pidió swing a héroe y fue redirigida a la criatura.
+	_session.attack_restriction_fn = func(_attacker: CardInstance, enemy_creatures: Array) -> Array:
+		return enemy_creatures
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var taunto := _board_creature(1, _creature(1, 2, 5))
+	_board_creature(0, _creature(1, 3, 3))
+	ai0.swing = true
+	ai0.attack_target = null  # pidió héroe
+	_session.run_tick()
+	assert_eq(_session.heroes[1].current_health, 10, "el swing al héroe fue redirigido")
+	assert_eq(taunto.current_health, 2, "el taunto absorbió el golpe (5 - 3)")
+
+
+func test_congelado_no_ataca_ese_tick() -> void:
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var congelada := _board_creature(0, _creature(1, 3, 3))
+	congelada.freeze(1)
+	ai0.swing = true
+	_session.run_tick()
+	assert_eq(_session.heroes[1].current_health, 10, "congelada no atacó este tick")
+	assert_false(congelada.is_frozen(), "el freeze se consumió en el upkeep")
+	_session.run_tick()
+	assert_eq(_session.heroes[1].current_health, 7, "al tick siguiente ataca")
+
+
+func test_heroe_muerto_a_mitad_de_tick_no_ataca_y_victoria_al_cierre() -> void:
+	# Liveness inmediata, victoria diferida: el hechizo del lado 0 mata al héroe
+	# 1 en la etapa de jugadas; el lado 1 ya no ataca ese tick y el settle corre
+	# una sola vez al cierre.
+	var ai0 := _ScriptedAI.new()
+	var ai1 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(10), _deck(4), _hero(5), _deck(4), 1)
+	_board_creature(1, _creature(1, 3, 3))
+	var bolt := _spell(2, SpellEffect.EffectType.DAMAGE, 5, SpellEffect.TargetType.ENEMY_HERO)
+	_session.decks[0]._hand.append(bolt)
+	ai0.next_card = bolt
+	ai1.swing = true
+	_session.run_tick()
+	assert_eq(_session.heroes[1].current_health, 0, "el bolt mató al héroe 1")
+	assert_eq(_session.heroes[0].current_health, 10, "el lado muerto no ejecutó su swing")
+	assert_eq(_session.winner_team, 0, "victoria settleada al cierre del tick")
+	assert_false(_session.run_tick(), "el combate terminó")
