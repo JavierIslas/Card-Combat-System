@@ -275,3 +275,15 @@ func test_session_deserialize_tolera_defender_side_fuera_de_rango() -> void:
 	var restored := CombatSession.deserialize(data)
 	assert_eq(restored._attack_pairs[0].size(), 1, "el par se restaura sin romper")
 	assert_null(restored._attack_pairs[0][0].defender, "un defender_side inválido degrada a ataque al héroe")
+
+
+func test_deserialize_crea_session_base_no_subclase() -> void:
+	# The static factory must keep building the BASE class after the split into
+	# _restore_from: subclasses reuse the instance restore, but a save loaded
+	# through CombatSession.deserialize never yields subclass behavior.
+	var session := CombatSession.new()
+	session.setup(_hero(20), _starter(), _hero(20), _starter(), 3)
+	session.start()
+	var restored: CombatSession = CombatSession.deserialize(session.serialize())
+	assert_eq(restored.get_script(), CombatSession, "la fábrica base produce exactamente CombatSession")
+	assert_eq(restored.phase, session.phase, "el round-trip directo preserva la fase")

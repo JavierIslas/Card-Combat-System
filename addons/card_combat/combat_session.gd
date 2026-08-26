@@ -1078,37 +1078,45 @@ static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> CombatSessi
 	## pieces: config, ability_fn, damage_fn, exhaust_fn, discard_fn, and optionally
 	## `heroes` (for a game's subclassed hero) and `ais` (for deterministic resume).
 	var session := CombatSession.new()
+	session._restore_from(data, hooks)
+	return session
+
+
+func _restore_from(data: Dictionary, hooks: Dictionary = {}) -> void:
+	## Instance-level restore of every serialized field, in dependency order. The
+	## static deserialize stays the public factory; this split lets subclasses
+	## (TickCombatSession) reuse the whole restore orchestration from their own
+	## factory without duplicating the 12-step sequence.
 	# Schema version hook: absent = legacy (0). Kept so future format changes can
 	# branch here; today every field tolerates absence via get(.., default).
 	var _schema: int = int(data.get("schema_version", 0))
-	session.config = hooks.get("config", CombatConfig.new())
-	session._recording = session.config.record_events
-	session._emit_rejections = session.config.emit_action_rejections
-	session.ability_fn = hooks.get("ability_fn", Callable())
-	session.damage_fn = hooks.get("damage_fn", Callable())
-	session.exhaust_fn = hooks.get("exhaust_fn", Callable())
-	session.discard_fn = hooks.get("discard_fn", Callable())
-	session.attack_restriction_fn = hooks.get("attack_restriction_fn", Callable())
-	session.incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
-	session.cost_fn = hooks.get("cost_fn", Callable())
-	session.spell_power_fn = hooks.get("spell_power_fn", Callable())
-	session.aura_fn = hooks.get("aura_fn", Callable())
-	session._resolver.damage_fn = session.damage_fn
-	session._restore_topology(data)
-	session._restore_scalars(data)
+	config = hooks.get("config", CombatConfig.new())
+	_recording = config.record_events
+	_emit_rejections = config.emit_action_rejections
+	ability_fn = hooks.get("ability_fn", Callable())
+	damage_fn = hooks.get("damage_fn", Callable())
+	exhaust_fn = hooks.get("exhaust_fn", Callable())
+	discard_fn = hooks.get("discard_fn", Callable())
+	attack_restriction_fn = hooks.get("attack_restriction_fn", Callable())
+	incoming_damage_fn = hooks.get("incoming_damage_fn", Callable())
+	cost_fn = hooks.get("cost_fn", Callable())
+	spell_power_fn = hooks.get("spell_power_fn", Callable())
+	aura_fn = hooks.get("aura_fn", Callable())
+	_resolver.damage_fn = damage_fn
+	_restore_topology(data)
+	_restore_scalars(data)
 	# Recompute the effective sink from the restored trigger_mode + ability_fn before
 	# rebuilding decks, so resumed board instances fire through the right path.
-	session._compute_effective_ability_fn()
-	session._restore_heroes(data, hooks.get("heroes", null))
-	session._restore_decks(data)
-	session._restore_log(data)
-	session._restore_command_log(data)
-	session._restore_dead(data)
-	session._restore_pairs_and_blocks(data)
-	session._restore_ais(hooks.get("ais", null))
-	session._restore_ai_states(data)
-	session._rebuild_turn_order()
-	return session
+	_compute_effective_ability_fn()
+	_restore_heroes(data, hooks.get("heroes", null))
+	_restore_decks(data)
+	_restore_log(data)
+	_restore_command_log(data)
+	_restore_dead(data)
+	_restore_pairs_and_blocks(data)
+	_restore_ais(hooks.get("ais", null))
+	_restore_ai_states(data)
+	_rebuild_turn_order()
 
 
 func _restore_topology(data: Dictionary) -> void:
