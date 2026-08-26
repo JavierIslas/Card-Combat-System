@@ -117,6 +117,110 @@ func run_until_end(max_ticks: int = 1000) -> void:
 		_transition_to(CombatState.Phase.END)
 
 
+func serialize() -> Dictionary:
+	## Extends the base snapshot with the tick state. super.serialize() carries
+	## everything shared (decks + RNG, heroes, ai_states, event_log, command_log,
+	## dead, teams); "mode" + the "tick" sub-dict are namespaced additions, the
+	## same additive approach as trigger_mode/ai_states — the base format and
+	## SCHEMA_VERSION stay untouched.
+	var data: Dictionary = super.serialize()
+	data["mode"] = "tick"
+	data["tick"] = {
+		"tick_number": tick_number,
+		"recovery_ticks": _recovery_ticks.duplicate(),
+		# Manual card intents by index, the same primitive encoding as
+		# CombatCommand and the base attack pairs. A manual pass/attack intent
+		# carries no state to keep: on resume the AI re-decides that side.
+		"pending": _serialize_intents(),
+		"economy": {
+			"mana_refill_per_tick": mana_refill_per_tick,
+			"mana_ramp_per_tick": mana_ramp_per_tick,
+			"cards_drawn_per_tick": cards_drawn_per_tick,
+		},
+	}
+	return data
+
+
+static func deserialize(data: Dictionary, hooks: Dictionary = {}) -> TickCombatSession:
+	## Rebuild a tick session from serialize(). A non-tick save is REJECTED
+	## (warning + null) instead of degraded: resuming a sequential save under
+	## another paradigm would silently diverge from its recorded event_log.
+	## recovery_fn re-injects through `hooks` like every other Callable.
+	if data.get("mode", "") != "tick":
+		push_warning("TickCombatSession.deserialize: not a tick save (mode=%s); refusing to load" % str(data.get("mode", "<none>")))
+		return null
+	var session := TickCombatSession.new()
+	session.recovery_fn = hooks.get("recovery_fn", Callable())
+	session._restore_from(data, hooks)
+	session._restore_tick(data)
+	return session
+
+
+static func deserialize_any(data: Dictionary, hooks: Dictionary = {}) -> CombatSession:
+	## Dispatch by the saved paradigm: a "tick" save resumes as
+	## TickCombatSession, anything else (legacy saves carry no mode key) as the
+	## sequential base.
+	if data.get("mode", "") == "tick":
+		return deserialize(data, hooks)
+	return CombatSession.deserialize(data, hooks)
+
+
+func _serialize_intents() -> Array:
+	_ensure_tick_arrays()
+	var out: Array = []
+	for side in _pending_intents.size():
+		var intent = _pending_intents[side]
+		if intent == null or intent.card == null:
+			out.append(-1)
+			continue
+		var target_ref: Variant = null
+		if intent.target is CardInstance:
+			target_ref = {"side": intent.target.owner_id, "index": _board_index(intent.target)}
+		out.append({
+			"hand_index": decks[side].get_hand().find(intent.card),
+			"hero_target_side": intent.target_side,
+			"target_ref": target_ref,
+		})
+	return out
+
+
+func _restore_tick(data: Dictionary) -> void:
+	## Restore the tick sub-dict. Tolerant to absence like the base scalar
+	## restores, with the defensive pad pattern of _restore_topology.
+	_ensure_tick_arrays()
+	var raw: Dictionary = data.get("tick", {})
+	tick_number = int(raw.get("tick_number", 0))
+	var saved_recovery: Array = raw.get("recovery_ticks", [])
+	for side in mini(saved_recovery.size(), _recovery_ticks.size()):
+		_recovery_ticks[side] = maxi(int(saved_recovery[side]), 0)
+	var economy: Dictionary = raw.get("economy", {})
+	mana_refill_per_tick = bool(economy.get("mana_refill_per_tick", true))
+	mana_ramp_per_tick = bool(economy.get("mana_ramp_per_tick", true))
+	cards_drawn_per_tick = maxi(int(economy.get("cards_drawn_per_tick", 0)), 0)
+	_restore_intents(raw.get("pending", []))
+
+
+func _restore_intents(saved: Array) -> void:
+	for side in mini(saved.size(), _pending_intents.size()):
+		var raw: Variant = saved[side]
+		if not (raw is Dictionary):
+			_pending_intents[side] = null
+			continue
+		var hand_index: int = int(raw.get("hand_index", -1))
+		var hand: Array[CardData] = decks[side].get_hand()
+		if hand_index < 0 or hand_index >= hand.size():
+			_pending_intents[side] = null
+			continue
+		var intent := Intent.new()
+		intent.side = side
+		intent.card = hand[hand_index]
+		intent.target_side = int(raw.get("hero_target_side", -1))
+		var target_ref: Variant = raw.get("target_ref", null)
+		if target_ref is Dictionary:
+			intent.target = _board_at(int(target_ref.get("side", -1)), int(target_ref.get("index", -1)))
+		_pending_intents[side] = intent
+
+
 func declare_tick_intent(side: int, card: CardData = null, target: Variant = null, target_side: int = -1) -> bool:
 	## Override ONE side's card selection for the next tick (card = null means
 	## "swing with creatures"). The intent is consumed by the next run_tick; a

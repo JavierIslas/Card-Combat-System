@@ -652,3 +652,141 @@ func test_smoke_2v2_y_ffa_llegan_a_end() -> void:
 	sf.setup_sides(sides_ffa, [], 3)
 	sf.run_until_end()
 	assert_eq(sf.phase, CombatState.Phase.END, "FFA-3 tick llega a END")
+
+
+func _serialized_log(session: TickCombatSession) -> Array:
+	var out: Array = []
+	for ev in session.event_log:
+		out.append(ev.serialize())
+	return out
+
+
+func test_serialize_agrega_mode_tick_y_subkey() -> void:
+	_session.ais[0] = _pass_ai()
+	_session.ais[1] = _pass_ai()
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_session.run_tick()
+	_session.run_tick()
+	var data := _session.serialize()
+	assert_eq(data["mode"], "tick", "el discriminante de paradigma viaja en el save")
+	assert_eq(data["schema_version"], 1, "el schema de la base no cambia")
+	assert_eq(data["tick"]["tick_number"], 2, "el sub-dict tick lleva el reloj")
+	assert_eq(data["tick"]["recovery_ticks"], [0, 0] as Array, "y los contadores de recovery")
+
+
+func test_round_trip_resume_determinista_3_mas_2() -> void:
+	# El test clave de save/resume: 3 ticks -> serialize -> restore -> 2 ticks
+	# debe ser IDÉNTICO a una corrida continua de 5 (log completo + resultado).
+	# ai_states rebobina el RNG de los DummyAI en el restore.
+	var first := TickCombatSession.new()
+	first.setup(_hero(20), _deck(6), _hero(20), _deck(6), 7)
+	for _i in 3:
+		first.run_tick()
+	var data := first.serialize()
+	var resumed := TickCombatSession.deserialize(data)
+	assert_not_null(resumed, "el save tick restaura")
+	for _i in 2:
+		resumed.run_tick()
+	var continuous := TickCombatSession.new()
+	continuous.setup(_hero(20), _deck(6), _hero(20), _deck(6), 7)
+	for _i in 5:
+		continuous.run_tick()
+	assert_eq(_serialized_log(resumed), _serialized_log(continuous), "3 + 2 == 5: log idéntico")
+	assert_eq(resumed.get_result(), continuous.get_result(), "y mismo resultado")
+
+
+func test_tick_deserialize_rechaza_save_secuencial() -> void:
+	var secuencial := CombatSession.new()
+	secuencial.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	secuencial.start()
+	assert_null(TickCombatSession.deserialize(secuencial.serialize()), "un save secuencial no carga como tick")
+
+
+func test_deserialize_any_deruta_por_mode() -> void:
+	var tick := TickCombatSession.new()
+	tick.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	tick.run_tick()
+	var as_tick = TickCombatSession.deserialize_any(tick.serialize())
+	assert_true(as_tick is TickCombatSession, "mode tick -> TickCombatSession")
+
+	var secuencial := CombatSession.new()
+	secuencial.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var as_seq = TickCombatSession.deserialize_any(secuencial.serialize())
+	assert_false(as_seq is TickCombatSession, "sin mode -> base secuencial")
+	assert_eq(as_seq.get_script(), CombatSession, "deserialize_any rutea al secuencial")
+
+
+func test_base_deserialize_carga_save_tick_ignorando_keys() -> void:
+	# Forward-compat documentada: la base ignora las keys tick y carga el
+	# estado compartido como una sesión secuencial en BEGIN.
+	var tick := TickCombatSession.new()
+	tick.ais[0] = _pass_ai()
+	tick.ais[1] = _pass_ai()
+	tick.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	tick.run_tick()
+	var restored: CombatSession = CombatSession.deserialize(tick.serialize())
+	assert_eq(restored.get_script(), CombatSession, "la base produce la base")
+	assert_eq(restored.phase, CombatState.Phase.BEGIN, "carga sin romper (keys tick ignoradas)")
+	assert_eq(restored.decks[0].mana, 2, "el estado compartido (decks/maná) sobrevive")
+	assert_eq(restored.decks[0].max_mana, 4, "incluida la rampa ya aplicada")
+
+
+func test_recovery_y_economia_sobreviven_round_trip() -> void:
+	var tick := TickCombatSession.new()
+	tick.ais[0] = _pass_ai()
+	tick.ais[1] = _pass_ai()
+	tick.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	tick._ensure_tick_arrays()
+	tick._recovery_ticks[1] = 2
+	tick.mana_refill_per_tick = false
+	tick.mana_ramp_per_tick = false
+	tick.cards_drawn_per_tick = 3
+	var restored := TickCombatSession.deserialize(tick.serialize())
+	assert_eq(restored.recovery_remaining(1), 2, "el contador de recovery viaja")
+	assert_false(restored.mana_refill_per_tick, "los knobs de economía viajan")
+	assert_false(restored.mana_ramp_per_tick, "ramp opt-out viaja")
+	assert_eq(restored.cards_drawn_per_tick, 3, "el robo por tick viaja")
+
+
+func test_intent_manual_sobrevive_round_trip() -> void:
+	var ai0 := _ScriptedAI.new()
+	var tick := TickCombatSession.new()
+	tick.ais[0] = ai0
+	tick.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var manual := tick.decks[0].get_hand()[1]
+	tick.declare_tick_intent(0, manual)
+	var restored := TickCombatSession.deserialize(tick.serialize())
+	assert_not_null(restored, "restaura")
+	var ai_restored := _ScriptedAI.new()
+	ai_restored.next_card = restored.decks[0].get_hand()[0]
+	restored.ais[0] = ai_restored
+	restored.run_tick()
+	assert_false(restored.decks[0].get_hand().has(manual), "el intent restaurado jugó SU carta")
+	assert_eq(restored.decks[0].hand_size, 2, "exactamente una")
+	assert_eq(ai_restored.card_calls, 0, "el intent pisa a la IA tras el resume")
+
+
+func test_recovery_fn_se_reinyecta_por_hooks() -> void:
+	var tick := TickCombatSession.new()
+	tick.ais[0] = _pass_ai()
+	tick.ais[1] = _pass_ai()
+	tick.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var data := tick.serialize()
+	var restored := TickCombatSession.deserialize(data, {
+		"recovery_fn": func(_card: CardData, _owner: int) -> int: return 2,
+	})
+	var carta := _creature(1, 2, 2)
+	restored._apply_recovery(0, carta)
+	assert_eq(restored.recovery_remaining(0), 2, "el hook re-inyectado por hooks funciona")
+
+
+func test_tick_session_no_deja_ciclo_de_referencia() -> void:
+	# Espejo del test de la base: tras un combate completo por ticks, soltar la
+	# sesión debe colectarla (los wiring heredados usan weakref, la subclase no
+	# agrega retención).
+	var local := TickCombatSession.new()
+	local.setup(_hero(10), _deck(6), _hero(10), _deck(6), 9)
+	local.run_until_end()
+	var wr: WeakRef = weakref(local)
+	local = null
+	assert_null(wr.get_ref(), "la sesión tick debe liberarse sin ciclos")
