@@ -31,6 +31,10 @@ enum EventType {
 	MANA_CHANGED,
 	MAX_MANA_CHANGED,
 	DECK_EXHAUSTED,
+	# Appended last (same rule as Trigger.ON_PLAY/ON_CAST): persisted events are
+	# keyed by name, so older binaries degrade an unknown TICK to PHASE_CHANGED
+	# instead of shifting every stored value.
+	TICK,
 }
 
 var type: EventType = EventType.PHASE_CHANGED
