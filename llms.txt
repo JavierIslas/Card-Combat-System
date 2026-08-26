@@ -37,9 +37,11 @@ a turn-based bluffing card game (playable demo), which uses the engine's
 - [Addon README](addons/card_combat/README.md) — full class reference, all
   injection points, signal catalog, serialization protocol, AI contract, replay
   pattern, and observability guide.
-- [Integration Guide](addons/card_combat/docs/integration_guide.md) — 12-step
+- [Integration Guide](addons/card_combat/docs/integration_guide.md) — 13-step
   walkthrough: minimum setup → AbilityLibrary → custom abilities → human input →
-  custom AI → save/resume → multi-side → networking.
+  custom AI → save/resume → multi-side → networking → tick-based combat.
+- [Changelog](addons/card_combat/CHANGELOG.md) — version history (1.1.0 adds the
+  tick paradigm; backward compatible).
 - [Tutorial](addons/card_combat/docs/tutorial.md) — build *Tiny Clash* from zero:
   headless first, then keyword abilities, custom abilities, live signals, and a
   human-driven turn.
