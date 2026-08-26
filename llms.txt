@@ -67,6 +67,14 @@ resolution, event log, command log, and serialization all live there by design
 (extracted only when the extraction adds value — see the addon README for the
 reasoning).
 
+**`TickCombatSession`** (`tick_combat_session.gd`) is the opt-in second battle
+loop for automated combat: no alternating turns — every tick each ready side
+independently picks one card/action, plays resolve in side order, and all
+declared attacks from every side resolve in one simultaneous damage batch.
+Recovery ("this card locks the side for N ticks") enters through the
+`recovery_fn` hook; saves carry `"mode": "tick"`. Same seed = same match within
+a mode, but a different match than the sequential paradigm.
+
 **`CardData.play_kind`** controls engine behavior: `UNIT` (persists on board,
 combats), `EFFECT` (resolves spell effects, goes to graveyard), `PERSISTENT`
 (persists on board, triggers auras, does not combat). It is a dispatch enum,
@@ -78,6 +86,7 @@ not a game taxonomy — game taxonomies (Weapon, Terrain, Rarity) belong in
 | File | Role |
 |------|------|
 | `addons/card_combat/combat_session.gd` | Main coordinator — FSM, actions, serialization |
+| `addons/card_combat/tick_combat_session.gd` | Opt-in tick paradigm (extends CombatSession): simultaneous per-tick selection, one simultaneous attack batch for all sides, `recovery_fn` |
 | `addons/card_combat/combat_deck.gd` | Card zones (hand / draw pile / board / graveyard / mana / extra) |
 | `addons/card_combat/card_data.gd` | Card core (id, cost, stats, `play_kind`, `metadata`) |
 | `addons/card_combat/card_instance.gd` | In-play card (health, modifiers, triggers) |
@@ -90,7 +99,7 @@ not a game taxonomy — game taxonomies (Weapon, Terrain, Rarity) belong in
 | `addons/card_combat/combat_trigger_queue.gd` | Deferred trigger FIFO (QUEUED trigger mode) |
 | `addons/card_combat/hidden_card_stats.gd` | Declared vs hidden stats for bluffing |
 | `addons/card_combat/abilities/ability_library.gd` | Opt-in keyword ability handler |
-| `test/` | GUT 9.6 test suite — 418 cases across 20 files |
+| `test/` | GUT 9.6 test suite — 464 cases across 21 files |
 | `addons/card_combat/examples/demo.tscn` | Runnable smoke-check demo |
 | `addons/card_combat/benchmark/combat_benchmark.gd` | Performance / leak measurement |
 

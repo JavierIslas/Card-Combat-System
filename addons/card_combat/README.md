@@ -21,6 +21,7 @@ packaging / future export) and can be mirrored to a standalone repo.
 | `HiddenCardStats` | Declared vs. hidden stats for bluffing |
 | `CombatDeck` | Hand, deck, board, graveyard and mana for one side, plus game-defined extra zones |
 | `CombatSession` | Combat FSM over N sides grouped by `teams`: orchestrates turns, decks, AI and resolution |
+| `TickCombatSession` | Opt-in tick paradigm (`extends CombatSession`): every tick each ready side independently selects one card/action, then all declared attacks from all sides resolve in a single simultaneous damage batch. Recovery times via `recovery_fn`; save/resume with `mode: "tick"` |
 | `CombatState` | Phase enum |
 | `CombatTriggerQueue` | FIFO queue of deferred ability triggers, used by `trigger_mode = QUEUED` to resolve chained triggers breadth-first. Owns the pending list; idle in INLINE mode |
 | `CombatPair` | Declared attacker/defender pair |
@@ -138,6 +139,11 @@ packaging / future export) and can be mirrored to a standalone repo.
 15. **`CombatAI.choose_play_target(card, own_board, enemy_board)`** — optional 6th AI
     method (default `null`), queried in `auto_resolve` to pick the target of a creature's
     `ON_PLAY` (battlecry) before it fires. Only consulted when an `ability_fn` is wired.
+16. **`TickCombatSession.recovery_fn: Callable`** — scheduling hook of the tick paradigm.
+    Signature: `(card: CardData, owner_id: int) -> int`, the number of ticks a side waits
+    after playing that card (recovery gates the side's **actions**, not its economy).
+    Empty = 0 for every card: recovery is opt-in exactly like `cost_fn`, and the engine
+    never reads what "recovery" means (typically a `metadata` field of the game).
 
 ### Trigger dispatch order (`trigger_mode`)
 
@@ -315,6 +321,55 @@ convenience wrapper. For N sides use
 `setup_sides(sides, teams, seed)` where each entry of `sides` is
 `{"hero": Combatant, "cards": Array[CardData]}` (empty `teams` = free-for-all).
 
+## Tick model (`TickCombatSession`, opt-in)
+
+For automated combats (auto-battlers, simulators) the engine ships a second battle
+loop: `TickCombatSession extends CombatSession`. There is no alternating turn and
+no player phase — every **tick**, each *ready* side independently selects **one**
+card/action, and all declared attacks from all sides resolve in a **single
+simultaneous damage batch**:
+
+```gdscript
+var session := TickCombatSession.new()
+session.recovery_fn = func(card: CardData, _owner: int) -> int:
+    return int(card.metadata.get("recovery", 0))   # game-defined
+session.cards_drawn_per_tick = 1                   # optional per-tick economy
+session.setup(hero_a, deck_a, hero_b, deck_b, seed)
+session.run_until_end()          # or run_tick() once per tick
+```
+
+Honest simultaneity contract, in three layers:
+
+- **Selection** is truly simultaneous: every ready side freezes its choice
+  against the same pre-tick board; nobody sees another side's in-flight play.
+- **Attack damage** is truly simultaneous: every declared pair from every side
+  goes through `CombatDamageResolver` in ONE call (mutual trades across sides,
+  overkill and reflects all compute before anything applies).
+- **Card plays** resolve sequentially in side order (spells are sequential state
+  mutation). A declared target that already died this tick **fizzles without
+  consuming the card** (the atomic-fizzle contract) — there is no frozen-target
+  resolution.
+
+Per tick: recovery ticks down (readiness is evaluated *before* the decrement, so
+recovery N skips exactly N ticks), mana refills/ramps for **every** living side
+(`mana_refill_per_tick` / `mana_ramp_per_tick` / `cards_drawn_per_tick` knobs;
+recovery gates actions, not the economy), creatures refresh, `ON_TURN_START` /
+`ON_TURN_END` fire per tick for every living side, and victory settles once at
+the close (`config.stalemate_turn_limit` reads as a tick limit; both heroes
+falling in the same batch is a draw). A side that played a card does not also
+attack that tick; a side whose AI passes swings instead. Non-AI drivers override
+one tick's selection via `declare_tick_intent(side, card?, target?, target_side?)`.
+
+`phase` stays `BEGIN` until the victory settle moves it to `END` (a UI consulting
+`CombatState.is_auto_phase` never asks for input); the sequential driver surface
+(`start`, `play_card`, `declare_attacker`, `end_*_phase`, `apply_command`) is
+inert. Everything else is inherited as-is: decks/hand/graveyard, spell effects
+and targeting, N-side teams, all hooks, `trigger_mode`, signals and `event_log`
+(a `TICK` event delimits each tick for replays). Determinism is **per-mode**: a
+fixed seed reproduces a tick match bit-for-bit and save/resume continues it
+identically, but the same seed yields a different match than the sequential
+paradigm (the AI-call interleaving differs).
+
 ## Minimal wiring
 
 ```gdscript
@@ -480,6 +535,15 @@ rely on an injected `effect_fn`/`id_fn` must be re-hydrated by the game (by
 `card_id`), same as the other Callables. Deserializing a `CardInstance` rebuilds
 its state directly **without** firing `ON_SETUP`, so resuming never re-applies
 on-play effects.
+
+A `TickCombatSession` save adds `"mode": "tick"` plus a `tick` sub-dict (tick
+clock, recovery counters, economy knobs, pending manual card intents by index)
+on top of the base snapshot — the base format and `schema_version` stay
+untouched. `TickCombatSession.deserialize(data, hooks)` **refuses** a sequential
+save (warning + `null`); the base `CombatSession.deserialize` loads a tick save
+by ignoring the tick keys (forward-compat, documented loss); and
+`TickCombatSession.deserialize_any(data, hooks)` dispatches by `mode`.
+`recovery_fn` re-injects through `hooks` like every other Callable.
 
 ### History / replay
 

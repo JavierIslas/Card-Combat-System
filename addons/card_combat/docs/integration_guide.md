@@ -74,7 +74,7 @@ card.attack = 3
 card.health = 2
 card.play_kind = CardData.PlayKind.UNIT
 card.metadata = {
-    "keywords": ["CHARGE", "LIFESTEAL"],
+	"keywords": ["CHARGE", "LIFESTEAL"],
 }
 ```
 
@@ -105,46 +105,46 @@ You can combine keywords freely: `["CHARGE", "TAUNT", "LIFESTEAL"]`.
 
 ```gdscript
 func make_creature(id: String, cost: int, attack: int, health: int, keywords: Array = []) -> CardData:
-    var card := CardData.new()
-    card.card_id = id
-    card.name = id
-    card.cost = cost
-    card.attack = attack
-    card.health = health
-    card.play_kind = CardData.PlayKind.UNIT
-    if not keywords.is_empty():
-        card.metadata = {"keywords": keywords}
-    return card
+	var card := CardData.new()
+	card.card_id = id
+	card.name = id
+	card.cost = cost
+	card.attack = attack
+	card.health = health
+	card.play_kind = CardData.PlayKind.UNIT
+	if not keywords.is_empty():
+		card.metadata = {"keywords": keywords}
+	return card
 ```
 
 ### Spells
 
 ```gdscript
 func make_damage_spell(id: String, cost: int, damage: int, target: SpellEffect.TargetType) -> CardData:
-    var card := CardData.new()
-    card.card_id = id
-    card.name = id
-    card.cost = cost
-    card.play_kind = CardData.PlayKind.EFFECT
-    var effect := SpellEffect.new()
-    effect.effect_type = SpellEffect.EffectType.DAMAGE
-    effect.value = damage
-    effect.target_type = target
-    card.spell_effects = [effect]
-    return card
+	var card := CardData.new()
+	card.card_id = id
+	card.name = id
+	card.cost = cost
+	card.play_kind = CardData.PlayKind.EFFECT
+	var effect := SpellEffect.new()
+	effect.effect_type = SpellEffect.EffectType.DAMAGE
+	effect.value = damage
+	effect.target_type = target
+	card.spell_effects = [effect]
+	return card
 ```
 
 ### Persistent enchantments (auras)
 
 ```gdscript
 func make_aura(id: String, cost: int) -> CardData:
-    var card := CardData.new()
-    card.card_id = id
-    card.name = id
-    card.cost = cost
-    card.play_kind = CardData.PlayKind.PERSISTENT  # lives on board, never fights
-    card.metadata = {"keywords": ["LORD"], "aura_attack": 2, "aura_health": 1}
-    return card
+	var card := CardData.new()
+	card.card_id = id
+	card.name = id
+	card.cost = cost
+	card.play_kind = CardData.PlayKind.PERSISTENT  # lives on board, never fights
+	card.metadata = {"keywords": ["LORD"], "aura_attack": 2, "aura_health": 1}
+	return card
 ```
 
 ### Game-specific data
@@ -154,11 +154,11 @@ else in `metadata`:
 
 ```gdscript
 card.metadata = {
-    "keywords": ["CHARGE"],
-    "rarity": "EPIC",           # your game's concept
-    "element": "FIRE",          # your game's concept
-    "flavor_text": "Burn!",
-    "custom_id": "fire_imp_01",
+	"keywords": ["CHARGE"],
+	"rarity": "EPIC",           # your game's concept
+	"element": "FIRE",          # your game's concept
+	"flavor_text": "Burn!",
+	"custom_id": "fire_imp_01",
 }
 ```
 
@@ -179,21 +179,21 @@ session.spell_fizzled.connect(_on_spell_fizzled)
 session.action_rejected.connect(_on_action_rejected)
 
 func _on_phase_changed(old_phase: int, new_phase: int) -> void:
-    print("%s -> %s" % [CombatState.phase_name(old_phase), CombatState.phase_name(new_phase)])
+	print("%s -> %s" % [CombatState.phase_name(old_phase), CombatState.phase_name(new_phase)])
 
 func _on_hero_damaged(side: int, amount: int) -> void:
-    health_bars[side].value -= amount
+	health_bars[side].value -= amount
 
 func _on_creature_died(card: CardInstance, owner: int) -> void:
-    # Animate death, update board layout
-    pass
+	# Animate death, update board layout
+	pass
 
 func _on_action_rejected(action: StringName, reason: StringName) -> void:
-    # Every driver method that returns false fires this first with a
-    # machine-readable reason (&"cannot_attack", &"invalid_hand_index", ...),
-    # so the UI can tell the player WHY instead of ignoring the click.
-    # Gated by config.emit_action_rejections (default true).
-    toast.show("%s rejected: %s" % [action, reason])
+	# Every driver method that returns false fires this first with a
+	# machine-readable reason (&"cannot_attack", &"invalid_hand_index", ...),
+	# so the UI can tell the player WHY instead of ignoring the click.
+	# Gated by config.emit_action_rejections (default true).
+	toast.show("%s rejected: %s" % [action, reason])
 ```
 
 ### Deck-level signals
@@ -347,25 +347,25 @@ If `AbilityLibrary` doesn't cover your needs, write your own `ability_fn`:
 
 ```gdscript
 func my_ability_handler(inst: Variant, trigger: int, context: Dictionary) -> void:
-    # inst is null for side-level triggers (ON_DRAW, ON_CAST)
-    if trigger == CardInstance.Trigger.ON_CAST and inst == null:
-        _on_spell_cast(context)
-        return
+	# inst is null for side-level triggers (ON_DRAW, ON_CAST)
+	if trigger == CardInstance.Trigger.ON_CAST and inst == null:
+		_on_spell_cast(context)
+		return
 
-    if not (inst is CardInstance):
-        return
+	if not (inst is CardInstance):
+		return
 
-    match trigger:
-        CardInstance.Trigger.ON_SETUP:
-            # Custom on-play effect
-            if inst.card_data.metadata.get("custom_effect") == "enrage":
-                inst.apply_permanent_buff(2, 0)  # +2 attack permanently
-        CardInstance.Trigger.ON_DAMAGE_TAKEN:
-            # Custom retaliation
-            if inst.card_data.metadata.get("custom_effect") == "retaliate":
-                var source = context.get("source")
-                if source is CardInstance:
-                    source.take_damage(1, inst)
+	match trigger:
+		CardInstance.Trigger.ON_SETUP:
+			# Custom on-play effect
+			if inst.card_data.metadata.get("custom_effect") == "enrage":
+				inst.apply_permanent_buff(2, 0)  # +2 attack permanently
+		CardInstance.Trigger.ON_DAMAGE_TAKEN:
+			# Custom retaliation
+			if inst.card_data.metadata.get("custom_effect") == "retaliate":
+				var source = context.get("source")
+				if source is CardInstance:
+					source.take_damage(1, inst)
 ```
 
 Wire it:
@@ -404,18 +404,18 @@ var save_data: Dictionary = session.serialize()
 
 # Resume — deserialize is STATIC and returns the rebuilt session.
 var session := CombatSession.deserialize(save_data, {
-    "ability_fn": my_ability_handler,
-    "damage_fn": Callable(),
-    "exhaust_fn": Callable(),
-    "discard_fn": Callable(),
-    "attack_restriction_fn": my_taunt_restriction,
-    "incoming_damage_fn": Callable(),
-    "cost_fn": Callable(),
-    "spell_power_fn": Callable(),
-    "aura_fn": Callable(),
-    "config": my_config,
-    "heroes": [player_hero, enemy_hero],  # optional: re-inject your hero subclass
-    "ais": [player_ai, enemy_ai],          # optional: re-inject your AI instances
+	"ability_fn": my_ability_handler,
+	"damage_fn": Callable(),
+	"exhaust_fn": Callable(),
+	"discard_fn": Callable(),
+	"attack_restriction_fn": my_taunt_restriction,
+	"incoming_damage_fn": Callable(),
+	"cost_fn": Callable(),
+	"spell_power_fn": Callable(),
+	"aura_fn": Callable(),
+	"config": my_config,
+	"heroes": [player_hero, enemy_hero],  # optional: re-inject your hero subclass
+	"ais": [player_ai, enemy_ai],          # optional: re-inject your AI instances
 })
 # Session is now at the exact point where serialize() was called.
 # Deterministic: same inputs produce the same rest of the match.
@@ -428,17 +428,17 @@ var session := CombatSession.deserialize(save_data, {
 ```gdscript
 # 2v2: 4 sides, teams [0,0,1,1]
 session.setup_sides([
-    {"hero": hero_a, "cards": deck_a},
-    {"hero": hero_b, "cards": deck_b},
-    {"hero": enemy_a, "cards": enemy_deck_a},
-    {"hero": enemy_b, "cards": enemy_deck_b},
+	{"hero": hero_a, "cards": deck_a},
+	{"hero": hero_b, "cards": deck_b},
+	{"hero": enemy_a, "cards": enemy_deck_a},
+	{"hero": enemy_b, "cards": enemy_deck_b},
 ], [0, 0, 1, 1], seed)
 
 # FFA: 3 sides, no teams (each side is its own team)
 session.setup_sides([
-    {"hero": hero_a, "cards": deck_a},
-    {"hero": hero_b, "cards": deck_b},
-    {"hero": hero_c, "cards": deck_c},
+	{"hero": hero_a, "cards": deck_a},
+	{"hero": hero_b, "cards": deck_b},
+	{"hero": hero_c, "cards": deck_c},
 ], [], seed)  # empty teams = FFA
 ```
 
@@ -459,15 +459,50 @@ var events: Array = session.event_log
 # Server side: accept commands, validate, apply.
 # CombatCommand.new(type, side, payload) — type is required.
 var cmd := CombatCommand.new(
-    CombatCommand.CommandType.PLAY_CARD,
-    player_side,
-    {"hand_index": chosen_index},
+	CombatCommand.CommandType.PLAY_CARD,
+	player_side,
+	{"hand_index": chosen_index},
 )
 var accepted: bool = session.apply_command(cmd)
 
 # The command_log stores all accepted commands.
 # Send them to clients for deterministic replay.
 ```
+
+---
+
+## 13. Tick-Based Combat (simultaneous rounds)
+
+For automated combats (no alternating turns, no player phase) use
+`TickCombatSession` instead of `CombatSession`. Everything you wired for the
+sequential engine — cards, hooks, AIs, config, teams — carries over unchanged.
+
+```gdscript
+var session := TickCombatSession.new()
+
+# Recovery: the game defines what it means; the engine enforces the wait.
+session.recovery_fn = func(card: CardData, _owner: int) -> int:
+    return int(card.metadata.get("recovery", 0))
+
+# Optional per-tick economy (defaults mirror the per-turn one).
+session.cards_drawn_per_tick = 1
+
+session.setup(hero_a, deck_a, hero_b, deck_b, seed)
+session.run_until_end()
+# or drive it tick by tick (e.g. to animate between ticks):
+# session.run_tick()
+```
+
+Each tick: every *ready* side (living and off recovery) selects one card via
+`choose_card_to_play` (returning `null` means "swing with creatures"); plays
+resolve in side order; then **all** declared attacks from all sides resolve in
+one simultaneous damage batch. A non-AI driver overrides a side's next
+selection with `declare_tick_intent(side, card?, target?, target_side?)`.
+
+Save/resume: `serialize()` adds `"mode": "tick"` + a `tick` sub-dict on top of
+the base snapshot; `TickCombatSession.deserialize(data, hooks)` refuses
+non-tick saves, and `deserialize_any(data, hooks)` dispatches by `mode`. Pass
+`"recovery_fn"` through `hooks` on resume, like every other Callable.
 
 ---
 
