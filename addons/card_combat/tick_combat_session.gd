@@ -335,28 +335,11 @@ func _execute_play_intents(intents: Array) -> Array[int]:
 	return played
 
 
-func _tick_attack_allowed(attacker: CardInstance, target: Variant) -> bool:
-	## Side-parameterized mirror of _attacker_declaration_rejection's per-side
-	## rules, minus the phase gate (the tick loop only asks for ready sides).
-	## Reads the attacker's OWN board/enemies instead of active_side's.
-	if attacker == null:
-		return false
-	if not decks[attacker.owner_id].get_board().has(attacker):
-		return false
-	if not attacker.can_attack_this_turn or attacker.times_attacked >= attacker.attacks_per_turn:
-		return false
-	if not (target is CardInstance):
-		if _default_enemy_side(attacker.owner_id) < 0:
-			return false
-	return _target_within_restriction(target, _required_attack_targets(attacker))
-
-
 func _collect_attack_pairs(ready: Array[int], played: Array[int]) -> Array:
-	## Every ready side that did not play a card swings with its creatures.
-	## Mirrors the auto-play attacker flow (choose_attackers ->
-	## choose_attack_target -> restriction redirect) per side, against each
-	## attacker's own enemies. Pairs from ALL sides land in ONE array so the
-	## batch resolves them simultaneously.
+	## Every ready side that did not play a card swings with its creatures, mirroring
+	## the auto-play attacker flow per side (choose_attackers -> choose_attack_target ->
+	## restriction redirect) through the shared per-side rule/apply cores. Pairs from
+	## ALL sides land in ONE array so the batch resolves them simultaneously.
 	var pairs: Array = []
 	for side in ready:
 		if played.has(side) or _is_side_out(side):
@@ -367,21 +350,12 @@ func _collect_attack_pairs(ready: Array[int], played: Array[int]) -> Array:
 		for attacker in side_ai.choose_attackers(decks[side].get_board(), enemy_heroes):
 			var chosen: Variant = side_ai.choose_attack_target(attacker, enemy_board, enemy_heroes)
 			var target: Variant = _redirect_for_restriction(attacker, chosen)
-			if not _tick_attack_allowed(attacker, target):
+			# The per-side rules core (no phase gate: the tick loop only asks ready
+			# sides) rejects null/unaffordable/illegal swings exactly like
+			# declare_attacker would for the active side.
+			if _attacker_rules_rejection(attacker, target, -1, side) != &"":
 				continue
-			var ts: int = -1
-			if not (target is CardInstance):
-				ts = _default_enemy_side(side)
-			var pair := CombatPair.new(attacker, target)
-			pair.target_side = ts
-			attacker.has_attacked_this_turn = true
-			attacker.times_attacked += 1
-			pairs.append(pair)
-			# Same per-declaration settle as declare_attacker: an ON_ATTACK
-			# reaction resolves before the next pair is declared.
-			if _effective_ability_fn.is_valid():
-				attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
-				_settle_reactive_triggers()
+			_declare_attack_for(side, attacker, target, -1, pairs)
 	# Whiff filter: an attacker (or directed target) killed by an earlier
 	# declaration's reactive trigger drops out of the batch, deterministically.
 	var live_pairs: Array = []

@@ -516,14 +516,23 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	if reason != &"":
 		_maybe_reject(&"declare_attacker", reason)
 		return false
-	# Hero swing resolves to a concrete enemy side; a directed attack keeps -1. The
-	# rejection check above already validated this side, so recomputing it is safe.
+	_declare_attack_for(active_side, attacker, target, target_side, _attack_pairs[active_side])
+	return true
+
+
+func _declare_attack_for(side: int, attacker: CardInstance, target: Variant, target_side: int, into: Array) -> void:
+	## Shared apply core: build the pair (a hero swing resolves its target side here),
+	## land it in `into` BEFORE firing ON_ATTACK so a handler can see the declared pair
+	## (same visibility order declare_attacker always had), then mark the attacker's
+	## bookkeeping and fire. The sequential action appends into its side's declared
+	## attacks; the tick batch passes its own combined array.
 	var ts: int = -1
 	if not (target is CardInstance):
-		ts = target_side if target_side >= 0 else _default_enemy_side(active_side)
+		# The rejection check already validated this side, so recomputing it is safe.
+		ts = target_side if target_side >= 0 else _default_enemy_side(side)
 	var pair = CombatPair.new(attacker, target)
 	pair.target_side = ts
-	_attack_pairs[active_side].append(pair)
+	into.append(pair)
 	attacker.has_attacked_this_turn = true
 	attacker.times_attacked += 1
 	# target is a CardInstance for a directed attack, or null when swinging at the hero.
@@ -532,7 +541,6 @@ func declare_attacker(attacker: CardInstance, target: Variant = null, target_sid
 	if _effective_ability_fn.is_valid():
 		attacker._fire(CardInstance.Trigger.ON_ATTACK, {"target": target})
 		_settle_reactive_triggers()
-	return true
 
 
 func _attacker_declaration_rejection(attacker: CardInstance, target: Variant, target_side: int) -> StringName:
@@ -543,9 +551,16 @@ func _attacker_declaration_rejection(attacker: CardInstance, target: Variant, ta
 		return &"not_active_phase"
 	if _combat_over:
 		return &"combat_over"
+	return _attacker_rules_rejection(attacker, target, target_side, active_side)
+
+
+func _attacker_rules_rejection(attacker: CardInstance, target: Variant, target_side: int, side: int) -> StringName:
+	## Per-side rule core shared with the tick paradigm (which has no phases to gate
+	## on): board membership, swing budget, hero-target validation and targeting
+	## restrictions, all read from `side`'s own board/enemies.
 	if attacker == null:
 		return &"attacker_null"
-	if not decks[active_side].get_board().has(attacker):
+	if not decks[side].get_board().has(attacker):
 		return &"attacker_not_on_board"
 	# Reject summoning-sick creatures and attackers that already used up their swings
 	# this turn. attacks_per_turn defaults to 1 (classic single attack); a multi-attack
@@ -554,8 +569,8 @@ func _attacker_declaration_rejection(attacker: CardInstance, target: Variant, ta
 		return &"cannot_attack"
 	# Hero attack: resolve and validate the target side (must be a living enemy).
 	if not (target is CardInstance):
-		var ts: int = target_side if target_side >= 0 else _default_enemy_side(active_side)
-		if ts < 0 or are_allies(ts, active_side):
+		var ts: int = target_side if target_side >= 0 else _default_enemy_side(side)
+		if ts < 0 or are_allies(ts, side):
 			return &"invalid_target_side"
 	# Targeting restriction (e.g. TAUNT): when the hook restricts this attacker to a
 	# set of creatures, a hero swing or a non-listed creature is illegal.
