@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1 — 2026-08-26
+
+### Changed
+
+- Internal single-sourcing of the shared attack path. No public API, save-format
+  or behavior change: `declare_attacker`, its rejection check and the
+  declared-attack resolution now delegate to side-parameterized cores
+  (`_attacker_rules_rejection`, `_declare_attack_for`, `_resolve_attack_batch`),
+  and `_required_attack_targets` computes the restriction set from the attacker's
+  own enemies (`owner_id`) instead of `active_side` — identical on every
+  sequential call site, where the two always coincide.
+- Why you may care if you subclass `CombatSession`: those cores are the seams a
+  custom combat paradigm builds on — the bundled `TickCombatSession` now reuses
+  them with zero mirrored scheduling code. Rejection reason names, the
+  declared-pair visibility order during `ON_ATTACK`, and the sequential
+  benchmark (within run noise; leak gate green) are unchanged.
+
 ## 1.1.0 — 2026-08-26
 
 ### Added

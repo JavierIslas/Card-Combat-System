@@ -101,7 +101,7 @@ not a game taxonomy — game taxonomies (Weapon, Terrain, Rarity) belong in
 | `addons/card_combat/combat_trigger_queue.gd` | Deferred trigger FIFO (QUEUED trigger mode) |
 | `addons/card_combat/hidden_card_stats.gd` | Declared vs hidden stats for bluffing |
 | `addons/card_combat/abilities/ability_library.gd` | Opt-in keyword ability handler |
-| `test/` | GUT 9.6 test suite — 464 cases across 21 files |
+| `test/` | GUT 9.6 test suite — 465 cases across 21 files |
 | `addons/card_combat/examples/demo.tscn` | Runnable smoke-check demo |
 | `addons/card_combat/benchmark/combat_benchmark.gd` | Performance / leak measurement |
 
