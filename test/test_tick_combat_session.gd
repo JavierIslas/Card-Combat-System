@@ -565,3 +565,90 @@ func test_heroe_muerto_a_mitad_de_tick_no_ataca_y_victoria_al_cierre() -> void:
 	assert_eq(_session.heroes[0].current_health, 10, "el lado muerto no ejecutó su swing")
 	assert_eq(_session.winner_team, 0, "victoria settleada al cierre del tick")
 	assert_false(_session.run_tick(), "el combate terminó")
+
+
+func test_run_until_end_termina_con_equipo_ganador() -> void:
+	var ai0 := _ScriptedAI.new()
+	var ai1 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_board_creature(0, _creature(1, 3, 3))
+	ai0.swing = true
+	ai1.next_card = null
+	ai1.swing = false
+	_session.run_until_end()
+	assert_eq(_session.phase, CombatState.Phase.END, "el combate llegó a END")
+	assert_eq(_session.winner_team, 0, "el 3/3 por tick definió al ganador")
+	assert_eq(_session.heroes[1].current_health, 0, "el héroe 1 cayó")
+
+
+func test_run_until_end_cap_fuerza_end() -> void:
+	# Sin stalemate alcanzable (límite enorme, mazos con cartas, todos pasan):
+	# el cap fuerza END con warning en vez de colgar al llamador.
+	var cfg := CombatConfig.new()
+	cfg.stalemate_turn_limit = 100000
+	_session.config = cfg
+	var ai0 := _pass_ai()
+	var ai1 := _pass_ai()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_session.run_until_end(3)
+	assert_eq(_session.tick_number, 3, "corrió exactamente los 3 ticks del cap")
+	assert_eq(_session.phase, CombatState.Phase.END, "el cap forzó END")
+
+
+func test_stalemate_por_limite_de_ticks() -> void:
+	# turn_number acompaña a tick_number: stalemate_turn_limit lee como límite
+	# de ticks sin tocar la base.
+	var cfg := CombatConfig.new()
+	cfg.stalemate_turn_limit = 3
+	_session.config = cfg
+	_session.ais[0] = _pass_ai()
+	_session.ais[1] = _pass_ai()
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_session.run_until_end(1000)
+	assert_eq(_session.tick_number, 3, "el stalemate cortó en el tick 3")
+	assert_eq(_session.phase, CombatState.Phase.END, "terminó por stalemate")
+	assert_eq(_session.winner_team, -1, "sin ganador")
+
+
+func _seeded_tick_log() -> Array:
+	var session := TickCombatSession.new()
+	session.setup(_hero(20), _deck(6), _hero(20), _deck(6), 7)
+	session.run_until_end()
+	var out: Array = []
+	for ev in session.event_log:
+		out.append(ev.serialize())
+	return out
+
+
+func test_seed_fija_produce_event_log_serializado_identico() -> void:
+	# Determinismo por-modo: misma seed (DummyAI seedeado por lado + mazos) =>
+	# corrida idéntica, log serializado byte-idéntico (replay garantizado).
+	assert_eq(_seeded_tick_log(), _seeded_tick_log(), "misma seed = mismo event_log serializado")
+
+
+func test_smoke_2v2_y_ffa_llegan_a_end() -> void:
+	# La topología N-lados de la base (equipos y FFA) con el loop tick.
+	var sides_2v2: Array = [
+		{"hero": _hero(12), "cards": _deck(6)},
+		{"hero": _hero(12), "cards": _deck(6)},
+		{"hero": _hero(12), "cards": _deck(6)},
+		{"hero": _hero(12), "cards": _deck(6)},
+	]
+	var s2 := TickCombatSession.new()
+	s2.setup_sides(sides_2v2, [0, 0, 1, 1], 3)
+	s2.run_until_end()
+	assert_eq(s2.phase, CombatState.Phase.END, "2v2 tick llega a END")
+
+	var sides_ffa: Array = [
+		{"hero": _hero(12), "cards": _deck(6)},
+		{"hero": _hero(12), "cards": _deck(6)},
+		{"hero": _hero(12), "cards": _deck(6)},
+	]
+	var sf := TickCombatSession.new()
+	sf.setup_sides(sides_ffa, [], 3)
+	sf.run_until_end()
+	assert_eq(sf.phase, CombatState.Phase.END, "FFA-3 tick llega a END")

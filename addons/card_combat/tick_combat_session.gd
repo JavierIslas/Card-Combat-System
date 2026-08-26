@@ -103,6 +103,20 @@ func run_tick() -> bool:
 	return true
 
 
+func run_until_end(max_ticks: int = 1000) -> void:
+	## Drive ticks until the combat resolves. The cap mirrors auto_resolve's
+	## iteration guard: a stuck tick loop (every side passing forever under a
+	## huge stalemate limit) must force END with a warning instead of hanging.
+	var run: int = 0
+	while run < max_ticks and not _combat_over:
+		run_tick()
+		run += 1
+	if not _combat_over:
+		push_warning("TickCombatSession.run_until_end hit the tick cap (%d) at tick %d; forcing END" % [max_ticks, tick_number])
+		_combat_over = true
+		_transition_to(CombatState.Phase.END)
+
+
 func declare_tick_intent(side: int, card: CardData = null, target: Variant = null, target_side: int = -1) -> bool:
 	## Override ONE side's card selection for the next tick (card = null means
 	## "swing with creatures"). The intent is consumed by the next run_tick; a
