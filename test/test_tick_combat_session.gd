@@ -86,9 +86,17 @@ func test_fase_permanece_begin_y_es_auto_phase() -> void:
 	assert_true(CombatState.is_auto_phase(_session.phase), "BEGIN es auto: la UI no pide input")
 
 
+func _pass_ai() -> _ScriptedAI:
+	# IA que siempre pasa: aísla los tests de upkeep de las jugadas.
+	return _ScriptedAI.new()
+
+
 func test_mana_refill_por_tick_llena_el_pool_y_rampa() -> void:
 	# Economía espejo de la secuencial por turno, pero para TODOS los lados a la
-	# vez: refill al max vigente y rampa de +2 (config default).
+	# vez: refill al max vigente y rampa de +2 (config default). Pass-AIs para
+	# que ninguna jugada gaste el maná que se está midiendo.
+	_session.ais[0] = _pass_ai()
+	_session.ais[1] = _pass_ai()
 	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
 	_session.run_tick()
 	assert_eq(_session.decks[0].mana, 2, "tick 1: refill a max_mana inicial (2)")
@@ -102,6 +110,8 @@ func test_mana_refill_por_tick_llena_el_pool_y_rampa() -> void:
 func test_mana_sin_refill_conserva_el_mana() -> void:
 	_session.mana_refill_per_tick = false
 	_session.mana_ramp_per_tick = false
+	_session.ais[0] = _pass_ai()
+	_session.ais[1] = _pass_ai()
 	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
 	_session.decks[0].gain_mana(2)
 	_session.run_tick()
@@ -111,6 +121,8 @@ func test_mana_sin_refill_conserva_el_mana() -> void:
 
 func test_rampa_opt_in_mantiene_max_mana() -> void:
 	_session.mana_ramp_per_tick = false
+	_session.ais[0] = _pass_ai()
+	_session.ais[1] = _pass_ai()
 	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
 	_session.run_tick()
 	_session.run_tick()
@@ -119,7 +131,10 @@ func test_rampa_opt_in_mantiene_max_mana() -> void:
 
 
 func test_robo_por_tick_es_opt_in() -> void:
-	# Default: no se roba por tick (la mano inicial sale del setup).
+	# Default: no se roba por tick (la mano inicial sale del setup). Pass-AIs
+	# para que ninguna jugada altere la mano que se está midiendo.
+	_session.ais[0] = _pass_ai()
+	_session.ais[1] = _pass_ai()
 	_session.setup(_hero(10), _deck(8), _hero(10), _deck(8), 1)
 	var hand0: int = _session.decks[0].hand_size
 	_session.run_tick()
@@ -206,3 +221,170 @@ func test_recovery_toma_el_maximo_no_suma() -> void:
 	_session._apply_recovery(0, lenta)
 	_session._apply_recovery(0, media)
 	assert_eq(_session.recovery_remaining(0), 3, "max(3, 2) = 3, no 5")
+
+
+# Doble de test: decisiones pre-programadas, cero RNG. Solo sobreescribe lo que
+# el modo tick consulta; si el motor llamara a un método no sobreescrito (p. ej.
+# choose_blockers), CombatAI hace push_error y el test falla ruidosamente.
+class _ScriptedAI:
+	extends CombatAI
+	var next_card: CardData = null
+	var spell_target: Variant = null
+	var card_calls: int = 0
+
+	func choose_card_to_play(_hand: Array[CardData], _mana: int) -> CardData:
+		card_calls += 1
+		return next_card
+
+	func choose_spell_target(_spell: CardData, _own_board: Array[CardInstance],
+			_enemy_board: Array[CardInstance]) -> Variant:
+		return spell_target
+
+
+func _spell(cost: int, type: SpellEffect.EffectType, value: int, target: SpellEffect.TargetType) -> CardData:
+	var d := CardData.new()
+	d.cost = cost
+	d.play_kind = CardData.PlayKind.EFFECT
+	var e := SpellEffect.new()
+	e.effect_type = type
+	e.value = value
+	e.target_type = target
+	var effects: Array[SpellEffect] = [e]
+	d.spell_effects = effects
+	return d
+
+
+func test_una_sola_consulta_de_carta_por_lado_por_tick() -> void:
+	# La selección del tick es UNA llamada a choose_card_to_play por lado ready:
+	# no hay loop de mano como el MAIN secuencial (una acción por tick).
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	_session.run_tick()
+	assert_eq(ai0.card_calls, 1, "una única consulta por tick")
+	assert_eq(_session.decks[0].hand_size, 2, "jugó exactamente una carta (mano 3 -> 2)")
+	assert_eq(_session.decks[0].board_size, 1, "la criatura entró al tablero")
+
+
+func test_jugadas_resuelven_en_orden_de_indice_de_lado() -> void:
+	# La resolución secuencial por orden de lado es lo determinista; la
+	# simultaneidad real vive en la selección y en el batch de ataques.
+	var ai0 := _ScriptedAI.new()
+	var ai1 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	ai1.next_card = _session.decks[1].get_hand()[0]
+	_session.run_tick()
+	var owners: Array = []
+	for ev in _session.event_log:
+		if ev.type == CombatEvent.EventType.CARD_PLAYED:
+			owners.append(ev.payload["owner"])
+	assert_eq(owners, [0, 1], "las jugadas resuelven en orden de lado")
+
+
+func test_target_declarado_muerto_por_jugada_previa_fizzlea() -> void:
+	# El observable de la selección simultánea: el lado 1 eligió a la víctima
+	# contra el board pre-tick; al ejecutar, la jugada del lado 0 ya la mató.
+	# Fizzle ATÓMICO (contrato de la base): la carta y el maná quedan intactos.
+	var ai0 := _ScriptedAI.new()
+	var ai1 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var victima := _board_creature(1, _creature(1, 2, 2))
+	var aoe := _spell(2, SpellEffect.EffectType.AOE_DAMAGE, 5, SpellEffect.TargetType.ENEMY_CREATURES)
+	_session.decks[0]._hand.append(aoe)
+	ai0.next_card = aoe
+	var buff := _spell(2, SpellEffect.EffectType.BUFF_ATTACK, 2, SpellEffect.TargetType.PLAYER_CREATURE)
+	_session.decks[1]._hand.append(buff)
+	ai1.next_card = buff
+	ai1.spell_target = victima
+	_session.run_tick()
+	assert_true(victima.is_dead, "el AOE del lado 0 mató a la víctima")
+	assert_true(_session.decks[1].get_hand().has(buff), "la carta del lado 1 NO se consumió")
+	assert_eq(_session.decks[1].mana, 2, "el maná del lado 1 quedó intacto")
+	var fizzled := false
+	for ev in _session.event_log:
+		if ev.type == CombatEvent.EventType.SPELL_FIZZLED:
+			fizzled = true
+	assert_true(fizzled, "el fizzle quedó registrado en el log")
+
+
+func test_pase_de_ia_no_juga_nada() -> void:
+	# null = "paso" (en el chunk 4 ese paso habilita la acción de ataque).
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	_session.run_tick()
+	assert_eq(ai0.card_calls, 1, "el paso también se consulta")
+	assert_eq(_session.decks[0].hand_size, 3, "no jugó nada")
+	assert_eq(_session.decks[0].board_size, 0, "nada entró al tablero")
+
+
+func test_declare_tick_intent_overridea_a_la_ia_un_tick() -> void:
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	var manual := _session.decks[0].get_hand()[1]
+	assert_true(_session.declare_tick_intent(0, manual), "el intent manual se acepta")
+	_session.run_tick()
+	assert_eq(_session.decks[0].hand_size, 2, "jugó exactamente una")
+	assert_false(_session.decks[0].get_hand().has(manual), "jugó la del intent manual")
+	assert_eq(ai0.card_calls, 0, "el intent pisa a la IA ese tick")
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	_session.run_tick()
+	assert_eq(ai0.card_calls, 1, "el intent se consume y la IA vuelve")
+
+
+func test_carta_no_jugable_se_trata_como_pase() -> void:
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	var cara := _creature(9, 2, 2)
+	_session.decks[0]._hand.append(cara)
+	ai0.next_card = cara
+	_session.run_tick()
+	assert_true(_session.decks[0].get_hand().has(cara), "la carta ilegal no se consume")
+	assert_eq(_session.decks[0].board_size, 0, "y no entra al tablero")
+
+
+func test_on_play_y_on_cast_se_disparan_en_modo_tick() -> void:
+	# Una acción por tick: la criatura entra en el tick 1 (ON_PLAY), el hechizo
+	# en el tick 2 (ON_CAST side-level con inst null).
+	var triggers: Array = []
+	_session.ability_fn = func(_inst: Variant, trigger: int, _ctx: Dictionary) -> void:
+		triggers.append(trigger)
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	_session.run_tick()
+	assert_true(CardInstance.Trigger.ON_PLAY in triggers, "ON_PLAY disparó al jugar criatura")
+	var hechizo := _spell(1, SpellEffect.EffectType.DAMAGE, 1, SpellEffect.TargetType.ENEMY_CREATURES)
+	_session.decks[0]._hand.append(hechizo)
+	ai0.next_card = hechizo
+	_session.run_tick()
+	assert_true(CardInstance.Trigger.ON_CAST in triggers, "ON_CAST disparó al lanzar el hechizo")
+
+
+func test_jugar_carta_con_recovery_arma_el_contador_y_bloquea() -> void:
+	# End-to-end del recovery: la jugada arma el contador; en recovery el lado
+	# ni se consulta (acción bloqueada) pero su economía sigue viva.
+	_session.recovery_fn = func(_card: CardData, _owner: int) -> int:
+		return 1
+	var ai0 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	_session.run_tick()
+	assert_eq(_session.recovery_remaining(0), 1, "la jugada armó 1 tick de recovery")
+	assert_eq(_session.decks[0].hand_size, 2, "la carta se jugó")
+	ai0.next_card = _session.decks[0].get_hand()[0]
+	_session.run_tick()
+	assert_eq(ai0.card_calls, 1, "en recovery la IA no se consulta")
+	assert_eq(_session.recovery_remaining(0), 0, "el upkeep decrementó")
+	assert_eq(_session.decks[0].mana, 4, "la economía del lado siguió viva")

@@ -61,6 +61,17 @@ var cards_drawn_per_tick := 0
 var tick_number := 0
 
 var _recovery_ticks: Array[int] = []
+var _pending_intents: Array = []
+
+
+## One side's frozen selection for a tick. `card == null` means the side's
+## action is swinging with its creatures (the AI expresses that by passing).
+class Intent:
+	extends RefCounted
+	var side: int = 0
+	var card: CardData = null
+	var target: Variant = null
+	var target_side: int = -1
 
 
 func ready_sides() -> Array[int]:
@@ -82,8 +93,30 @@ func run_tick() -> bool:
 		push_error("TickCombatSession.run_tick: the sequential FSM was started (phase=%s); the tick paradigm never calls start()/advance()" % CombatState.phase_name(phase))
 		return false
 	_ensure_tick_arrays()
+	# Readiness is frozen BEFORE the upkeep decrement, so recovery N skips
+	# exactly N ticks (played on tick T with N=2: skips T+1 and T+2, acts on T+3).
+	var ready: Array[int] = ready_sides()
 	_upkeep_tick()
+	_execute_play_intents(_collect_intents(ready))
 	_close_tick()
+	return true
+
+
+func declare_tick_intent(side: int, card: CardData = null, target: Variant = null, target_side: int = -1) -> bool:
+	## Override ONE side's card selection for the next tick (card = null means
+	## "swing with creatures"). The intent is consumed by the next run_tick; a
+	## non-AI driver uses this exactly where the sequential paradigm would call
+	## play_card. Execution is still revalidated: an unplayable or fizzled
+	## intent is a pass, never a crash.
+	_ensure_tick_arrays()
+	if side < 0 or side >= side_count() or _is_side_out(side):
+		return false
+	var intent := Intent.new()
+	intent.side = side
+	intent.card = card
+	intent.target = target
+	intent.target_side = target_side
+	_pending_intents[side] = intent
 	return true
 
 
@@ -117,6 +150,70 @@ func _ensure_tick_arrays() -> void:
 	## deserialize() all land here without overriding any base setup path.
 	for side in range(_recovery_ticks.size(), side_count()):
 		_recovery_ticks.append(0)
+	for side in range(_pending_intents.size(), side_count()):
+		_pending_intents.append(null)
+
+
+func _collect_intents(ready: Array[int]) -> Array:
+	## Simultaneous selection: every ready side freezes ONE action against the
+	## same post-upkeep board, before anything executes — no side sees another
+	## side's in-flight choice. A manual intent (declare_tick_intent) overrides
+	## the AI for that side and is consumed here.
+	var intents: Array = []
+	for side in ready:
+		if _pending_intents[side] != null:
+			intents.append(_pending_intents[side])
+			_pending_intents[side] = null
+			continue
+		var deck: CombatDeck = decks[side]
+		var skipped: Array[CardData] = []
+		var card: CardData = ais[side].choose_card_to_play(_playable_hand(deck, skipped), deck.mana)
+		var intent := Intent.new()
+		intent.side = side
+		intent.card = card
+		if card != null and card.play_kind == CardData.PlayKind.EFFECT:
+			intent.target = _ai_spell_target(card, side, ais[side])
+		intents.append(intent)
+	return intents
+
+
+func _execute_play_intents(intents: Array) -> Array[int]:
+	## Card plays resolve sequentially in side order, revalidated against the
+	## live board: a declared target that already died this tick fizzles without
+	## consuming the card (the base atomic-fizzle contract). Returns the sides
+	## that actually played; they spend their tick action and do not attack too.
+	var played: Array[int] = []
+	for intent in intents:
+		var side: int = intent.side
+		if intent.card == null or _is_side_out(side):
+			continue
+		var deck: CombatDeck = decks[side]
+		if not deck.can_play_card(intent.card):
+			# The selection was frozen pre-execution; anything unaffordable or
+			# gone by now is a silent pass, same rule as the auto-play skip.
+			continue
+		if intent.card.play_kind == CardData.PlayKind.EFFECT:
+			if _spell_needs_missing_target(intent.card, intent.target):
+				_emit_spell_fizzled(intent.card)
+				continue
+			deck.play_spell(intent.card)
+			_apply_spell_effects(intent.card, side, intent.target, intent.target_side)
+			_fire_cast_trigger(intent.card, side)
+			if _effective_ability_fn.is_valid():
+				_settle_reactive_triggers()
+		else:
+			var played_inst: CardInstance = deck.play_creature(intent.card)
+			if played_inst == null:
+				continue
+			if _effective_ability_fn.is_valid():
+				var play_target: Variant = ais[side].choose_play_target(intent.card, ally_boards(side), enemy_boards(side))
+				played_inst._fire(CardInstance.Trigger.ON_PLAY, {"target": play_target})
+				_settle_reactive_triggers(true)
+			else:
+				recompute_auras()
+		_apply_recovery(side, intent.card)
+		played.append(side)
+	return played
 
 
 func _living_sides() -> Array[int]:
