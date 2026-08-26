@@ -335,27 +335,6 @@ func _execute_play_intents(intents: Array) -> Array[int]:
 	return played
 
 
-func _tick_required_targets(attacker: CardInstance) -> Array:
-	## Side-parameterized mirror of _required_attack_targets: the base version
-	## flattens the ACTIVE side's enemies, which the tick paradigm never sets.
-	## Here the restriction set comes from the attacker's own enemies.
-	if not attack_restriction_fn.is_valid():
-		return []
-	return attack_restriction_fn.call(attacker, CardInstance.living(enemy_boards(attacker.owner_id)))
-
-
-func _tick_redirect_for_restriction(attacker: CardInstance, chosen: Variant) -> Variant:
-	## Mirror of _redirect_for_restriction over _tick_required_targets: map the
-	## AI's choice to a legal one (keep it, force the first required creature,
-	## or fall to a hero swing) without teaching the AI about TAUNT/STEALTH.
-	var required: Array = _tick_required_targets(attacker)
-	if _target_within_restriction(chosen, required):
-		return chosen
-	if not required.is_empty():
-		return required[0]
-	return null
-
-
 func _tick_attack_allowed(attacker: CardInstance, target: Variant) -> bool:
 	## Side-parameterized mirror of _attacker_declaration_rejection's per-side
 	## rules, minus the phase gate (the tick loop only asks for ready sides).
@@ -369,7 +348,7 @@ func _tick_attack_allowed(attacker: CardInstance, target: Variant) -> bool:
 	if not (target is CardInstance):
 		if _default_enemy_side(attacker.owner_id) < 0:
 			return false
-	return _target_within_restriction(target, _tick_required_targets(attacker))
+	return _target_within_restriction(target, _required_attack_targets(attacker))
 
 
 func _collect_attack_pairs(ready: Array[int], played: Array[int]) -> Array:
@@ -387,7 +366,7 @@ func _collect_attack_pairs(ready: Array[int], played: Array[int]) -> Array:
 		var enemy_board: Array = enemy_boards(side)
 		for attacker in side_ai.choose_attackers(decks[side].get_board(), enemy_heroes):
 			var chosen: Variant = side_ai.choose_attack_target(attacker, enemy_board, enemy_heroes)
-			var target: Variant = _tick_redirect_for_restriction(attacker, chosen)
+			var target: Variant = _redirect_for_restriction(attacker, chosen)
 			if not _tick_attack_allowed(attacker, target):
 				continue
 			var ts: int = -1

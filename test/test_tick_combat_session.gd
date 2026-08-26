@@ -532,6 +532,28 @@ func test_taunt_redirige_la_seleccion_en_autobatch() -> void:
 	assert_eq(taunto.current_health, 2, "el taunto absorbió el golpe (5 - 3)")
 
 
+func test_taunt_redirige_a_atacante_de_lado_no_activo() -> void:
+	# El set de restricción sale de los enemigos del ATACANTE (lado 1), no de
+	# active_side (setup lo deja en 0): una regresión a enemy_boards(active_side)
+	# calcularía el set requerido desde el propio equipo del atacante y el golpe
+	# nunca llegaría a la criatura del lado 0.
+	_session.attack_restriction_fn = func(_attacker: CardInstance, enemy_creatures: Array) -> Array:
+		return enemy_creatures
+	var ai0 := _ScriptedAI.new()
+	var ai1 := _ScriptedAI.new()
+	_session.ais[0] = ai0
+	_session.ais[1] = ai1
+	_session.setup(_hero(10), _deck(4), _hero(10), _deck(4), 1)
+	assert_eq(_session.active_side, 0, "precondición: el tick no corre la FSM, active_side queda en 0")
+	var objetivo := _board_creature(0, _creature(1, 2, 5))
+	_board_creature(1, _creature(1, 3, 3))
+	ai1.swing = true
+	ai1.attack_target = null  # pidió swing al héroe
+	_session.run_tick()
+	assert_eq(_session.heroes[0].current_health, 10, "el swing de side 1 fue redirigido, no conectó al héroe")
+	assert_eq(objetivo.current_health, 2, "la criatura del lado 0 absorbió el golpe (5 - 3)")
+
+
 func test_congelado_no_ataca_ese_tick() -> void:
 	var ai0 := _ScriptedAI.new()
 	_session.ais[0] = ai0

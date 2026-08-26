@@ -618,10 +618,13 @@ func _find_attack_pair(attacker: CardInstance) -> CombatPair:
 func _required_attack_targets(attacker: CardInstance) -> Array:
 	## Creatures the attack_restriction_fn forces `attacker` to choose among (e.g. the
 	## living enemy taunts). Empty when there is no hook or no restriction in play.
-	## Single source for both the declare_attacker guard and the auto-play redirect.
+	## Single source for the declare_attacker guard, the auto-play redirect and the
+	## tick batch. The restriction set comes from the attacker's OWN enemies: every
+	## sequential call site has attacker.owner_id == active_side, so this only makes
+	## the already-side-parameterized signature honest.
 	if not attack_restriction_fn.is_valid():
 		return []
-	return attack_restriction_fn.call(attacker, CardInstance.living(enemy_boards(active_side)))
+	return attack_restriction_fn.call(attacker, CardInstance.living(enemy_boards(attacker.owner_id)))
 
 
 func _attack_target_allowed(attacker: CardInstance, target: Variant) -> bool:
