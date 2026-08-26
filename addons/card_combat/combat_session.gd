@@ -1589,10 +1589,16 @@ func _enter_resolve() -> void:
 
 
 func _resolve_active_attacks() -> void:
-	## Resolves the active side's declared attacks. Creature trades are handled by the
-	## resolver; unblocked hero attacks deal their damage to the hero of each pair's
-	## target_side, aggregated per side so each hit emits one combatant_damaged.
-	var pairs: Array = _attack_pairs[active_side]
+	## Resolves the active side's declared attacks through the shared batch core.
+	_resolve_attack_batch(_attack_pairs[active_side])
+
+
+func _resolve_attack_batch(pairs: Array) -> void:
+	## Shared batch core: creature trades are handled by the resolver; unblocked hero
+	## attacks deal their damage to the hero of each pair's target_side, aggregated per
+	## side so each hit emits one combatant_damaged. One call = one simultaneous batch,
+	## whether the pairs come from the active side's declarations or (tick paradigm)
+	## every side's combined declarations.
 	if pairs.is_empty():
 		return
 	var result: Dictionary = _resolver.resolve_combat(pairs)

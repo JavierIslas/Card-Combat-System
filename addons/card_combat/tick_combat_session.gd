@@ -98,7 +98,7 @@ func run_tick() -> bool:
 	var ready: Array[int] = ready_sides()
 	_upkeep_tick()
 	var played: Array[int] = _execute_play_intents(_collect_intents(ready))
-	_resolve_tick_batch(_collect_attack_pairs(ready, played))
+	_resolve_attack_batch(_collect_attack_pairs(ready, played))
 	_close_tick()
 	return true
 
@@ -393,29 +393,6 @@ func _collect_attack_pairs(ready: Array[int], played: Array[int]) -> Array:
 		if attacker_live and target_live:
 			live_pairs.append(pair)
 	return live_pairs
-
-
-func _resolve_tick_batch(pairs: Array) -> void:
-	## Generalization of _resolve_active_attacks over the combined pairs of
-	## EVERY side: ONE resolver call applies all combat damage simultaneously
-	## (mutual trades across sides compute before anything applies), hero
-	## damage aggregates per target_side in declaration order, then the shared
-	## death pipeline (ON_DAMAGE_DEALT -> drain -> deaths).
-	if pairs.is_empty():
-		return
-	var result: Dictionary = _resolver.resolve_combat(pairs)
-	var pairs_result: Array = result["pairs_result"]
-	var hero_damage_by_side: Dictionary = {}
-	for i in pairs.size():
-		if pairs[i].defender == null:
-			var s: int = pairs[i].target_side
-			hero_damage_by_side[s] = hero_damage_by_side.get(s, 0) + pairs_result[i]["attacker_damage_dealt"]
-	for s in hero_damage_by_side:
-		deal_damage_to_hero(s, hero_damage_by_side[s])
-	if not pairs_result.is_empty():
-		_fire_damage_dealt(pairs_result)
-		_drain_triggers()
-		_process_death_results(pairs_result)
 
 
 func _living_sides() -> Array[int]:
