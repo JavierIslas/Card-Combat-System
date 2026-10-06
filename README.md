@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/JavierIslas/Card-Combat-System/actions/workflows/ci.yml/badge.svg)](https://github.com/JavierIslas/Card-Combat-System/actions/workflows/ci.yml)
 
-A turn-based **card combat engine** for Godot 4.6 / GDScript. It handles the
+A turn-based **card combat engine** for Godot 4.7 / GDScript. It handles the
 *logic* of a card battle — turn FSM, mana, draw, attack/defense/block, damage
 resolution and pluggable AI — and stays **completely domain-agnostic**: it knows
 nothing about your GDD, rarities, abilities or loaders. Everything
@@ -77,7 +77,7 @@ pattern live in the addon README:
 
 ## Testing
 
-Tests run under [GUT](https://github.com/bitwes/Gut) 9.6 in `test/`:
+Tests run under [GUT](https://github.com/bitwes/Gut) 9.7.1 in `test/`:
 
 ```bash
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit
@@ -85,7 +85,7 @@ godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -
 
 ### Continuous integration
 
-Every push to `main` and every pull request runs three gates on Godot 4.6
+Every push to `main` and every pull request runs four gates on Godot 4.7
 headless (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 
 - **Compile gate** — `--check-only` over every engine script, so a parse/type
@@ -93,6 +93,8 @@ headless (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 - **Unit tests** — the full GUT suite above.
 - **Leak gate** — the benchmark's portable ObjectDB-leak detector (fails on a
   reference cycle). Its µs figures are hardware-specific and not asserted in CI.
+- **Lint gate** — `gdlint` over the engine (naming/correctness smells the
+  compile gate cannot see; config in `.gdlintrc`).
 
 ## Showcase
 

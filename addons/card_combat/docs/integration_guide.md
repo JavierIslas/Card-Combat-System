@@ -1,6 +1,6 @@
 # Card Combat Engine — Integration Guide
 
-A step-by-step guide to integrating the engine into your Godot 4.6 card game.
+A step-by-step guide to integrating the engine into your Godot 4.7 card game.
 
 ---
 
@@ -482,7 +482,7 @@ var session := TickCombatSession.new()
 
 # Recovery: the game defines what it means; the engine enforces the wait.
 session.recovery_fn = func(card: CardData, _owner: int) -> int:
-    return int(card.metadata.get("recovery", 0))
+	return int(card.metadata.get("recovery", 0))
 
 # Optional per-tick economy (defaults mirror the per-turn one).
 session.cards_drawn_per_tick = 1

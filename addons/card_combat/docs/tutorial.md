@@ -9,7 +9,7 @@ If the [Integration Guide](integration_guide.md) is the reference manual, this i
 the guided first project. Read it top to bottom; every snippet builds on the
 previous one.
 
-> **Prerequisites:** Godot 4.6, with the `card_combat` addon present under
+> **Prerequisites:** Godot 4.7, with the `card_combat` addon present under
 > `res://addons/card_combat/`. The classes register by `class_name`, so no plugin
 > needs to be enabled in Project Settings to follow along.
 
