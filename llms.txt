@@ -1,6 +1,6 @@
 # Card Combat Engine
 
-A headless, domain-agnostic turn-based card combat engine for **Godot 4.6 /
+A headless, domain-agnostic turn-based card combat engine for **Godot 4.7 /
 GDScript**. Handles the *logic* of a card battle — turn FSM, mana, draw,
 attack/defense/block, damage resolution, and pluggable AI — and exposes every
 game-specific rule as an injectable `Callable`.
@@ -101,7 +101,7 @@ not a game taxonomy — game taxonomies (Weapon, Terrain, Rarity) belong in
 | `addons/card_combat/combat_trigger_queue.gd` | Deferred trigger FIFO (QUEUED trigger mode) |
 | `addons/card_combat/hidden_card_stats.gd` | Declared vs hidden stats for bluffing |
 | `addons/card_combat/abilities/ability_library.gd` | Opt-in keyword ability handler |
-| `test/` | GUT 9.6 test suite — 465 cases across 21 files |
+| `test/` | GUT 9.7.1 test suite — 465 cases across 21 files |
 | `addons/card_combat/examples/demo.tscn` | Runnable smoke-check demo |
 | `addons/card_combat/benchmark/combat_benchmark.gd` | Performance / leak measurement |
 
@@ -188,7 +188,7 @@ Full working example: `addons/card_combat/examples/demo.tscn`.
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test -ginclude_subdirs -gexit
 ```
 
-418 test cases (GUT 9.6) across: FSM, mana ramp, serialization/resume,
+465 test cases (GUT 9.7.1) across: FSM, mana ramp, serialization/resume,
 determinism, AI contract, all AbilityLibrary keywords, trigger queue (INLINE vs
 QUEUED), multi-sided topology, command replay, and leak detection.
 

@@ -1,6 +1,6 @@
 # Card Combat Engine — Integration Guide
 
-A step-by-step guide to integrating the engine into your Godot 4.6 card game.
+A step-by-step guide to integrating the engine into your Godot 4.7 card game.
 
 ---
 
